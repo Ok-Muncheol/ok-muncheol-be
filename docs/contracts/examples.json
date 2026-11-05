@@ -1,0 +1,164 @@
+{
+  "synthetic": true,
+  "contract_version": "draft-1",
+  "note": "필드 모양만 보여 주는 합성 양식. 실행 가능한 시나리오·검수 정답이 아님.",
+  "fact_card_draft": {
+    "case_id": "synthetic-case",
+    "version": 1,
+    "accident_date": "2026-11-01",
+    "fields": {
+      "location_type": {
+        "value": null,
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "needs_review",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
+      }
+    },
+    "party_mapping": {
+      "video_ego_party_id": null,
+      "insured_party_id": "synthetic-party-1",
+      "chart_party_A_id": "synthetic-party-1",
+      "chart_party_B_id": "synthetic-party-2"
+    },
+    "evidence_frames": [],
+    "status": "draft",
+    "confirmed_by": null,
+    "confirmed_at": null
+  },
+  "fact_card_confirmed": {
+    "case_id": "synthetic-case",
+    "version": 2,
+    "accident_date": "2026-11-01",
+    "fields": {
+      "accident_type": {
+        "value": "car_to_car",
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "human_confirmed",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
+      },
+      "party_count": {
+        "value": 2,
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "human_confirmed",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
+      }
+    },
+    "party_mapping": {
+      "video_ego_party_id": null,
+      "insured_party_id": "synthetic-party-1",
+      "chart_party_A_id": "synthetic-party-1",
+      "chart_party_B_id": "synthetic-party-2"
+    },
+    "evidence_frames": [],
+    "status": "confirmed",
+    "confirmed_by": "synthetic-reviewer",
+    "confirmed_at": "2026-11-05T09:00:00+09:00"
+  },
+  "question": {
+    "question_id": "synthetic-question",
+    "field_key": "location_type",
+    "text": "사고 장소의 유형을 확인해 주세요.",
+    "options": [
+      "교차로",
+      "일반 도로"
+    ],
+    "allow_unknown": true
+  },
+  "judgment_deferred": {
+    "versions": {
+      "case_id": "synthetic-case",
+      "fact_card_version": 2,
+      "judgment_version": 1,
+      "report_version": 1
+    },
+    "status": "deferred",
+    "chart_id": null,
+    "edition": null,
+    "fault_A": null,
+    "fault_B": null,
+    "calculation_log": [],
+    "evidence": [],
+    "checks": [
+      {
+        "layer": "evidence",
+        "passed": false,
+        "reasons": [
+          "검수한 도표 근거 없음"
+        ]
+      }
+    ],
+    "questions": [],
+    "reasons": [
+      "합성 계약 양식: 검색/판단 미실행, 수치 미제공"
+    ]
+  },
+  "report_deferred": {
+    "versions": {
+      "case_id": "synthetic-case",
+      "fact_card_version": 2,
+      "judgment_version": 1,
+      "report_version": 1
+    },
+    "judgment": {
+      "versions": {
+        "case_id": "synthetic-case",
+        "fact_card_version": 2,
+        "judgment_version": 1,
+        "report_version": 1
+      },
+      "status": "deferred",
+      "chart_id": null,
+      "edition": null,
+      "fault_A": null,
+      "fault_B": null,
+      "calculation_log": [],
+      "evidence": [],
+      "checks": [
+        {
+          "layer": "evidence",
+          "passed": false,
+          "reasons": [
+            "검수한 도표 근거 없음"
+          ]
+        }
+      ],
+      "questions": [],
+      "reasons": [
+        "합성 계약 양식: 검색/판단 미실행, 수치 미제공"
+      ]
+    },
+    "sections": [],
+    "calculation": null,
+    "recovery": null,
+    "approval_status": "draft",
+    "approved_by": null,
+    "approved_at": null
+  },
+  "task_failed": {
+    "task_id": "synthetic-task",
+    "case_id": "synthetic-case",
+    "stage": "vision",
+    "status": "failed",
+    "input_version": 1
+  },
+  "version_conflict": {
+    "code": "FACT_CARD_VERSION_CONFLICT",
+    "message": "최신 카드 버전을 다시 확인해 주세요.",
+    "retryable": false
+  }
+}
