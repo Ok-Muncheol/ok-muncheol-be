@@ -10,8 +10,13 @@
 - 프론트엔드: [ok-muncheol-fe](https://github.com/Ok-Muncheol/ok-muncheol-fe)
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
 
-현재는 **문서 초기화 단계**다. 이 저장소에는 README.md·TEAM.md와 아키텍처 참고 이미지가 있으며, 아래 디렉터리·API·개발 명령은
-구현을 위한 제안이다. 실행 가능한 서버, 모델, DB 마이그레이션, CI, 배포 설정은 아직 없다.
+현재는 **A–D 담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
+함수의 `NotImplementedError`·TODO는 담당자가 채운다. 실행 가능한 서버·모델 연동·DB 마이그레이션·CI·배포는 아직 없다.
+공통 타입은 표준 라이브러리 TypedDict 초안으로, 런타임 요청 검증·Pydantic·OpenAPI는 후속 작업이다.
+
+**개발 마감: 2026-11-13(금).** 11/12 기능 통합·11/13 최종 검수를 목표로 한다.
+날짜별 A–D 산출물과 완료 기준은 [개발 마감 계획](docs/development-plan.md)을 따른다.
+FE의 대응 TEAM·타입·화면 초안은 [ok-muncheol-fe](https://github.com/Ok-Muncheol/ok-muncheol-fe)에 함께 반영한다.
 
 ## 서비스 범위
 
@@ -152,24 +157,31 @@ MVP 보고서는 ① 판정 상태 ② 확정 사실·근거 키프레임 ③ �
 템플릿과 검증된 판단 결과로 조립하며 보고서 작성용 LLM을 추가 호출하지 않는다. 담당자 승인은 별도 이력으로 저장한다.
 근거가 부족한 사건은 확인·보류 결과만 제공한다. 담당자 승인 없이 외부 전달하지 않는다.
 
-## 디렉터리 제안
+## 디렉터리 초안
 
-아래는 구현 후 구조 제안이다. 현재 `docs/architecture/`에는 참고 이미지만 있으며, 나머지 구현 경로는 기능 작업을 시작할 때 생성한다.
+아래 디렉터리와 담당별 파일을 생성했다. 존재 여부는 기능 구현 완료를 뜻하지 않는다.
+세부 파일·입출력·할 일은 [TEAM.md](TEAM.md)에 있다.
 
 ```text
 app/
-  api/              사건·카드·질문·보고서 API
-  schemas/          사실 카드·판단·보고서 계약 (FE 타입의 원천)
-  workflow/         state·고정 그래프·확인/재개·검증
-  retrieval/        도표·결정례·약관별 검색
-  calculation/      과실 계산, 확장 단계의 보험금·구상 계산
-  reports/          템플릿 조립·승인·버전
-  ingestion/        도표 구조화·검수·색인
-workers/vision/     Modal 작업, 로컬 평가와 공유하는 비전 패키지
-supabase/migrations/  테이블·RLS·검색 함수
-tests/              계약·계산·워크플로우·권한 검증
-evals/              데이터 분할·S0~S5 비교 평가
-docs/               계약 변경·설계 결정
+  api/              A 사건/카드, B 판단/질문/QA, D 보고서/산정/구상 진입점
+  schemas/          공통 TypedDict 초안·합성 견본 (런타임 검증 미구현)
+  workflow/         B state·고정 그래프·확인/재개
+  validation/       B 근거·반박·코드 과실 계산 검증 3겹
+  agents/           B 근거 질의응답·what-if
+  tools/            C 인정기준·결정례·약관 검색 도구 3개
+  ingestion/        C PDF 파싱·청킹·문서 임베딩·적재
+  retrieval/        D 공통 RAG·질의 임베딩·코퍼스별 검색 실행
+  calculation/      D 손해액·보험금 (과실 산식은 B validation/numerical.py)
+  claims/           D 구상 패키지
+  reports/          D 템플릿 조립·버전/승인
+workers/vision/     A 로컬/Modal 공통 비전 진입점
+supabase/migrations/  DB·RLS·검색 함수 계획 문서 (SQL 없음)
+data/corpora/       C 세 코퍼스 manifest 양식 (원문/색인 없음)
+evals/retrieval/    C 평가셋 타입·합성 미라벨 양식·평가 진입점
+tests/              기능 구현 후 추가할 동작 검증 계획
+scripts/            문법/import/JSON 검사·공통 견본 생성
+docs/               일정·공통 계약·아키텍처 이미지
 ```
 
 ## API 계약 제안
@@ -198,16 +210,16 @@ docs/               계약 변경·설계 결정
 
 ## 개발 시작과 검증
 
-지금 가능한 작업은 문서 확인과 계약 논의다.
+Python 3.12 이상에서 외부 패키지·모델 키 없이 아래 초안 검증을 실행할 수 있다.
 
 ```bash
-git clone https://github.com/Ok-Muncheol/ok-muncheol-be.git
-cd ok-muncheol-be
+make contracts  # app/schemas/examples.py → docs/contracts/examples.json
+make check      # Python 문법·import·타입 참조·JSON·견본 동기화
 ```
 
-Python 버전·의존성·패키지 관리자, `.env.example`, 개발 서버와 테스트 명령은 부트스트랩 PR에서 확정해 여기에 추가한다.
-`make lint`·`make test`는 lumi와 같은 팀 인터페이스로 도입하는 제안이며 **현재 실행할 수 없다**.
-LLM·VLM·Modal·DB 비밀키는 서버 환경에서만 관리하고, `.env`와 실제 사건 자료는 커밋하지 않는다.
+이 검사는 기능·서버·모델·DB 동작을 검증하지 않는다. `make test`·서버 실행 명령·의존성/환경 변수·CI는
+부트스트랩에서 추가한다. LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
+견본 생성/FE 동기화는 [공통 계약](docs/contracts/README.md), 담당별 작업은 [TEAM.md](TEAM.md)를 따른다.
 
 평가는 영상→카드와 카드→판단을 분리한다. 먼저 정답 카드로 S0(벡터 검색 기준선), S1(속성 필터·검색 개선),
 S2(고정 판단·검증)를 비교하고, S3(VLM), S4(YOLO·선택적 SAM2), S5(담당자 확인) 순으로 확장한다.
@@ -221,4 +233,4 @@ S2(고정 판단·검증)를 비교하고, S3(VLM), S4(YOLO·선택적 SAM2), S5
 - AI Hub 원본 영상은 설계대로 로컬 학습·평가용으로만 보관한다. 서비스·공개 시연에는 사용 권리를 확인한 별도 영상을 쓴다.
 - 인정기준·결정례·약관의 재가공·배포 범위와 모델·가중치 라이선스는 확인 전 공개 저장소에 원문·가중치를 올리지 않는다.
 - 얼굴·번호판·위치정보 처리, 외부 VLM 전송, 접근 권한·보관·삭제 정책은 실데이터 연동 전 확정한다.
-- 담당자 실명 배정·일정, 도표/라벨 매핑·적용판, 시연 데이터 확보, 배포 연결 방식은 [TEAM.md](TEAM.md)의 초기 작업에서 결정한다.
+- 담당자 실명 배정·세부 작업 시간, 도표/라벨 매핑·적용판, 시연 데이터 확보, 배포 연결 방식은 [TEAM.md](TEAM.md)의 초기 작업에서 결정한다.
