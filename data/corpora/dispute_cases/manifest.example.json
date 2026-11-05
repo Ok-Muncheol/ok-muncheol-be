@@ -1,0 +1,20 @@
+{
+  "corpus": "dispute_cases",
+  "status": "draft",
+  "documents": [],
+  "embedding_model": null,
+  "embedding_dimensions": null,
+  "embedding_version": null,
+  "required_document_fields": [
+    "document_id",
+    "source_uri",
+    "edition",
+    "effective_from",
+    "effective_to",
+    "content_hash",
+    "parser_version",
+    "usage_review",
+    "reviewed_by"
+  ],
+  "notes": "C 작성·D 검색 호환성 검수. 원문·가중치·실제 사건은 커밋하지 않음."
+}
