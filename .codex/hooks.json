@@ -1,0 +1,17 @@
+{
+  "description": "ship 하네스 안전 규칙 — git add/commit/push에서 민감 파일을 차단한다. 스크립트는 Claude Code 훅(.claude/settings.json)과 공유한다: automation/hooks/validate-git-sensitive.sh. 프로젝트를 신뢰하고 /hooks 에서 승인해야 동작한다.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)\"/automation/hooks/validate-git-sensitive.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,57 @@
+name: 오류 수정
+description: 버그 및 예상과 다르게 동작하는 문제를 제보합니다.
+title: "[BUG] "
+labels:
+  - "🕷️ BUG"
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 버그 설명
+      description: 어떤 문제가 발생했는지 간략히 설명해주세요.
+      placeholder: 예) 만료된 refreshToken인데 401이 아닌 500이 반환됩니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 재현 방법
+      description: 버그를 재현하는 단계를 순서대로 작성해주세요.
+      placeholder: |
+        1. POST /api/auth/login 으로 로그인
+        2. 만료된 refreshToken으로 POST /api/auth/reissue 호출
+        3. 500 응답 확인
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: 현재 동작
+      description: 현재 어떻게 동작하는지 설명해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작
+      description: 정상적으로 동작해야 하는 방식을 설명해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 에러 로그
+      description: 관련 에러 로그나 스택 트레이스를 첨부해주세요. (선택)
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 체크리스트
+      options:
+        - label: 재현 방법을 명확히 작성하였는가?
+        - label: 에러 로그를 첨부하였는가?

@@ -1,0 +1,49 @@
+name: 기능 수정
+description: 리팩토링 목적이 아닌 기존 기능을 수정합니다.
+title: "[FIX] "
+labels:
+  - "🔧 FIX"
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: 개요
+      description: 어떤 기능을 왜 수정하는지 한 줄로 설명해주세요.
+      placeholder: 예) 게시글 정렬 기준을 생성일에서 수정일로 변경합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: 현재 동작
+      description: 현재 어떻게 동작하고 있는지 설명해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: after
+    attributes:
+      label: 변경 후 동작
+      description: 수정 후 어떻게 동작해야 하는지 설명해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 수정 범위
+      description: 영향을 받는 도메인, API, 모듈 등을 나열해주세요.
+      placeholder: |
+        - domain/post
+        - GET /api/posts
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 체크리스트
+      options:
+        - label: 현재 동작과 변경 후 동작을 명확히 설명하였는가?
+        - label: 수정으로 인한 사이드 이펙트를 검토하였는가?

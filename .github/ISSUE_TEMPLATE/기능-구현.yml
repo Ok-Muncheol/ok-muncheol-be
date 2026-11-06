@@ -1,0 +1,50 @@
+name: 기능 구현
+description: 새로운 기능을 추가합니다.
+title: "[FEAT] "
+labels:
+  - "✨ FEAT"
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: 개요
+      description: 어떤 기능을 왜 추가하는지 한 줄로 설명해주세요.
+      placeholder: 예) 소셜 로그인(Kakao) 기능을 추가합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: content
+    attributes:
+      label: 구현 내용
+      description: 구현할 기능을 구체적으로 설명해주세요.
+      placeholder: |
+        - [ ] OAuth2 인가 코드 콜백 처리
+        - [ ] 신규 회원 자동 가입 로직
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 작업 범위
+      description: 영향을 받는 도메인, API, 모듈 등을 나열해주세요.
+      placeholder: |
+        - domain/auth
+        - POST /api/auth/oauth/kakao
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: 참고 자료
+      description: 관련 문서, 디자인 링크, 참고 PR 등이 있으면 첨부해주세요. (선택)
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 체크리스트
+      options:
+        - label: 구현 내용을 충분히 설명하였는가?
+        - label: 작업 범위를 명확히 정의하였는가?

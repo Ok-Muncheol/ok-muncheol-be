@@ -3,9 +3,9 @@
 import ast
 import importlib
 import json
-from pathlib import Path
 import sys
 import typing
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -43,7 +43,9 @@ def main() -> None:
     expected = contract_examples()
     for path in (ROOT / "docs/contracts/examples.json",):
         if path.exists() and json.loads(path.read_text()) != expected:
-            raise SystemExit(f"Stale contract fixture: {path}. Run make contracts and refresh the FE fixture.")
+            raise SystemExit(
+                f"Stale contract fixture: {path}. Run make contracts and refresh the FE fixture."
+            )
     print(f"OK: {len(sources)} Python files, {modules} imports, {len(documents)} JSON/JSONL files")
     print("Scaffold checks only; server/models/DB/features are not implemented.")
 
