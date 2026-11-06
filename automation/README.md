@@ -93,7 +93,7 @@ Codex 데스크톱 앱에서 에이전트를 WSL로 돌리면(앱 설정에서 �
 올려 본다. 실제로 이슈·PR이 만들어지고 `main`에 머지되므로 의미 있는 변경으로 한다.
 
 - CI를 기다리는 동안 명령 하나가 최대 10분 응답 없이 붙잡혀 있는 것은 정상이다. 중간에 끊지 않는다.
-  배포 확인은 Vercel이 연결되지 않았으면 2분 뒤 `NOT_CONNECTED`로 끝난다.
+  배포 확인도 머지 커밋의 Vercel 프로덕션 배포와 `/health` 응답까지 최대 약 12분 기다린다(연동이 끊겼으면 2분 뒤 `NOT_CONNECTED`).
 - Codex가 명령 승인을 물으면 내용을 확인하고 승인한다.
 - 이 문서대로 했는데 동작이 다르면, 확인한 내용으로 이 파일을 고쳐 둔다.
 
@@ -106,7 +106,7 @@ Codex 데스크톱 앱에서 에이전트를 WSL로 돌리면(앱 설정에서 �
 | CI 대기가 바로 `result=API_ERROR`로 끝남 | Codex는 3-1의 `network_access`를, 그 밖에는 gh 인증·네트워크를 확인한다 |
 | `result=ERROR`와 "gh를 찾을 수 없다" | gh가 설치되지 않았거나 PATH에 없다 |
 | `make check`가 `Stale contract fixture`로 실패 | 계약(`app/schemas/`)을 바꾸고 `make contracts`를 돌리지 않았다 → 견본을 다시 만들고 FE 견본도 맞춘다(`docs/contracts/README.md`) |
-| 배포 확인이 `result=NOT_CONNECTED`로 끝남 | Vercel이 아직 연결되지 않았다(README 「기술 구성」). 실패가 아니다 — `main` 반영까지 끝난 것이다 |
+| 배포 확인이 `result=NOT_CONNECTED`로 끝남 | 머지 커밋과 직전 `main` 커밋 어디에도 Vercel 상태가 없다. 지금은 연결돼 있으므로 Git 연동이 끊긴 것이다 → Vercel 대시보드의 Git 연결을 확인한다(`main` 반영은 끝났다) |
 | 배포 확인이 `result=NOT_FOUND`로 끝남 | 연동은 살아 있는데 이 커밋이 배포되지 않았다. 팀원이 작성한 커밋이면 Hobby 플랜 제한일 수 있다 → Vercel 대시보드에서 Redeploy한다 |
 | `$` 목록에 `ship`이 없음 (Codex) | 레포 밖에서 띄웠거나 프로젝트를 신뢰하지 않았다 |
 | 훅이 `bash\r: No such file or directory`로 실패 (WSL·Git Bash) | Windows git으로 받아 CRLF가 된 사본이다 → 파일을 지우고 `git checkout -- <파일>`로 다시 받는다 |

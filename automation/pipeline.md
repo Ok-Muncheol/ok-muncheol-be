@@ -70,17 +70,17 @@ CI 폴링: **`.venv/bin/python automation/bin/run_wait.py ci.yml main "<MERGE_SH
 
 ## Step 3: Vercel 프로덕션 배포 확인
 
-Vercel 프로젝트 `ok-muncheol-be`가 이 저장소에 연결되어 있다(README 「기술 구성」, 2026-11-06). `main` push를 Vercel이 감지해 프로덕션 배포를 시작하고, 결과를 머지 커밋의 **커밋 상태**(context `Vercel` — pending "Vercel is deploying your app" → success "Deployment has completed")로 남긴다. GitHub Deployment는 보지 않는다 — Vercel 프로젝트 설정에 따라 생기지 않을 수 있다(lumi BE·FE 0건, 2026-10-27 실측). FE·API를 한 Vercel 프로젝트로 묶으면 상태는 그 프로젝트가 연결된 저장소의 커밋에만 붙는다 — 이 레포가 아니면 이 단계는 계속 `NOT_CONNECTED`다.
+Vercel 프로젝트 `ok-muncheol-be`가 이 저장소에 연결되어 있다(README 「기술 구성」, 2026-11-06). `main` push를 Vercel이 감지해 프로덕션 배포를 시작하고, 결과를 머지 커밋의 **커밋 상태**(context `Vercel` — pending "Vercel is deploying your app" → success "Deployment has completed")로 남긴다. GitHub Deployment는 보지 않는다 — Vercel 프로젝트 설정에 따라 생기지 않을 수 있다(lumi BE·FE 0건, 2026-10-27 실측). FE·API를 한 Vercel 프로젝트로 묶는 쪽으로 바꾸면 상태는 그 프로젝트가 연결된 저장소의 커밋에만 붙는다 — 이 레포가 아니게 되면 이 단계는 `NOT_CONNECTED`로 돌아간다.
 
 배포 폴링: **`.venv/bin/python automation/bin/deploy_wait.py "<MERGE_SHA>"`** (30초 간격, 최대 10분) → `DEPLOY_RESULT` 마커. 연결 여부도 이 스크립트가 판정한다 — 머지 커밋에 `Vercel` 상태가 2분 안에 생기지 않으면 직전 `main` 커밋(첫 부모)의 상태로 가른다. 상태를 봤으면 마커에 `url=`(Vercel 배포 페이지)이 함께 찍힌다. 두 번째 인자로 health URL을 넘겨(`deploy_wait.py "<MERGE_SHA>" https://ok-muncheol-be.vercel.app/health`) 배포 뒤 200인지까지 본다(최대 3회, `health=`가 마커에 찍힌다). 운영 도메인이 바뀌면 이 URL을 고친다. 판정 로직은 스크립트 상단 주석이 원천이다(`tests/automation/test_deploy_wait.py`가 대역으로 검증).
-- `result=NOT_CONNECTED`(종료코드 0) → **Vercel 미연결** — 머지 커밋과 직전 `main` 커밋 어디에도 `Vercel` 상태가 없다. 배포를 연결하기 전까지의 정상 결과다. Step 4로 가고, 최종 보고에 "프로덕션 배포 없음(Vercel 미연결) — `main` 반영까지"를 명시한다.
+- `result=NOT_CONNECTED`(종료코드 0) → **Vercel 미연결** — 머지 커밋과 직전 `main` 커밋 어디에도 `Vercel` 상태가 없다. 지금은 연결돼 있으므로 이 결과가 나오면 Git 연동이 끊긴 것이다 — 대시보드의 Git 연결을 확인하도록 안내한다. Step 4로 가고, 최종 보고에 "프로덕션 배포 없음(Vercel 미연결) — `main` 반영까지"를 명시한다.
 - `result=success` → 배포 완료(health URL을 넘겼으면 200까지). Step 4로.
 - `result=failure`·`error` → `url=`의 배포 페이지에서 로그를 확인하도록 안내하고 보고한다. Vercel은 이전 배포로 **즉시 롤백**이 가능하다.
 - `result=UNHEALTHY` → 배포는 끝났는데 health URL이 3번 모두 200이 아니다. 마커 앞 줄(`health <코드> (n/3): <응답 앞부분>`)을 요약해 보고한다 — 환경변수·마이그레이션 같은 배포 환경 쪽을 먼저 의심한다. `health=unreachable`이면 도메인·Vercel 상태를 확인한다.
 - `result=NOT_FOUND` → 직전 `main` 커밋은 배포됐는데 이 커밋의 배포가 생기지 않았다 — Vercel 프로젝트의 Production Branch가 `main`인지, Git 연동이 살아 있는지 확인을 안내한다. 팀원이 작성한 커밋이면 Hobby 플랜 제한(프로젝트 소유자가 작성한 커밋만 배포)일 수 있으니 대시보드의 Redeploy도 안내한다.
 - `result=TIMEOUT` → 아직 진행 중일 수 있으니 단정하지 말고 `url=`로 확인을 안내한다. `API_ERROR` → 스크립트 stderr를 요약한다. `ERROR`(대문자) → 배포 상태 `error`와 다른 실행 환경 문제다 — 「폴링 실행 규칙」대로 처리한다.
 
-> Vercel을 연결할 때 PR 브랜치의 Preview 배포를 켤지 함께 정한다. lumi는 Hobby가 배포를 하루(24시간) 100번까지만 만들어 PR push마다 Preview를 만들면 `main` 배포까지 막혀서, `vercel.json`의 `git.deploymentEnabled`로 `main`만 배포한다(2026-10-29). 어느 쪽이든 브랜치 보호의 required check에는 `Vercel`을 넣지 않는다.
+> PR 브랜치의 Preview 배포는 켜져 있다(2026-11-06 PR #10·#14 실측 — `Vercel`·`Vercel Preview Comments` 체크가 PR에 붙는다). Hobby 플랜은 배포를 하루(24시간) 100번까지만 만들어 PR push가 잦아지면 `main` 배포까지 막힐 수 있다 — 그때는 lumi처럼 `vercel.json`의 `git.deploymentEnabled`로 `main`만 배포하도록 바꾼다(2026-10-29). 그러면 변경이 Vercel에서 처음 빌드되는 곳이 프로덕션 배포이므로, 머지 전 확인은 CI `check`(ruff·`make check`·pytest)가 맡는다. 어느 쪽이든 브랜치 보호의 required check에는 `Vercel`을 넣지 않는다.
 
 ## Step 4: 정리 & 보고
 
