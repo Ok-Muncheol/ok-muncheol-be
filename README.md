@@ -98,12 +98,13 @@ SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과
 영상은 FE가 발급받은 서명 URL로 Storage에 직접 올리고 API에는 파일 경로·메타데이터를 전달한다.
 YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는다. 서비스와 로컬 비전 평가는 같은 패키지·가중치 버전을 쓴다.
 
-**배포는 아직 구성하지 않았다.** 설계 원본은 FE·API를 한 Vercel 프로젝트로 배포하는 목표다.
-두 Git 저장소를 그 배포 단위에 연결하는 방식(빌드 시 결합 또는 통합 배포 저장소), 라우팅·CORS·환경 변수는
-초기 인프라 작업에서 결정한다. lumi의 별도 프로젝트 배포 설정을 그대로 복제하지 않는다.
-요금·함수 제한·제품 지원 조건은 실제 구성 시 공식 문서로 다시 확인한다.
-그때까지 ship은 `main` 머지와 main CI 확인에서 끝난다(`NOT_CONNECTED`). Vercel이 이 저장소에 연결되면
-머지 커밋의 배포 결과까지 확인한다(`automation/pipeline.md` Step 3).
+**배포는 Vercel 프로젝트 `ok-muncheol-be`에 연결되어 있다(2026-11-06).** `main` push마다 Python 런타임이
+`app/main.py`의 모듈 수준 `app`을 진입점으로 배포하고, 의존성은 `requirements.txt`(`.` → `pyproject.toml`)로 설치한다.
+지금 배포되는 것은 `/health`뿐이다 — 인증·라우터·DB는 부트스트랩에서 붙인다.
+설계 원본은 FE·API를 한 Vercel 프로젝트로 배포하는 목표다. 두 Git 저장소를 그 배포 단위에 연결하는 방식,
+라우팅·CORS·환경 변수는 초기 인프라 작업에서 결정한다. lumi의 별도 프로젝트 배포 설정을 그대로 복제하지 않는다.
+
+ship은 `main` 머지 → main CI → 머지 커밋의 Vercel 배포 결과와 `/health` 응답까지 확인한다(`automation/pipeline.md` Step 3).
 
 ## 사고 사실 카드 계약
 

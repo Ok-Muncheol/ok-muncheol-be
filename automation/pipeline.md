@@ -70,9 +70,9 @@ CI 폴링: **`.venv/bin/python automation/bin/run_wait.py ci.yml main "<MERGE_SH
 
 ## Step 3: Vercel 프로덕션 배포 확인
 
-배포는 아직 연결되지 않았다(README 「기술 구성」). 연결되면 `main` push를 Vercel이 감지해 프로덕션 배포를 시작하고, 결과를 머지 커밋의 **커밋 상태**(context `Vercel` — pending "Vercel is deploying your app" → success "Deployment has completed")로 남긴다. GitHub Deployment는 보지 않는다 — Vercel 프로젝트 설정에 따라 생기지 않을 수 있다(lumi BE·FE 0건, 2026-10-27 실측). FE·API를 한 Vercel 프로젝트로 묶으면 상태는 그 프로젝트가 연결된 저장소의 커밋에만 붙는다 — 이 레포가 아니면 이 단계는 계속 `NOT_CONNECTED`다.
+Vercel 프로젝트 `ok-muncheol-be`가 이 저장소에 연결되어 있다(README 「기술 구성」, 2026-11-06). `main` push를 Vercel이 감지해 프로덕션 배포를 시작하고, 결과를 머지 커밋의 **커밋 상태**(context `Vercel` — pending "Vercel is deploying your app" → success "Deployment has completed")로 남긴다. GitHub Deployment는 보지 않는다 — Vercel 프로젝트 설정에 따라 생기지 않을 수 있다(lumi BE·FE 0건, 2026-10-27 실측). FE·API를 한 Vercel 프로젝트로 묶으면 상태는 그 프로젝트가 연결된 저장소의 커밋에만 붙는다 — 이 레포가 아니면 이 단계는 계속 `NOT_CONNECTED`다.
 
-배포 폴링: **`.venv/bin/python automation/bin/deploy_wait.py "<MERGE_SHA>"`** (30초 간격, 최대 10분) → `DEPLOY_RESULT` 마커. 연결 여부도 이 스크립트가 판정한다 — 머지 커밋에 `Vercel` 상태가 2분 안에 생기지 않으면 직전 `main` 커밋(첫 부모)의 상태로 가른다. 상태를 봤으면 마커에 `url=`(Vercel 배포 페이지)이 함께 찍힌다. 서버와 운영 URL이 생기면 두 번째 인자로 health URL을 넘겨(`deploy_wait.py "<MERGE_SHA>" https://<운영 주소>/health`) 배포 뒤 200인지까지 보고(최대 3회, `health=`가 마커에 찍힌다), 이 문장에 그 URL을 적는다. 판정 로직은 스크립트 상단 주석이 원천이다(`tests/automation/test_deploy_wait.py`가 대역으로 검증).
+배포 폴링: **`.venv/bin/python automation/bin/deploy_wait.py "<MERGE_SHA>"`** (30초 간격, 최대 10분) → `DEPLOY_RESULT` 마커. 연결 여부도 이 스크립트가 판정한다 — 머지 커밋에 `Vercel` 상태가 2분 안에 생기지 않으면 직전 `main` 커밋(첫 부모)의 상태로 가른다. 상태를 봤으면 마커에 `url=`(Vercel 배포 페이지)이 함께 찍힌다. 두 번째 인자로 health URL을 넘겨(`deploy_wait.py "<MERGE_SHA>" https://ok-muncheol-be.vercel.app/health`) 배포 뒤 200인지까지 본다(최대 3회, `health=`가 마커에 찍힌다). 운영 도메인이 바뀌면 이 URL을 고친다. 판정 로직은 스크립트 상단 주석이 원천이다(`tests/automation/test_deploy_wait.py`가 대역으로 검증).
 - `result=NOT_CONNECTED`(종료코드 0) → **Vercel 미연결** — 머지 커밋과 직전 `main` 커밋 어디에도 `Vercel` 상태가 없다. 배포를 연결하기 전까지의 정상 결과다. Step 4로 가고, 최종 보고에 "프로덕션 배포 없음(Vercel 미연결) — `main` 반영까지"를 명시한다.
 - `result=success` → 배포 완료(health URL을 넘겼으면 200까지). Step 4로.
 - `result=failure`·`error` → `url=`의 배포 페이지에서 로그를 확인하도록 안내하고 보고한다. Vercel은 이전 배포로 **즉시 롤백**이 가능하다.
