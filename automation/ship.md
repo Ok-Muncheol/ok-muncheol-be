@@ -21,7 +21,7 @@ macOS·Linux·WSL과 Windows(PowerShell)에서 같은 절차를 쓴다. 게이�
 
 README 「브랜치·PR 규칙」이 원천이다 (FE 레포와 같은 규칙). 요약:
 
-- **`dev` 없이 feature → `main`.** 배포 환경이 아직 하나도 없어 `dev`를 두어도 나뉘는 환경이 없다. `main`이 곧 통합 브랜치다.
+- **`dev` 없이 feature → `main`.** 배포 환경이 `main` 프로덕션(Vercel) 하나뿐이라 `dev`를 두어도 나뉘는 환경이 없다. `main`이 곧 통합 브랜치다.
 - **이슈 퍼스트.** 이슈 템플릿(`.github/ISSUE_TEMPLATE/*.yml`)으로 이슈를 만들고 `<타입>/#<이슈번호>` 브랜치를 딴다. 타입 라벨(`✨ FEAT` 등 6개)이 레포에 없으면 Phase 3에서 만든다.
 - **PR 제목 `[<타입>/#<이슈번호>] 설명`, 본문에 `close #<이슈번호>`.** `main`은 PR 필수(승인 0명), 필수 체크 `check`(ruff·`make check`·pytest)·`gitleaks`, 강제 푸시·삭제 금지로 보호된다. 머지는 **squash**다 (`automation/pipeline.md` 「제목 규범」).
 - **계약은 FE와 짝으로 바꾼다.** `app/schemas/` → `make contracts` → FE 타입·견본·화면 순서로 반영하고(`docs/contracts/README.md`), PR 본문에 대응 FE PR을 적는다(TEAM.md 「검증·PR 규칙」).
