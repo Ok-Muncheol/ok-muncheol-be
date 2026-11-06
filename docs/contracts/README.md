@@ -19,3 +19,5 @@ FE 전달본의 `src/lib/api/types.ts`는 이 타입의 수동 대응 초안이�
 
 계약 변경은 BE 타입 → 견본 재생성 → FE 타입/견본/소비 화면 → 양쪽 PR 연결 순으로 반영한다.
 OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
+
+MVP 도표 범위(사고 유형·카드 칸·수정요소·보류 사유)는 [mvp-chart-scope.md](mvp-chart-scope.md)를 따른다.

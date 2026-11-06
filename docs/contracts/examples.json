@@ -56,6 +56,61 @@
         "source_document_ids": [
           "synthetic-statement"
         ]
+      },
+      "location_type": {
+        "value": "signalized_intersection",
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "human_confirmed",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
+      },
+      "movement_A": {
+        "value": "straight",
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "human_confirmed",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
+      },
+      "movement_B": {
+        "value": "left_turn",
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "needs_review",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
+      },
+      "signal_A": {
+        "value": "green",
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "human_confirmed",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
+      },
+      "signal_B": {
+        "value": "green",
+        "model_value": null,
+        "source": "manual",
+        "model_confidence": null,
+        "verification_status": "needs_review",
+        "evidence_frame_ids": [],
+        "source_document_ids": [
+          "synthetic-statement"
+        ]
       }
     },
     "party_mapping": {
@@ -71,11 +126,13 @@
   },
   "question": {
     "question_id": "synthetic-question",
-    "field_key": "location_type",
-    "text": "사고 장소의 유형을 확인해 주세요.",
+    "field_key": "movement_B",
+    "text": "상대 차량(B)의 진행 방향을 확인해 주세요.",
     "options": [
-      "교차로",
-      "일반 도로"
+      "straight",
+      "left_turn",
+      "right_turn",
+      "u_turn"
     ],
     "allow_unknown": true
   },

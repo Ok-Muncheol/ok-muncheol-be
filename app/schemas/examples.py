@@ -1,5 +1,6 @@
 """전원: 비식별 합성 계약 견본의 단일 원천. 실제 사고·도표·금액을 담지 않는다."""
 
+from app.schemas.chart_scope import FIELD_OPTIONS, REASON_NO_REVIEWED_CHART
 from app.schemas.common import ApiError, TaskView, VersionRef
 from app.schemas.facts import FactCard, FactField
 from app.schemas.judgment import ConfirmationQuestion, JudgmentResult
@@ -17,7 +18,13 @@ def contract_examples() -> dict[str, object]:
 
     card: FactCard = {
         "case_id": "synthetic-case", "version": 2, "accident_date": "2026-11-01",
-        "fields": {"accident_type": field("car_to_car", True), "party_count": field(2, True)},
+        # 도표 선택 칸(chart_scope)과 그 외 칸의 모양. 값은 합성이다.
+        "fields": {
+            "accident_type": field("car_to_car", True), "party_count": field(2, True),
+            "location_type": field("signalized_intersection", True),
+            "movement_A": field("straight", True), "movement_B": field("left_turn", False),
+            "signal_A": field("green", True), "signal_B": field("green", False),
+        },
         "party_mapping": {
             "video_ego_party_id": None, "insured_party_id": "synthetic-party-1",
             "chart_party_A_id": "synthetic-party-1", "chart_party_B_id": "synthetic-party-2",
@@ -35,14 +42,14 @@ def contract_examples() -> dict[str, object]:
         "judgment_version": 1, "report_version": 1,
     }
     question: ConfirmationQuestion = {
-        "question_id": "synthetic-question", "field_key": "location_type",
-        "text": "사고 장소의 유형을 확인해 주세요.",
-        "options": ["교차로", "일반 도로"], "allow_unknown": True,
+        "question_id": "synthetic-question", "field_key": "movement_B",
+        "text": "상대 차량(B)의 진행 방향을 확인해 주세요.",
+        "options": list(FIELD_OPTIONS["movement_B"]), "allow_unknown": True,
     }
     judgment: JudgmentResult = {
         "versions": versions, "status": "deferred", "chart_id": None, "edition": None,
         "fault_A": None, "fault_B": None, "calculation_log": [], "evidence": [],
-        "checks": [{"layer": "evidence", "passed": False, "reasons": ["검수한 도표 근거 없음"]}],
+        "checks": [{"layer": "evidence", "passed": False, "reasons": [REASON_NO_REVIEWED_CHART]}],
         "questions": [], "reasons": ["합성 계약 양식: 검색/판단 미실행, 수치 미제공"],
     }
     report: ReviewReport = {
