@@ -1,4 +1,4 @@
-# 검색 평가셋 — C 담당
+# 검색 평가셋 — 김지은 담당
 
 `*.example.jsonl`은 합성 미라벨 작성 양식이다. 실제 도표·결정례·약관 ID나 정답·평가 성과를 담지 않는다.
 `label_status=unlabelled`, `split=unassigned`, 빈 정답 목록을 그대로 채점해서는 안 된다.

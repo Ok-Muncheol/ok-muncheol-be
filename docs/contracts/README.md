@@ -6,11 +6,11 @@ FE 전달본의 `src/lib/api/types.ts`는 이 타입의 수동 대응 초안이�
 
 | 계약 | 생산/소유 | 소비 |
 | --- | --- | --- |
-| FactCard·FactPatch | A | B 판단·D 보고서·A FE |
-| SearchChunk·EmbeddedChunk·SearchRequest·EvidenceHit | C, D 공동 검토 | B 판단/QA·D 산정/보고서·C FE |
-| JudgmentState·JudgmentResult·QuestionAnswer | B | A 카드 재확인·D 보고서·B FE |
-| CalculationResult·RecoveryAmounts·ReviewReport | D | B 가정 실행·D FE |
-| TaskView·VersionRef·ApiError | D 통합, 전원 검토 | 전원 |
+| FactCard·FactPatch | 정지원 | 구준휘 판단·옥석현 보고서·정지원 FE |
+| SearchChunk·EmbeddedChunk·SearchRequest·EvidenceHit | 김지은, 옥석현 공동 검토 | 구준휘 판단/QA·옥석현 산정/보고서·김지은 FE |
+| JudgmentState·JudgmentResult·QuestionAnswer | 구준휘 | 정지원 카드 재확인·옥석현 보고서·구준휘 FE |
+| CalculationResult·RecoveryAmounts·ReviewReport | 옥석현 | 구준휘 가정 실행·옥석현 FE |
+| TaskView·VersionRef·ApiError | 옥석현 통합, 전원 검토 | 전원 |
 
 `model_confidence=null`은 수동 입력에서 해당 없음을 뜻한다. 미확정 비율/금액도 `null`로 표시하고 0으로 채우지 않는다.
 카드·판단·보고서 버전, 도표/약관 적용판과 규칙 버전은 별도로 추적한다.
