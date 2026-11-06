@@ -7,3 +7,27 @@ dependencies = []
 
 # FastAPI·Pydantic·LangGraph·DB는 부트스트랩에서 추가한다.
 # 비전·PDF·임베딩 의존성은 API 런타임과 분리한다.
+
+[project.optional-dependencies]
+# 검증 도구 — make lint(ruff)·make test(pytest). CI check 잡이 같은 것을 설치한다(.github/workflows/ci.yml)
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

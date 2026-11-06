@@ -1,0 +1,47 @@
+name: 리팩토링
+description: 기능 변경 없이 코드 구조나 품질을 개선합니다.
+title: "[REFACT] "
+labels:
+  - "♻️ REFACT"
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: 개요
+      description: 무엇을 왜 리팩토링하는지 한 줄로 설명해주세요.
+      placeholder: 예) Service 계층의 트랜잭션 경계를 재정비합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: target
+    attributes:
+      label: 대상
+      description: 리팩토링할 클래스, 모듈, 레이어 등을 나열해주세요.
+      placeholder: |
+        - domain/*/service
+        - global/config
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: 리팩토링 이유
+      description: 현재 코드의 문제점이나 개선이 필요한 이유를 설명해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 효과
+      description: 리팩토링 후 개선되는 점을 설명해주세요. (가독성, 성능, 유지보수성 등)
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 체크리스트
+      options:
+        - label: 기능 동작에 변경이 없음을 확인하였는가?
+        - label: 관련 테스트가 모두 통과하는가?

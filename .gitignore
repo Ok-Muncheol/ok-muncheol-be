@@ -12,3 +12,16 @@ data/private/
 evals/results/
 *.egg-info/
 dist/
+.vercel/
+
+# LLM 하네스 (automation/ship.md)
+# Claude Code 개인 권한 설정 — 머신·사람마다 다르다
+.claude/settings.local.json
+# Claude Code worktree(세션별 작업 사본) — 무시하지 않으면 git add -A가 embedded repo(gitlink)로 스테이징한다
+.claude/worktrees/
+# Codex 로컬 설정 — writable_roots에 이 체크아웃의 절대경로가 들어가 공유 불가 (config.toml.example을 복사해 쓴다)
+.codex/config.toml
+# Codex가 .claude/commands/*.md를 기계 치환해 만드는 사본 — 깨진 경로를 담고 반복 생성된다. 어댑터 원본은 .agents/skills/ship/
+.agents/skills/source-command-*/
+# 로컬 IDE MCP 연결 (개인 환경 전용)
+.mcp.json

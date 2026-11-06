@@ -1,0 +1,41 @@
+name: Backend CI
+# feature → main PR을 검증한다. check·gitleaks는 main 브랜치 보호의 필수 체크다
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+# 같은 PR에 새 push가 오면 이전 런을 취소한다. main push 런은 진행 중이어도 취소하지 않는다 —
+# 머지 커밋마다 런이 끝까지 남아야 그 커밋의 검증 기록이 된다 (automation/pipeline.md Step 2)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: make lint
+      # 문법·import·타입 참조·JSON·계약 견본 동기화 (scripts/check_scaffold.py)
+      - run: make check
+      # 지금은 ship 게이트·폴링 스크립트 회귀 검증(tests/automation/)만 있다
+      - run: make test
+
+  # 커밋 이력에 API 키 등 시크릿이 섞이지 않았는지 검사한다
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks scan
+        uses: docker://ghcr.io/gitleaks/gitleaks:latest
+        with:
+          args: detect --source=. --redact -v

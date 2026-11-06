@@ -1,0 +1,3 @@
+# 셸 스크립트는 OS와 상관없이 LF로 받는다. Windows git 기본값(core.autocrlf=true)이 CRLF로 바꾸면
+# WSL·Git Bash에서 `bash\r`로 실행이 깨진다 (automation/hooks/validate-git-sensitive.sh)
+*.sh text eol=lf
