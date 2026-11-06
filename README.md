@@ -11,7 +11,8 @@
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
 
 현재는 **A–D 담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
-함수의 `NotImplementedError`·TODO는 담당자가 채운다. 실행 가능한 서버·모델 연동·DB 마이그레이션·CI·배포는 아직 없다.
+함수의 `NotImplementedError`·TODO는 담당자가 채운다. 실행 가능한 서버·모델 연동·DB 마이그레이션·배포는 아직 없다.
+CI와 ship 하네스는 있다([브랜치·PR 규칙](#브랜치pr-규칙)).
 공통 타입은 표준 라이브러리 TypedDict 초안으로, 런타임 요청 검증·Pydantic·OpenAPI는 후속 작업이다.
 
 **개발 마감: 2026-11-13(금).** 11/12 기능 통합·11/13 최종 검수를 목표로 한다.
@@ -101,6 +102,8 @@ YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는�
 두 Git 저장소를 그 배포 단위에 연결하는 방식(빌드 시 결합 또는 통합 배포 저장소), 라우팅·CORS·환경 변수는
 초기 인프라 작업에서 결정한다. lumi의 별도 프로젝트 배포 설정을 그대로 복제하지 않는다.
 요금·함수 제한·제품 지원 조건은 실제 구성 시 공식 문서로 다시 확인한다.
+그때까지 ship은 `main` 머지와 main CI 확인에서 끝난다(`NOT_CONNECTED`). Vercel이 이 저장소에 연결되면
+머지 커밋의 배포 결과까지 확인한다(`automation/pipeline.md` Step 3).
 
 ## 사고 사실 카드 계약
 
@@ -179,9 +182,10 @@ workers/vision/     A 로컬/Modal 공통 비전 진입점
 supabase/migrations/  DB·RLS·검색 함수 계획 문서 (SQL 없음)
 data/corpora/       C 세 코퍼스 manifest 양식 (원문/색인 없음)
 evals/retrieval/    C 평가셋 타입·합성 미라벨 양식·평가 진입점
-tests/              기능 구현 후 추가할 동작 검증 계획
+tests/              ship 스크립트 테스트(automation/), 기능 구현 후 추가할 동작 검증 계획
 scripts/            문법/import/JSON 검사·공통 견본 생성
 docs/               일정·공통 계약·아키텍처 이미지
+automation/         ship 하네스 명세·게이트/폴링 스크립트·민감 파일 훅
 ```
 
 ## API 계약 제안
@@ -210,15 +214,19 @@ docs/               일정·공통 계약·아키텍처 이미지
 
 ## 개발 시작과 검증
 
-Python 3.12 이상에서 외부 패키지·모델 키 없이 아래 초안 검증을 실행할 수 있다.
+Python 3.12 이상에서 가상환경을 만들고 검증 도구(ruff·pytest)를 설치한다. 모델 키·DB는 필요 없다.
 
 ```bash
-make contracts  # app/schemas/examples.py → docs/contracts/examples.json
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+make lint       # ruff
 make check      # Python 문법·import·타입 참조·JSON·견본 동기화
+make test       # pytest — 지금은 ship 게이트·폴링 스크립트(tests/automation/)만 있다
+make contracts  # app/schemas/examples.py → docs/contracts/examples.json
 ```
 
-이 검사는 기능·서버·모델·DB 동작을 검증하지 않는다. `make test`·서버 실행 명령·의존성/환경 변수·CI는
-부트스트랩에서 추가한다. LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
+CI `check`가 lint → check → test를 같은 순서로 돌린다. 이 검사는 기능·서버·모델·DB 동작을 검증하지 않는다.
+서버 실행 명령·런타임 의존성·환경 변수는 부트스트랩에서 추가한다. LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
 견본 생성/FE 동기화는 [공통 계약](docs/contracts/README.md), 담당별 작업은 [TEAM.md](TEAM.md)를 따른다.
 
 평가는 영상→카드와 카드→판단을 분리한다. 먼저 정답 카드로 S0(벡터 검색 기준선), S1(속성 필터·검색 개선),
@@ -226,10 +234,31 @@ S2(고정 판단·검증)를 비교하고, S3(VLM), S4(YOLO·선택적 SAM2), S5
 도표 Top-1·Recall@3, 수정요소 정밀도·재현율, 비율 MAE(%p)·±5%p 적중률, 고확신 오류율·보류율,
 담당자 수정 횟수·처리 시간 p50/p95·비용을 함께 기록한다. 목표 수치와 데이터 규모는 아직 확정하지 않았다.
 
+## 브랜치·PR 규칙
+
+역할별 담당과 완료 기준은 [TEAM.md](TEAM.md)에 있다. FE 레포와 같은 규칙이다.
+
+feature → `main`으로 올린다. 배포 환경이 아직 없어 `dev`를 따로 두어도 나뉘는 환경이 없다.
+스테이징 환경과 배포 파이프라인이 생기면 그때 `dev`를 추가한다.
+
+1. 이슈를 템플릿(기능 구현 · 기능 수정 · 오류 수정 · 리팩토링 · 문서 작업 · 기타 수정)으로 만든다.
+2. `main`에서 `<타입>/#<이슈 번호>` 브랜치를 만든다. 예: `feat/#12`, `chore/#13`
+3. `main`으로 PR을 올린다. 제목은 `[타입/#이슈 번호] 설명`(예: `[feat/#12] 사실 카드 확정 API를 추가한다`)이고
+   본문에 `close #이슈 번호`, 검증 결과, 계약을 바꿨으면 대응 FE PR을 적는다.
+   CI(`check`: ruff · `make check` · pytest, `gitleaks`)를 통과해야 머지할 수 있고, squash merge한다.
+
+`main`은 PR 필수(승인 0명), 필수 체크 `check`·`gitleaks`, 강제 푸시·삭제 금지로 보호한다.
+
+위 1~3을 자동화한 것이 **ship 하네스**다. 코드 수정을 끝낸 뒤 Claude Code에서는 `/ship`, Codex에서는
+`$ship`(또는 "ship"·"배포해줘")으로 부르면 검증(`make lint`·`make check`·`make test`) → 이슈·브랜치 생성 → PR →
+CI 게이트 → squash 머지 → main CI 확인 → (Vercel 연결 시) 프로덕션 배포 확인까지 진행한다. 절차 원본은
+하네스 중립 명세 `automation/ship.md`·`automation/pipeline.md`이고, `.claude/commands/ship.md`와
+`.agents/skills/ship/SKILL.md`는 각 하네스의 진입 어댑터다. 폴링·게이트 스크립트(`automation/bin/`)는 표준
+라이브러리만 쓰는 Python이라 bash·jq가 필요 없고, `tests/automation/`이 `make test`로 회귀 검증한다. 처음 쓰는
+PC에서 할 준비(도구 설치·로그인, Codex 설정, Windows)는 [`automation/README.md`](automation/README.md)에 있다.
+
 ## 협업·데이터 관리
 
-- 이슈 → `main`에서 `<타입>/#<이슈 번호>` 브랜치 → `main` PR → 검증 → squash merge를 기본 규칙으로 제안한다. 예: `feat/#12`, PR 제목 `[feat/#12] 사실 카드 계약 추가`, 본문 `close #12`.
-- CI·브랜치 보호·ship 자동화는 아직 없다. 구축 후 실제 검사 이름과 명령을 문서에 추가한다.
 - AI Hub 원본 영상은 설계대로 로컬 학습·평가용으로만 보관한다. 서비스·공개 시연에는 사용 권리를 확인한 별도 영상을 쓴다.
 - 인정기준·결정례·약관의 재가공·배포 범위와 모델·가중치 라이선스는 확인 전 공개 저장소에 원문·가중치를 올리지 않는다.
 - 얼굴·번호판·위치정보 처리, 외부 VLM 전송, 접근 권한·보관·삭제 정책은 실데이터 연동 전 확정한다.

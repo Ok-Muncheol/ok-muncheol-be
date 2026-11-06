@@ -137,14 +137,16 @@ B: 근거 질의응답·what-if(1차 확장, 공식 결과와 분리)
 
 ## 검증·PR 규칙
 
-현재 가능한 검증은 `make check`(문법·import·JSON)와 `make contracts`(계약 견본 재생성)다.
-외부 패키지·모델 키는 필요 없다. `make test`·서버 실행·CI는 아직 제공하지 않는다.
+검증은 `make lint`(ruff)·`make check`(문법·import·JSON)·`make test`(pytest)이고, CI `check`가 같은 순서로 돈다.
+`make contracts`는 계약 견본을 다시 만든다. 검증 도구는 `.venv/bin/pip install -e ".[dev]"`로 설치하고 모델 키는 필요 없다.
+지금 `make test`에는 ship 게이트·폴링 스크립트 테스트(`tests/automation/`)만 있다. 서버 실행은 아직 없다.
 구현 검증 목록은 [tests/README.md](tests/README.md), 평가 규칙은 [evals/retrieval/README.md](evals/retrieval/README.md)에 있다.
 
 1. 이슈에 담당(A–D)·단계·입출력·완료 기준·계약/데이터 영향을 적는다.
 2. `main`에서 `<타입>/#<번호>` 브랜치를 만든다. PR 제목 `[feat/#12] 사실 카드 확인`, 본문 `close #12`와 검증 결과·대응 FE PR을 적는다.
 3. 공통 파일은 통합 창구 및 소비 담당과 맞추고 타입·견본·호출부를 함께 변경한다.
-4. 실제 구축한 검사와 담당 검토를 통과한 뒤 squash merge한다. lumi의 CI·ship 완료 상태를 가정하지 않는다.
+4. CI(`check`·`gitleaks`)와 담당 검토를 통과한 뒤 squash merge한다. `main`은 브랜치 보호로 PR과 두 체크를 강제한다.
+   코드 수정을 끝낸 변경은 ship 하네스(Claude Code `/ship`, Codex `$ship`)로 올린다 — README 「브랜치·PR 규칙」.
 5. 키·원본 영상·실제 사건·이용조건 미확인 PDF·가중치를 커밋하지 않는다.
 
 미정: 실명/리뷰어·세부 작업 시간, 런타임·공급자·비용 상한, 필드별 확인 규칙, 도표/적용판 정답 검수,
