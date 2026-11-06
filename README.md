@@ -10,13 +10,13 @@
 - 프론트엔드: [ok-muncheol-fe](https://github.com/Ok-Muncheol/ok-muncheol-fe)
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
 
-현재는 **A–D 담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
+현재는 **담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
 함수의 `NotImplementedError`·TODO는 담당자가 채운다. 실행 가능한 서버·모델 연동·DB 마이그레이션·배포는 아직 없다.
 CI와 ship 하네스는 있다([브랜치·PR 규칙](#브랜치pr-규칙)).
 공통 타입은 표준 라이브러리 TypedDict 초안으로, 런타임 요청 검증·Pydantic·OpenAPI는 후속 작업이다.
 
 **개발 마감: 2026-11-13(금).** 11/12 기능 통합·11/13 최종 검수를 목표로 한다.
-날짜별 A–D 산출물과 완료 기준은 [개발 마감 계획](docs/development-plan.md)을 따른다.
+날짜별 담당 산출물과 완료 기준은 [개발 마감 계획](docs/development-plan.md)을 따른다.
 FE의 대응 TEAM·타입·화면 초안은 [ok-muncheol-fe](https://github.com/Ok-Muncheol/ok-muncheol-fe)에 함께 반영한다.
 
 ## 서비스 범위
@@ -167,21 +167,21 @@ MVP 보고서는 ① 판정 상태 ② 확정 사실·근거 키프레임 ③ �
 
 ```text
 app/
-  api/              A 사건/카드, B 판단/질문/QA, D 보고서/산정/구상 진입점
+  api/              정지원 사건/카드, 구준휘 판단/질문/QA, 옥석현 보고서/산정/구상 진입점
   schemas/          공통 TypedDict 초안·합성 견본 (런타임 검증 미구현)
-  workflow/         B state·고정 그래프·확인/재개
-  validation/       B 근거·반박·코드 과실 계산 검증 3겹
-  agents/           B 근거 질의응답·what-if
-  tools/            C 인정기준·결정례·약관 검색 도구 3개
-  ingestion/        C PDF 파싱·청킹·문서 임베딩·적재
-  retrieval/        D 공통 RAG·질의 임베딩·코퍼스별 검색 실행
-  calculation/      D 손해액·보험금 (과실 산식은 B validation/numerical.py)
-  claims/           D 구상 패키지
-  reports/          D 템플릿 조립·버전/승인
-workers/vision/     A 로컬/Modal 공통 비전 진입점
+  workflow/         구준휘 state·고정 그래프·확인/재개
+  validation/       구준휘 근거·반박·코드 과실 계산 검증 3겹
+  agents/           구준휘 근거 질의응답·what-if
+  tools/            김지은 인정기준·결정례·약관 검색 도구 3개
+  ingestion/        김지은 PDF 파싱·청킹·문서 임베딩·적재
+  retrieval/        옥석현 공통 RAG·질의 임베딩·코퍼스별 검색 실행
+  calculation/      옥석현 손해액·보험금 (과실 산식은 구준휘 validation/numerical.py)
+  claims/           옥석현 구상 패키지
+  reports/          옥석현 템플릿 조립·버전/승인
+workers/vision/     정지원 로컬/Modal 공통 비전 진입점
 supabase/migrations/  DB·RLS·검색 함수 계획 문서 (SQL 없음)
-data/corpora/       C 세 코퍼스 manifest 양식 (원문/색인 없음)
-evals/retrieval/    C 평가셋 타입·합성 미라벨 양식·평가 진입점
+data/corpora/       김지은 세 코퍼스 manifest 양식 (원문/색인 없음)
+evals/retrieval/    김지은 평가셋 타입·합성 미라벨 양식·평가 진입점
 tests/              ship 스크립트 테스트(automation/), 기능 구현 후 추가할 동작 검증 계획
 scripts/            문법/import/JSON 검사·공통 견본 생성
 docs/               일정·공통 계약·아키텍처 이미지
