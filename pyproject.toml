@@ -1,7 +1,7 @@
 [project]
 name = "ok-muncheol-be"
 version = "0.1.0"
-description = "옥문철 A–D 담당별 계약·모듈 초안"
+description = "OK문철 A–D 담당별 계약·모듈 초안"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
