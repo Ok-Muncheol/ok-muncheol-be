@@ -3,9 +3,11 @@ name = "ok-muncheol-be"
 version = "0.1.0"
 description = "옥문철 A–D 담당별 계약·모듈 초안"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115",
+]
 
-# FastAPI·Pydantic·LangGraph·DB는 부트스트랩에서 추가한다.
+# Pydantic·LangGraph·DB는 부트스트랩에서 추가한다. 런타임 의존성은 여기 한 곳에 적고 requirements.txt는 `.`로 가리킨다.
 # 비전·PDF·임베딩 의존성은 API 런타임과 분리한다.
 
 [project.optional-dependencies]

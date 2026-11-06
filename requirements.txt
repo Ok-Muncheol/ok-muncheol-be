@@ -1,0 +1,2 @@
+# Vercel 설치 명령(pip install -r requirements.txt)용. 의존성의 단일 원천은 pyproject.toml이다.
+.
