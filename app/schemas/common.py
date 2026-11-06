@@ -1,4 +1,4 @@
-"""D(통합), 전원 검토: ID·버전·작업 상태. 판정 상태와 분리한다."""
+"""B(통합), 전원 검토: ID·버전·작업 상태. 판정 상태와 분리한다."""
 
 from typing import Literal, TypedDict
 
