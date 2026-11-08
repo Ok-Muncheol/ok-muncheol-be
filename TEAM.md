@@ -6,7 +6,7 @@
 [FE TEAM.md](https://github.com/Ok-Muncheol/ok-muncheol-fe/blob/main/TEAM.md)를 따른다.
 
 현재는 **계약·모듈 초안 단계**다. 아래 파일은 생성되어 있지만 `NotImplementedError`와 TODO는 담당자가 구현해야 한다.
-FastAPI 앱은 Vercel 배포 진입점과 `/health`만 있고 LangGraph·모델·PDF 파서·DB·인증·라우터는 연결하지 않았다. 타입은 표준 라이브러리 `TypedDict` 초안이며,
+FastAPI 앱은 인증·오류 응답·담당별 경로(`app/api/routes.py`)까지 연결했고 LangGraph·모델·PDF 파서·DB는 연결하지 않았다. 타입은 표준 라이브러리 `TypedDict` 초안이며,
 런타임 요청 검증·Pydantic·OpenAPI는 후속 계약 작업이다. lumi의 기능·발표 일정·완료 상태·배포 설정은 복제하지 않았다.
 
 ## 역할 요약

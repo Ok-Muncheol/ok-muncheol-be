@@ -11,7 +11,7 @@
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
 
 현재는 **담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
-함수의 `NotImplementedError`·TODO는 담당자가 채운다. 서버는 Vercel에 배포한 `/health`뿐이고 모델 연동·DB 마이그레이션·인증·라우터는 아직 없다.
+함수의 `NotImplementedError`·TODO는 담당자가 채운다. API는 인증(Supabase 토큰 검증)·`ApiError` 오류 응답·담당별 경로까지 연결했고, 서비스 본문이 비어 있는 경로는 501을 돌려준다. 모델 연동·DB 마이그레이션은 아직 없다.
 CI와 ship 하네스는 있다([브랜치·PR 규칙](#브랜치pr-규칙)).
 공통 타입은 표준 라이브러리 TypedDict 초안으로, 런타임 요청 검증·Pydantic·OpenAPI는 후속 작업이다.
 
@@ -100,9 +100,9 @@ YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는�
 
 **배포는 Vercel 프로젝트 `ok-muncheol-be`에 연결되어 있다(2026-11-06).** `main` push마다 Python 런타임이
 `app/main.py`의 모듈 수준 `app`을 진입점으로 배포하고, 의존성은 `requirements.txt`(`.` → `pyproject.toml`)로 설치한다.
-지금 배포되는 것은 `/health`뿐이다 — 인증·라우터·DB는 부트스트랩에서 붙인다.
+경로 14개가 배포되지만 서비스 본문이 빈 경로는 501 `not_implemented`를 돌려준다. 인증 환경 변수가 없으면 보호 경로는 503으로 닫힌다.
 설계 원본은 FE·API를 한 Vercel 프로젝트로 배포하는 목표다. 두 Git 저장소를 그 배포 단위에 연결하는 방식,
-라우팅·CORS·환경 변수는 초기 인프라 작업에서 결정한다. lumi의 별도 프로젝트 배포 설정을 그대로 복제하지 않는다.
+라우팅은 미정이다. CORS는 `CORS_ALLOW_ORIGINS`에 적은 출처만 허용한다. lumi의 별도 프로젝트 배포 설정을 그대로 복제하지 않는다.
 
 ship은 `main` 머지 → main CI → 머지 커밋의 Vercel 배포 결과와 `/health` 응답까지 확인한다(`automation/pipeline.md` Step 3).
 
@@ -222,12 +222,13 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 make lint       # ruff
 make check      # Python 문법·import·타입 참조·JSON·견본 동기화
-make test       # pytest — 지금은 ship 게이트·폴링 스크립트(tests/automation/)만 있다
+make test       # pytest — API 인증·오류·배선(tests/api/), ship 게이트·폴링 스크립트(tests/automation/)
+.venv/bin/uvicorn app.main:app --reload  # 로컬 서버. .env.example 참고
 make contracts  # app/schemas/examples.py → docs/contracts/examples.json
 ```
 
 CI `check`가 lint → check → test를 같은 순서로 돌린다. 이 검사는 기능·서버·모델·DB 동작을 검증하지 않는다.
-서버 실행 명령·런타임 의존성·환경 변수는 부트스트랩에서 추가한다. LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
+서버 환경 변수 양식은 `.env.example`이다. 로컬에서 토큰 없이 부르려면 `APP_ENV=local`과 `DEV_ACTOR_ID`를 함께 둔다(Vercel 위에서는 꺼진다). LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
 견본 생성/FE 동기화는 [공통 계약](docs/contracts/README.md), 담당별 작업은 [TEAM.md](TEAM.md)를 따른다.
 
 평가는 영상→카드와 카드→판단을 분리한다. 먼저 정답 카드로 S0(벡터 검색 기준선), S1(속성 필터·검색 개선),

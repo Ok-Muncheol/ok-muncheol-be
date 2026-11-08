@@ -5,6 +5,7 @@ description = "OK문철 A–D 담당별 계약·모듈 초안"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "pyjwt[crypto]>=2.8",
 ]
 
 # 비전·PDF·임베딩 의존성은 API 런타임과 분리한다.
@@ -15,6 +16,7 @@ embedding = ["openai>=1,<4", "python-dotenv>=1,<2", "tiktoken>=0.7,<1"]
 evaluation = ["numpy>=1.26,<3"]
 # 검증 도구 — make lint(ruff)·make test(pytest). CI check 잡이 같은 것을 설치한다(.github/workflows/ci.yml)
 dev = [
+    "httpx>=0.27",
     "pytest>=8",
     "pdfplumber>=0.11,<0.12",
     "openai>=1,<4",
@@ -22,6 +24,7 @@ dev = [
     "python-dotenv>=1,<2",
     "tiktoken>=0.7,<1",
     "ruff>=0.6",
+    "uvicorn>=0.30",
 ]
 # 비전 평가(evals/vision/): AI Hub 설명서 코드표 추출·키프레임·VLM 호출. API 런타임에는 넣지 않는다
 vision-eval = [
