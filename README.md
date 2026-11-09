@@ -61,15 +61,15 @@ FE의 대응 TEAM·타입·화면 초안은 [ok-muncheol-fe](https://github.com/
 ```mermaid
 flowchart TD
     subgraph INTAKE["접수·영상 분석"]
-        A["사건 접수·범위 확인<br/>POST /cases"] --> B{영상 있음?}
-        B -->|예| C["BE 발급 서명 URL로<br/>Storage 직접 업로드<br/>POST …/uploads"]
-        C -->|"POST …/analysis"| D["Modal GPU<br/>YOLO 추적·OpenCV<br/>키프레임·궤적"]
-        D --> E["OpenAI VLM<br/>탐지 결과 교차 확인<br/>사실 카드 초안"]
+        A["사건 접수<br/>범위 확인<br/>POST /cases"] --> B{영상 있음?}
+        B -->|예| C["BE 발급 서명<br/>URL로 Storage<br/>직접 업로드<br/>POST …/uploads"]
+        C -->|"POST …/analysis"| D["Modal GPU<br/>YOLO 추적<br/>OpenCV<br/>키프레임·궤적"]
+        D --> E["OpenAI VLM<br/>탐지 결과<br/>교차 확인<br/>사실 카드 초안"]
     end
 
     subgraph CARD["사실 카드"]
-        F["담당자 직접 입력<br/>진술서 등, 근거 프레임 없음"]
-        G["담당자 검토·수정·확정<br/>PATCH …/fact-card<br/>POST …/fact-card/confirm"]
+        F["담당자 직접 입력<br/>진술서 등<br/>근거 프레임 없음"]
+        G["담당자 검토<br/>수정·확정<br/>PATCH<br/>…/fact-card<br/>POST<br/>…/fact-card/<br/>confirm"]
     end
 
     B -->|아니오| F
@@ -83,7 +83,7 @@ flowchart TD
         K["구분 질문 응답<br/>POST …/questions/<br/>{question_id}/answer"]
         L["도표·수정요소 선택<br/>결정례 첨부<br/>select_chart_and_modifiers"]
         M["근거 체크<br/>check_evidence"]
-        N["반박 검토 · OpenAI LLM<br/>review_rebuttal"]
+        N["반박 검토<br/>OpenAI LLM<br/>review_rebuttal"]
         O["과실 코드 계산·검증<br/>calculate_and_validate_fault"]
         H -->|차대차·교차로| I --> J
         J -->|미확인 칸 있음| K
@@ -105,8 +105,8 @@ flowchart TD
     N -->|"사실 부족·모순, 또는<br/>두 번째 도표 오선택"| R2
     O --> R1
 
-    R1 & R2 & R3 --> S["보고서 1~7항목 템플릿 조립<br/>LLM 호출 없음<br/>GET …/reports/{version}"]
-    S --> T["담당자 검토·승인·이력<br/>POST …/reports/<br/>{version}/approve"]
+    R1 & R2 & R3 --> S["보고서 1~7항목<br/>템플릿 조립<br/>LLM 호출 없음<br/>GET …/reports/{version}"]
+    S --> T["담당자 검토<br/>승인·이력<br/>POST …/reports/<br/>{version}/approve"]
 ```
 
 `…`는 `/cases/{id}`의 줄임이다. 판단 그래프 상자의 영문 이름, `require_confirmed_card`, 판정 상태(둥근 상자)를 만드는
