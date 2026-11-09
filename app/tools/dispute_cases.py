@@ -2,6 +2,7 @@
 
 from app.retrieval import common
 from app.schemas.retrieval import EvidenceHit, SearchQuery
+from app.tools._evidence import validate_hits
 from app.tools._request import prepare_request
 
 
@@ -11,4 +12,5 @@ async def search_dispute_cases(query: SearchQuery) -> list[EvidenceHit]:
     A linked chart is a retrieval reference, not proof the chart fits new accident facts.
     Supporting chunks share the case parent_id with their fact-card chunk.
     """
-    return await common.search(prepare_request(query, "dispute_cases"))
+    request = prepare_request(query, "dispute_cases")
+    return validate_hits(request, await common.search(request))
