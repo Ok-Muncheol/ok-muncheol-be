@@ -70,7 +70,7 @@ CI 폴링: **`.venv/bin/python automation/bin/run_wait.py ci.yml main "<MERGE_SH
 
 ## Step 3: Vercel 프로덕션 배포 확인
 
-Vercel 프로젝트 `ok-muncheol-be`가 이 저장소에 연결되어 있다(README 「기술 구성」, 2026-11-06). `main` push를 Vercel이 감지해 프로덕션 배포를 시작하고, 결과를 머지 커밋의 **커밋 상태**(context `Vercel` — pending "Vercel is deploying your app" → success "Deployment has completed")로 남긴다. GitHub Deployment는 보지 않는다 — Vercel 프로젝트 설정에 따라 생기지 않을 수 있다(lumi BE·FE 0건, 2026-10-27 실측). FE·API를 한 Vercel 프로젝트로 묶는 쪽으로 바꾸면 상태는 그 프로젝트가 연결된 저장소의 커밋에만 붙는다 — 이 레포가 아니게 되면 이 단계는 `NOT_CONNECTED`로 돌아간다.
+Vercel 프로젝트 `ok-muncheol-be`가 이 저장소에 연결되어 있다(README 「기술 구성」, 2026-11-06). `main` push를 Vercel이 감지해 프로덕션 배포를 시작하고, 결과를 머지 커밋의 **커밋 상태**(context `Vercel` — pending "Vercel is deploying your app" → success "Deployment has completed")로 남긴다. GitHub Deployment는 보지 않는다 — Vercel 프로젝트 설정에 따라 생기지 않을 수 있다(lumi BE·FE 0건, 2026-10-27 실측). FE는 별도 Vercel 프로젝트(`ok-muncheol-fe`)라 이 단계는 BE 배포만 본다.
 
 배포 폴링: **`.venv/bin/python automation/bin/deploy_wait.py "<MERGE_SHA>"`** (30초 간격, 최대 10분) → `DEPLOY_RESULT` 마커. 연결 여부도 이 스크립트가 판정한다 — 머지 커밋에 `Vercel` 상태가 2분 안에 생기지 않으면 직전 `main` 커밋(첫 부모)의 상태로 가른다. 상태를 봤으면 마커에 `url=`(Vercel 배포 페이지)이 함께 찍힌다. 두 번째 인자로 health URL을 넘겨(`deploy_wait.py "<MERGE_SHA>" https://ok-muncheol-be.vercel.app/health`) 배포 뒤 200인지까지 본다(최대 3회, `health=`가 마커에 찍힌다). 운영 도메인이 바뀌면 이 URL을 고친다. 판정 로직은 스크립트 상단 주석이 원천이다(`tests/automation/test_deploy_wait.py`가 대역으로 검증).
 - `result=NOT_CONNECTED`(종료코드 0) → **Vercel 미연결** — 머지 커밋과 직전 `main` 커밋 어디에도 `Vercel` 상태가 없다. 지금은 연결돼 있으므로 이 결과가 나오면 Git 연동이 끊긴 것이다 — 대시보드의 Git 연결을 확인하도록 안내한다. Step 4로 가고, 최종 보고에 "프로덕션 배포 없음(Vercel 미연결) — `main` 반영까지"를 명시한다.
