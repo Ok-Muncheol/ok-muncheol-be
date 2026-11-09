@@ -180,10 +180,10 @@ app/
   claims/           옥석현 구상 패키지
   reports/          옥석현 템플릿 조립·버전/승인
 workers/vision/     정지원 로컬/Modal 공통 비전 진입점
-supabase/migrations/  DB·RLS·검색 함수 계획 문서 (SQL 없음)
+supabase/migrations/  DB·RLS 마이그레이션(사건 접근 기반·판단 테이블)과 담당별 추가 계획
 data/corpora/       김지은 세 코퍼스 manifest 양식 (원문/색인 없음)
 evals/retrieval/    김지은 평가셋 타입·합성 미라벨 양식·평가 진입점
-tests/              ship 스크립트 테스트(automation/), 기능 구현 후 추가할 동작 검증 계획
+tests/              API·검색·비전 평가·마이그레이션(migrations/)·ship 스크립트(automation/) 테스트
 scripts/            문법/import/JSON 검사·공통 견본 생성
 docs/               일정·공통 계약·아키텍처 이미지
 automation/         ship 하네스 명세·게이트/폴링 스크립트·민감 파일 훅
