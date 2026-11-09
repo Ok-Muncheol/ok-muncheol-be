@@ -1,6 +1,6 @@
 """B: 판단·질문·검증 3겹 계약. 수치는 검수한 구조 레코드에서 읽는다."""
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from app.schemas.common import JudgmentStatus, VersionRef
 from app.schemas.retrieval import EvidenceHit
@@ -21,10 +21,15 @@ class QuestionAnswer(TypedDict):
     unknown: bool
 
 
+RebuttalKind = Literal["wrong_chart", "missing_fact", "contradiction"]
+
+
 class ValidationCheck(TypedDict):
     layer: Literal["evidence", "rebuttal", "numerical"]
     passed: bool
     reasons: list[str]
+    # layer == "rebuttal" 이고 passed == False 이면 필수. wrong_chart만 차순위 도표 재실행 대상
+    rebuttal_kind: NotRequired[RebuttalKind | None]
 
 
 class JudgmentResult(TypedDict):
