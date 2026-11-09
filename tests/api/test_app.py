@@ -1,7 +1,9 @@
 """B(통합): 인증·오류 응답·경로 배선 검증. 서비스 함수는 바꿔 끼우고 DB·모델 없이 돈다."""
 
 import json
+import re
 import time
+from pathlib import Path
 
 import jwt
 import pytest
@@ -12,6 +14,7 @@ from app.api.errors import forbidden
 from app.config import Settings, get_settings
 from app.main import app, create_app
 
+ROOT = Path(__file__).resolve().parents[2]
 SECRET = "test-secret-at-least-32-bytes-long!!"
 KEY = {"Idempotency-Key": "req-00000001"}
 
@@ -105,7 +108,7 @@ def test_unimplemented_service_is_501(client):
 
 
 def test_validation_error_shape(client):
-    res = client.post("/cases/case-1/facts/confirm", json={"expected_version": 0},
+    res = client.post("/cases/case-1/fact-card/confirm", json={"expected_version": 0},
                       headers=token())
     assert res.status_code == 422
     assert res.json()["error"]["code"] == "invalid_request"
@@ -158,7 +161,7 @@ def test_service_api_exception_passes_through(client, monkeypatch):
     async def get_card(actor_id, case_id):
         raise forbidden()
     monkeypatch.setattr(facts, "get_fact_card", get_card)
-    res = client.get("/cases/case-1/facts", headers=token())
+    res = client.get("/cases/case-1/fact-card", headers=token())
     assert res.status_code == 403
     assert res.json()["error"]["code"] == "forbidden"
 
@@ -167,7 +170,7 @@ def test_unexpected_error_hides_details(client, monkeypatch):
     async def get_card(actor_id, case_id):
         raise RuntimeError("db password=hunter2")
     monkeypatch.setattr(facts, "get_fact_card", get_card)
-    res = client.get("/cases/case-1/facts", headers=token())
+    res = client.get("/cases/case-1/fact-card", headers=token())
     assert res.status_code == 500
     assert "hunter2" not in res.text
     assert res.json()["error"] == {"code": "internal_error",
@@ -243,3 +246,51 @@ def test_jwks_lookup_failures(client, monkeypatch, error, status, code):
     assert res.status_code == status
     assert res.json()["error"]["code"] == code
     assert res.json()["error"]["retryable"] is (status == 503)
+
+
+def _shape(path: str) -> str:
+    return re.sub(r"\{[^}]+\}", "{}", path)
+
+
+def _served_routes() -> set[tuple[str, str]]:
+    return {(method.upper(), _shape(path)) for path, ops in app.openapi()["paths"].items()
+            if path != "/health" for method in ops}
+
+
+def test_routes_follow_readme_api_table():
+    # README 「API 계약 제안」 표가 경로의 기준이다. 표의 경로는 모두 서버에 있어야 한다
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    rows = re.findall(r"^\|\s*`(GET|POST|PATCH|PUT|DELETE) (/[^`\s]*)`\s*\|", text, re.M)
+    designed = {(method, _shape(path)) for method, path in rows}
+    assert designed, "README API 표를 찾지 못했다"
+    missing = designed - _served_routes()
+    assert not missing, f"README 표에 있는데 서버에 없는 경로: {sorted(missing)}"
+
+
+def test_contract_doc_lists_exactly_the_served_routes():
+    text = (ROOT / "docs/contracts/README.md").read_text(encoding="utf-8")
+    rows = re.findall(r"^\|\s*([A-Z·]+)\s*\|\s*`(/[^`]*)`\s*\|", text, re.M)
+    documented = {(method, _shape(path)) for methods, path in rows for method in methods.split("·")}
+    assert documented == _served_routes()
+
+
+def test_answer_question_id_must_match_path(client):
+    body = {"question_id": "q-other", "expected_card_version": 2, "value": "red", "unknown": False}
+    res = client.post("/cases/case-1/questions/q-1/answer", json=body, headers=token())
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "question_mismatch"
+
+
+def test_answer_passes_actor_case_and_body(client, monkeypatch):
+    seen = {}
+
+    async def answer(actor_id, case_id, payload):
+        seen.update(actor=actor_id, case=case_id, question=payload["question_id"],
+                    unknown=payload["unknown"])
+        return {"status": "accepted"}
+
+    monkeypatch.setattr(judgments, "answer_question", answer)
+    body = {"question_id": "q-1", "expected_card_version": 2, "value": None, "unknown": True}
+    res = client.post("/cases/case-1/questions/q-1/answer", json=body, headers=token())
+    assert res.status_code == 200
+    assert seen == {"actor": "user-1", "case": "case-1", "question": "q-1", "unknown": True}

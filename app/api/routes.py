@@ -1,5 +1,8 @@
 """B(통합): HTTP 경로 → 담당 서비스 함수. FE `src/lib/api/client.ts`의 `ApiClient`와 1:1로 맞춘다.
 
+경로는 README 「API 계약 제안」 표가 기준이다.
+tests/api/test_app.py가 그 표·계약 문서와 서버 OpenAPI를 대조한다.
+
 이 파일은 경로·인증·요청 모양만 정한다. 권한·상태·버전 판단은 각 담당 서비스 함수가 한다.
 서비스는 모듈 속성으로 호출해(`cases.create_case`) 테스트에서 바꿔 끼울 수 있게 한다.
 미구현 서비스는 `NotImplementedError` → 501 `not_implemented`로 응답한다(app/api/errors.py).
@@ -58,17 +61,17 @@ async def get_case(actor_id: ActorId, case_id: str) -> dict[str, object]:
 
 
 # ── A: 사실 카드 ──────────────────────────────────────────────────
-@router.get("/cases/{case_id}/facts", tags=["A facts"])
+@router.get("/cases/{case_id}/fact-card", tags=["A facts"])
 async def get_fact_card(actor_id: ActorId, case_id: str) -> FactCard:
     return await facts.get_fact_card(actor_id, case_id)
 
 
-@router.patch("/cases/{case_id}/facts", tags=["A facts"])
+@router.patch("/cases/{case_id}/fact-card", tags=["A facts"])
 async def patch_fact_card(actor_id: ActorId, case_id: str, patch: FactPatch) -> FactCard:
     return await facts.patch_fact_card(actor_id, case_id, patch)
 
 
-@router.post("/cases/{case_id}/facts/confirm", tags=["A facts"])
+@router.post("/cases/{case_id}/fact-card/confirm", tags=["A facts"])
 async def confirm_fact_card(actor_id: ActorId, case_id: str, body: ConfirmRequest) -> FactCard:
     return await facts.confirm_fact_card(actor_id, case_id, body.expected_version)
 
@@ -87,10 +90,13 @@ async def start_judgment(
     return await judgments.start_judgment(actor_id, card, idempotency_key)
 
 
-@router.post("/cases/{case_id}/answers", tags=["B judgments"])
+@router.post("/cases/{case_id}/questions/{question_id}/answer", tags=["B judgments"])
 async def answer_question(
-    actor_id: ActorId, case_id: str, answer: QuestionAnswer
+    actor_id: ActorId, case_id: str, question_id: str, answer: QuestionAnswer
 ) -> dict[str, object]:
+    """경로의 질문 ID가 기준이다. 본문 QuestionAnswer의 question_id가 다르면 거절한다."""
+    if answer["question_id"] != question_id:
+        raise unprocessable("question_mismatch", "경로와 본문의 질문 ID가 다릅니다.")
     return await judgments.answer_question(actor_id, case_id, answer)
 
 
