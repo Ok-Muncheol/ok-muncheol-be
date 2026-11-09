@@ -19,16 +19,24 @@ class Keyframe:
     jpeg: bytes
 
 
+def motion_signature(frame):
+    """움직임 측정용 축소 흑백 프레임(160×90, 블러). 적응형 키프레임과 trajectory의 충돌 시점 추정이
+    같은 신호를 쓰도록 한곳에 둔다."""
+    import cv2
+    import numpy as np
+
+    small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (160, 90))
+    return cv2.GaussianBlur(small, (5, 5), 0).astype(np.float32)
+
+
 def motion_curve(frames: list) -> list[float]:
     """연속 프레임의 평균 절대 차분. 첫 프레임은 0."""
-    import cv2
     import numpy as np
 
     curve = [0.0]
     prev = None
     for frame in frames:
-        small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (160, 90))
-        small = cv2.GaussianBlur(small, (5, 5), 0).astype(np.float32)
+        small = motion_signature(frame)
         if prev is not None:
             curve.append(float(np.abs(small - prev).mean()))
         prev = small
