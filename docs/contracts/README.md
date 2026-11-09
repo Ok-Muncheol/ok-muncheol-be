@@ -23,6 +23,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 ## HTTP 경로
 
 `app/api/routes.py`가 FE `src/lib/api/client.ts`의 `ApiClient` 메서드와 1:1로 대응한다.
+경로는 README 「API 계약 제안」 표가 기준이고, `tests/api/test_app.py`가 그 표와 아래 표를 서버 OpenAPI와 대조한다.
 모든 경로는 `Authorization: Bearer <Supabase access token>`을 요구하고, 오류는 `{"error": ApiError}`로 돌려준다.
 
 | 메서드 | 경로 | 담당 | 비고 |
@@ -31,10 +32,10 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/uploads` | A | 서명 URL |
 | POST | `/cases/{id}/analysis` | A | `{storage_path}`, `Idempotency-Key` 필수, 202 |
 | GET | `/cases/{id}` | A | 상태 복원 |
-| GET·PATCH | `/cases/{id}/facts` | A | PATCH 본문은 `FactPatch` |
-| POST | `/cases/{id}/facts/confirm` | A | `{expected_version}` |
+| GET·PATCH | `/cases/{id}/fact-card` | A | PATCH 본문은 `FactPatch` |
+| POST | `/cases/{id}/fact-card/confirm` | A | `{expected_version}` |
 | POST | `/cases/{id}/judgments` | B | `{card_version}`, `Idempotency-Key` 필수, 202. 버전 불일치 409, 미확정 422 |
-| POST | `/cases/{id}/answers` | B | 본문은 `QuestionAnswer` |
+| POST | `/cases/{id}/questions/{question_id}/answer` | B | 본문은 `QuestionAnswer`. 본문 `question_id`가 경로와 다르면 422 `question_mismatch` |
 | POST | `/cases/{id}/qa` | B | `{text}`, 1차 확장 |
 | GET | `/cases/{id}/reports/{version}` | D | |
 | POST | `/cases/{id}/reports/{version}/approve` | D | |
@@ -46,7 +47,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 401 | `unauthorized` | 토큰 없음·만료·서명/발급자/audience 불일치 |
 | 403 | `forbidden` | 담당 사건이 아님(서비스 함수가 던짐) |
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
-| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed` 같은 처리 불가 상태 |
+| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch` 같은 처리 불가 상태 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
 | 503 | `auth_not_configured`·`auth_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패 |
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |
