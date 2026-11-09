@@ -1,3 +1,5 @@
+import json
+
 from evals.vision.evaluate import evaluate, format_table
 from evals.vision.keyframes import pick_adaptive, pick_uniform
 
@@ -143,3 +145,31 @@ def test_distance_allows_time_shift():
     shifted = [9, 1, 2, 3, 4, 5]  # 한 프레임 늦게 시작한 사본
     assert distance(a, shifted, max_shift=1) == 0.0
     assert distance(a, shifted, max_shift=0) > 0.0
+
+
+def test_gate_uses_precollision_and_simple_scope_requires_mapped_movements():
+    from evals.vision.evaluate import is_simple_scope
+    from evals.vision.quality import passes_gate
+
+    early = {"video_quality": {"sharpness": 200.0, "collision_sec": 1.5}}
+    assert passes_gate(early, min_sharpness=70.0)
+    assert not passes_gate(early, min_sharpness=70.0, min_precollision_sec=3.0)
+    assert not is_simple_scope({"movement_A": None, "movement_B": "left_turn"})
+
+
+def test_collision_onset_prefers_start_of_prominent_peak():
+    from evals.vision.quality import collision_onset
+
+    quiet = [1.0] * 150
+    assert collision_onset(quiet, 15.0) >= 1.0  # 뚜렷한 피크 없음 → 피크 시점(1초 이후)
+    burst = [1.0] * 45 + [20.0] * 30 + [1.0] * 75  # 3초에 충돌 시작, 피크는 그 뒤
+    assert 2.8 <= collision_onset(burst, 15.0) <= 3.3
+
+
+def test_collision_sec_prefers_yolo_peak(tmp_path):
+    from evals.vision.quality import collision_sec
+
+    cache = tmp_path / "x.json"
+    cache.write_text(json.dumps({"features": {"tracks": [
+        {"points": [{"t": 1.0, "w": 0.1, "h": 0.1}, {"t": 4.5, "w": 0.5, "h": 0.4}]}]}}))
+    assert collision_sec(tmp_path / "none.mp4", "x", tmp_path) == (4.5, "yolo")

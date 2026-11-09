@@ -35,7 +35,10 @@ input[type=text]{width:100%;box-sizing:border-box;font:inherit;padding:8px;borde
     <div class="row" id="ego">
       <button data-v="A">A<kbd>A</kbd></button><button data-v="B">B<kbd>B</kbd></button>
       <button data-v="unknown">모름<kbd>X</kbd></button>
+      <button data-v="exclude">제외: 상황 파악 불가<kbd>E</kbd></button>
     </div>
+    <div class="hint">제외: 클립이 교차로 진입 뒤에 시작해 출발 신호·차선을 확인할 수 없는 영상.
+      저장하면 사람 라벨 평가에서 빠진다(이유를 메모에 적어 두면 좋다).</div>
     <div class="hint">고르면 아래 진행 칸이 라벨대로 자동으로 채워진다. 틀린 것만 고치면 된다.</div>
   </div>
   <div class="card"><h2>2. 촬영 차량의 진행(의도 포함)</h2>
@@ -46,7 +49,7 @@ input[type=text]{width:100%;box-sizing:border-box;font:inherit;padding:8px;borde
     <h2>3. 상대 차량의 진행(의도 포함)</h2>
     <div class="row" id="moth">
       <button data-v="straight">직진<kbd>Q</kbd></button><button data-v="left_turn">좌회전<kbd>W</kbd></button>
-      <button data-v="right_turn">우회전<kbd>E</kbd></button><button data-v="u_turn">유턴<kbd>R</kbd></button>
+      <button data-v="right_turn">우회전<kbd>T</kbd></button><button data-v="u_turn">유턴<kbd>R</kbd></button>
     </div>
     <div class="hint">회전 차로에 있거나 방향지시등을 켜고 회전을 시작했으면 아직 돌지 않았어도 회전.</div>
   </div>
@@ -112,10 +115,11 @@ $('#save').onclick=()=>save(true);$('#skip').onclick=()=>go(1);$('#dup').onclick
 document.addEventListener('keydown',e=>{
   if(e.target.id==='note'){if(e.key==='Enter'){e.preventDefault();save(true);}return;}
   const v=$('#v');const k=e.key;
-  const m={a:'A',b:'B',x:'unknown'};
-  if(m[k.toLowerCase()]!==undefined&&!e.metaKey){pickEgo(m[k.toLowerCase()]);return;}
+  const m={a:'A',b:'B',x:'unknown',e:'exclude'};
+  if(m[k.toLowerCase()]!==undefined&&!e.metaKey&&k.toLowerCase()!=='e'){pickEgo(m[k.toLowerCase()]);return;}
+  if(k.toLowerCase()==='e'){pickEgo('exclude');return;}
   const me={'1':'straight','2':'left_turn','3':'right_turn','4':'u_turn'};
-  const mo={q:'straight',w:'left_turn',e:'right_turn',r:'u_turn'};
+  const mo={q:'straight',w:'left_turn',t:'right_turn',r:'u_turn'};
   if(me[k]){cur.movement_ego=me[k];render();return;}
   if(mo[k.toLowerCase()]){cur.movement_other=mo[k.toLowerCase()];render();return;}
   if(k==='Enter'){e.preventDefault();save(true);}

@@ -17,10 +17,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from app.schemas.chart_scope import FIELD_OPTIONS
-from evals.vision.keyframes import Strategy, extract_keyframes
+from evals.vision.keyframes import Strategy, extract_keyframes, signal_crops
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MODELS = {"openai": "gpt-5.5", "anthropic": "claude-opus-5-5"}
+DEFAULT_MODELS = {"openai": "gpt-5.4-mini", "anthropic": "claude-opus-5-5"}
 
 PREDICTED_FIELDS: tuple[str, ...] = (
     "location_type", "road_priority", "movement_A", "movement_B",
@@ -98,19 +98,31 @@ def load_env() -> None:
             os.environ.setdefault(key.strip(), value.strip().strip("'\""))
 
 
+SIGNAL_CROP_RULE = "signal 칸은 이 이미지의 신호등 색을 우선 근거로 삼아라."
+# 램프 위치(왼쪽부터 적·황·좌회전·녹)로 세게 한 변형은 2026-11-09 실험에서 더 나빴다(README 참고)
+
+
+def _image_part(jpeg: bytes, provider: str) -> dict:
+    b64 = base64.standard_b64encode(jpeg).decode()
+    if provider == "openai":
+        return {"type": "image_url", "image_url": {
+            "url": f"data:image/jpeg;base64,{b64}", "detail": "high"}}
+    return {"type": "image", "source": {
+        "type": "base64", "media_type": "image/jpeg", "data": b64}}
+
+
 def build_content(keyframes, point_of_view: int, provider: str,
                   known: dict[str, object] | None = None,
-                  trajectory_text: str | None = None) -> list[dict]:
+                  trajectory_text: str | None = None, crops=()) -> list[dict]:
     content: list[dict] = []
     for i, kf in enumerate(keyframes, start=1):
         content.append({"type": "text", "text": f"프레임 {i} (t={kf.timestamp_ms / 1000:.2f}s)"})
-        b64 = base64.standard_b64encode(kf.jpeg).decode()
-        if provider == "openai":
-            content.append({"type": "image_url", "image_url": {
-                "url": f"data:image/jpeg;base64,{b64}", "detail": "high"}})
-        else:
-            content.append({"type": "image", "source": {
-                "type": "base64", "media_type": "image/jpeg", "data": b64}})
+        content.append(_image_part(kf.jpeg, provider))
+    for i, kf in enumerate(crops, start=1):
+        # 신호등 판독용. 프레임 번호 체계와 섞이지 않게 따로 이름 붙인다
+        label = f"신호등 확인용 확대 이미지 {i} (화면 상단, t={kf.timestamp_ms / 1000:.2f}s). "
+        content.append({"type": "text", "text": label + SIGNAL_CROP_RULE})
+        content.append(_image_part(kf.jpeg, provider))
     view = "1인칭 블랙박스 영상(촬영 차량=B)" if point_of_view == 1 else "3인칭(CCTV) 영상"
     text = f"이 영상은 {view}이다."
     if known:
@@ -177,7 +189,9 @@ def _trajectory_features(video_path: Path, example_id: str, cache_dir: Path) -> 
 
 def predict_one(client, provider: str, model: str, example: dict, strategy: Strategy,
                 frames: int, evidence_dir: Path | None, known_fields: tuple[str, ...] = (),
-                max_width: int = 768, trajectory_cache: Path | None = None) -> dict:
+                max_width: int = 768, trajectory_cache: Path | None = None,
+                signal_crop_count: int = 0,
+                focus_window: tuple[float, float] | None = None) -> dict:
     started = time.time()
     trajectory_text = None
     trajectory_meta: dict = {}
@@ -187,15 +201,26 @@ def predict_one(client, provider: str, model: str, example: dict, strategy: Stra
         trajectory_text = features["text"]
         trajectory_meta = {"ego_turn": features["ego_turn"],
                            "ego_total_yaw": features["ego_total_yaw"]}
+    window = None
+    if focus_window is not None:
+        # 충돌 시각(YOLO 궤적 기준) 앞뒤 구간만 본다. 충돌 시각이 없으면 전체 구간
+        collision = (example.get("video_quality") or {}).get("collision_sec")
+        if collision is not None:
+            window = (collision - focus_window[0], collision + focus_window[1])
     keyframes = extract_keyframes(Path(example["video_path"]), k=frames, strategy=strategy,
-                                  max_width=max_width)
+                                  max_width=max_width, window_sec=window)
     known = {k: example["fields"][k] for k in known_fields if example["fields"].get(k) is not None}
     if evidence_dir:
         folder = evidence_dir / example["example_id"]
         folder.mkdir(parents=True, exist_ok=True)
         for i, kf in enumerate(keyframes, start=1):
             (folder / f"{i:02d}_{kf.frame_index}.jpg").write_bytes(kf.jpeg)
-    content = build_content(keyframes, example["point_of_view"], provider, known, trajectory_text)
+    crops = []
+    if signal_crop_count:
+        collision = (example.get("video_quality") or {}).get("collision_sec")
+        crops = signal_crops(Path(example["video_path"]), collision, n=signal_crop_count)
+    content = build_content(keyframes, example["point_of_view"], provider, known,
+                            trajectory_text, crops)
     call = call_openai if provider == "openai" else call_anthropic
     parsed, usage, served_model = call(client, model, content)
     fields = {}
@@ -222,6 +247,8 @@ def predict_one(client, provider: str, model: str, example: dict, strategy: Stra
             "provider": provider, "model": served_model, "strategy": strategy,
             "frames": len(keyframes), "keyframe_indices": [kf.frame_index for kf in keyframes],
             "max_width": max_width, "known_fields": sorted(known), "trajectory": trajectory_meta,
+            "signal_crops": [kf.frame_index for kf in crops],
+            "focus_window": list(window) if window else None,
             "usage": usage, "seconds": round(time.time() - started, 2),
         },
     }
@@ -244,10 +271,20 @@ def main() -> None:
     parser.add_argument("--known-fields", default="",
                         help="정답을 입력으로 주는 칸(쉼표 구분). 예: location_type")
     parser.add_argument("--max-width", type=int, default=768, help="키프레임 가로 픽셀")
+    parser.add_argument("--focus-window", default=None,
+                        help="'전,후' 초. 충돌 시각 기준 그 구간에서만 키프레임을 뽑는다. "
+                             "예: 3,0.5")
+    parser.add_argument("--signal-crops", type=int, default=0,
+                        help="충돌 전 N초부터 1초 간격으로 화면 상단을 고해상도로 잘라 "
+                             "신호등 판독에 붙인다")
     parser.add_argument("--trajectory-cache", type=Path, default=None,
                         help="주면 광류·YOLO 궤적 특징을 프롬프트에 붙인다(캐시 디렉터리)")
     args = parser.parse_args()
     known_fields = tuple(k for k in args.known_fields.split(",") if k)
+    focus_window = None
+    if args.focus_window:
+        before, after = (float(x) for x in args.focus_window.split(","))
+        focus_window = (before, after)
 
     load_env()
     model = args.model or DEFAULT_MODELS[args.provider]
@@ -273,13 +310,15 @@ def main() -> None:
         todo = todo[: args.limit]
     print(f"{len(todo)} to run ({len(done)} done) {args.provider}/{model} "
           f"strategy={args.strategy} frames={args.frames} width={args.max_width} "
-          f"known={list(known_fields)} trajectory={args.trajectory_cache is not None}",
+          f"known={list(known_fields)} trajectory={args.trajectory_cache is not None} "
+          f"signal_crops={args.signal_crops} focus_window={focus_window}",
           file=sys.stderr)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("a") as out, ThreadPoolExecutor(args.workers) as pool:
         futures = {pool.submit(predict_one, client, args.provider, model, e, args.strategy,
                                args.frames, args.evidence_dir, known_fields,
-                               args.max_width, args.trajectory_cache): e for e in todo}
+                               args.max_width, args.trajectory_cache,
+                               args.signal_crops, focus_window): e for e in todo}
         for n, future in enumerate(as_completed(futures), start=1):
             example = futures[future]
             try:

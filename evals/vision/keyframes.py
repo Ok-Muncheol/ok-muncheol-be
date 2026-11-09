@@ -72,7 +72,10 @@ def pick_adaptive(curve: list[float], k: int) -> list[int]:
 
 
 def extract_keyframes(video_path: Path, k: int = 10, strategy: Strategy = "adaptive",
-                      max_width: int = 768, jpeg_quality: int = 85) -> list[Keyframe]:
+                      max_width: int = 768, jpeg_quality: int = 85,
+                      window_sec: tuple[float, float] | None = None) -> list[Keyframe]:
+    """window_sec=(start, end)를 주면 그 구간 안에서만 고른다(충돌 전 구간 집중용).
+    구간이 k프레임보다 짧으면 있는 프레임을 전부 쓴다."""
     import cv2
 
     cap = cv2.VideoCapture(str(video_path))
@@ -88,13 +91,21 @@ def extract_keyframes(video_path: Path, k: int = 10, strategy: Strategy = "adapt
     cap.release()
     if not frames:
         raise ValueError(f"no frames: {video_path}")
+    offset = 0
+    if window_sec is not None:
+        start = max(0, int(window_sec[0] * fps))
+        end = min(len(frames), int(window_sec[1] * fps) + 1)
+        if end - start >= 2:
+            frames, offset = frames[start:end], start
+    k = min(k, len(frames))
     if strategy == "adaptive":
         picks = pick_adaptive(motion_curve(frames), k)
     else:
         picks = pick_uniform(len(frames), k)
     out = []
-    for idx in picks:
-        frame = frames[idx]
+    for local in picks:
+        frame = frames[local]
+        idx = local + offset
         h, w = frame.shape[:2]
         if w > max_width:
             frame = cv2.resize(frame, (max_width, round(h * max_width / w)))
@@ -103,3 +114,37 @@ def extract_keyframes(video_path: Path, k: int = 10, strategy: Strategy = "adapt
             raise ValueError(f"jpeg encode failed: {video_path}#{idx}")
         out.append(Keyframe(idx, round(idx * 1000 / fps), bytes(buf)))
     return out
+
+
+def signal_crops(video_path: Path, collision_sec: float | None, n: int = 3,
+                 top_ratio: float = 0.55, width: int = 1536,
+                 jpeg_quality: int = 90) -> list[Keyframe]:
+    """신호등 확인용 확대 이미지. 충돌 n초 전부터 1초 간격으로 화면 상단(top_ratio)을
+    원본 해상도에 가깝게 잘라 낸다. 키프레임을 768px로 줄이면 신호등이 몇 픽셀로
+    뭉개지는 문제를 보완한다."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise FileNotFoundError(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 15.0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    anchor = collision_sec if collision_sec is not None else total / fps / 2
+    crops: list[Keyframe] = []
+    for back in range(n, 0, -1):
+        idx = int(max(0.0, anchor - back) * fps)
+        idx = min(max(idx, 0), max(total - 1, 0))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ok, frame = cap.read()
+        if not ok:
+            continue
+        h, w = frame.shape[:2]
+        crop = frame[: int(h * top_ratio), :]
+        if w > width:
+            crop = cv2.resize(crop, (width, int(crop.shape[0] * width / w)),
+                              interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+        crops.append(Keyframe(frame_index=idx, timestamp_ms=int(idx / fps * 1000),
+                              jpeg=buf.tobytes()))
+    cap.release()
+    return crops

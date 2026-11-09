@@ -45,13 +45,17 @@ def _bucket(confidence: float | None) -> str:
 
 
 def is_simple_scope(fields: dict) -> bool:
-    """유턴이 끼거나 둘 다 우회전인 드문 유형은 단순 범위에서 뺀다(100건 중 7건, 진행 0~0.33)."""
+    """단순 범위: 두 차의 진행이 모두 카드 enum에 매핑되고(추월·중앙선 침범·정차 후 출발 제외),
+    유턴이 없고, 둘 다 우회전인 드문 유형이 아닌 건."""
     moves = (fields.get("movement_A"), fields.get("movement_B"))
+    if None in moves:
+        return False
     return "u_turn" not in moves and moves != ("right_turn", "right_turn")
 
 
 def select_rows(gt_rows: list[dict], mvp_only: bool = True, min_sharpness: float | None = None,
-                simple_scope: bool = False, include_duplicates: bool = False) -> list[dict]:
+                simple_scope: bool = False, include_duplicates: bool = False,
+                min_precollision_sec: float | None = None) -> list[dict]:
     """채점 대상 정답 행. 화질 게이트(video_quality.sharpness)와 단순 범위를 같이 적용한다.
     중복 영상(dedupe.py 표시)은 기본으로 뺀다. 라벨이 충돌하는 그룹은 전부 빼고,
     같은 라벨 그룹은 대표 하나만 남긴다."""
@@ -60,21 +64,21 @@ def select_rows(gt_rows: list[dict], mvp_only: bool = True, min_sharpness: float
     rows = [r for r in gt_rows if not mvp_only or r.get("in_mvp_scope")]
     if not include_duplicates:
         rows = [r for r in rows if not r.get("duplicate_conflict") and not r.get("duplicate_of")]
-    if min_sharpness is not None:
-        rows = [r for r in rows if passes_gate(r, min_sharpness)]
+    if min_sharpness is not None or min_precollision_sec is not None:
+        rows = [r for r in rows if passes_gate(r, min_sharpness, min_precollision_sec)]
     if simple_scope:
         rows = [r for r in rows if is_simple_scope(r["fields"])]
     return rows
 
 
 def evaluate(gt_rows: list[dict], pred_rows: list[dict],
-             mvp_only: bool = True) -> dict[str, object]:
+             mvp_only: bool = True, given_fields: tuple[str, ...] = ()) -> dict[str, object]:
     """칸별 정확도와 칸 평균(macro: 칸 정확도의 평균, micro: 채점한 셀 전체의 정답 비율)을 낸다.
     예측 쪽이 입력으로 받은 칸(meta.known_fields)과 상수 칸 accident_type은 평균에서 뺀다."""
     preds = {p["example_id"]: p for p in pred_rows}
     scored = 0
     missing_pred = 0
-    given: set[str] = {"accident_type"}
+    given: set[str] = {"accident_type", *given_fields}
     for p in pred_rows:
         given.update((p.get("meta") or {}).get("known_fields") or ())
     per_field: dict[str, dict] = defaultdict(lambda: {
@@ -159,12 +163,25 @@ def main() -> None:
     parser.add_argument("--min-sharpness", type=float, default=None,
                         help="화질 게이트. 이 값 미만(video_quality.sharpness)은 채점에서 뺀다")
     parser.add_argument("--simple-scope", action="store_true",
-                        help="유턴·우회전끼리 유형을 뺀다")
+                        help="진행이 enum 밖이거나 유턴·우회전끼리인 유형을 뺀다")
+    parser.add_argument("--min-precollision-sec", type=float, default=None,
+                        help="충돌(움직임 피크) 전 맥락이 이 초 미만인 클립을 뺀다")
+    parser.add_argument("--given-fields", default="",
+                        help="사용자·지도 입력으로 받기로 한 칸(쉼표 구분). 칸 평균에서 뺀다")
+    parser.add_argument("--location-type", default=None,
+                        help="이 장소 종류의 사건만 채점한다(예: signalized_intersection)")
     args = parser.parse_args()
     gt_rows = select_rows(read_jsonl(args.gt), mvp_only=not args.all_scope,
-                          min_sharpness=args.min_sharpness, simple_scope=args.simple_scope)
-    report = evaluate(gt_rows, read_jsonl(args.pred), mvp_only=not args.all_scope)
+                          min_sharpness=args.min_sharpness, simple_scope=args.simple_scope,
+                          min_precollision_sec=args.min_precollision_sec)
+    if args.location_type:
+        gt_rows = [r for r in gt_rows if r["fields"].get("location_type") == args.location_type]
+    given_fields = tuple(k for k in args.given_fields.split(",") if k)
+    report = evaluate(gt_rows, read_jsonl(args.pred), mvp_only=not args.all_scope,
+                      given_fields=given_fields)
     report["filters"] = {"min_sharpness": args.min_sharpness, "simple_scope": args.simple_scope,
+                         "min_precollision_sec": args.min_precollision_sec,
+                         "location_type": args.location_type, "given_fields": list(given_fields),
                          "gt_rows": len(gt_rows)}
     print(format_table(report))
     if args.out:

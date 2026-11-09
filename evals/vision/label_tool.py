@@ -8,8 +8,10 @@
 
 브라우저에서 http://127.0.0.1:8765 를 연다. 표준 라이브러리만 쓴다(추가 의존성 없음).
 저장 형식(JSONL, example_id로 덮어씀):
-    {"example_id", "ego_party": "A"|"B"|"unknown", "movement_ego", "movement_other",
+    {"example_id", "ego_party": "A"|"B"|"unknown"|"exclude", "movement_ego", "movement_other",
      "note", "labeled_at"}
+ego_party "exclude"는 클립이 교차로 진입 뒤에 시작해 출발 신호·차선을 확인할 수 없는 영상.
+사람 라벨 기준 평가에서 뺀다.
 """
 
 import argparse
@@ -162,8 +164,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path != "/api/label":
             self.send_error(404)
             return
-        if row.get("example_id") not in self.by_id or row.get("ego_party") not in ("A", "B",
-                                                                                     "unknown"):
+        if (row.get("example_id") not in self.by_id
+                or row.get("ego_party") not in ("A", "B", "unknown", "exclude")):
             self._json({"error": "bad label"}, 400)
             return
         for key in ("movement_ego", "movement_other"):
@@ -198,12 +200,14 @@ def _append_manual_duplicate(a: str, b: str, path: Path = MANUAL_DUPLICATES) -> 
 
 
 def select_examples(gt: Path, ids_from: Path | None, limit: int,
-                    min_sharpness: float | None = None, simple_scope: bool = False) -> list[dict]:
+                    min_sharpness: float | None = None, simple_scope: bool = False,
+                    min_precollision_sec: float | None = None) -> list[dict]:
     from evals.vision.evaluate import select_rows
 
     rows = [json.loads(line) for line in gt.read_text().splitlines() if line.strip()]
     rows = [r for r in rows if r["video_path"]]
-    rows = select_rows(rows, mvp_only=True, min_sharpness=min_sharpness, simple_scope=simple_scope)
+    rows = select_rows(rows, mvp_only=True, min_sharpness=min_sharpness, simple_scope=simple_scope,
+                       min_precollision_sec=min_precollision_sec)
     if ids_from:
         order = [json.loads(line)["example_id"] for line in ids_from.read_text().splitlines()
                  if line.strip()]
@@ -223,10 +227,12 @@ def main() -> None:
     parser.add_argument("--web-cache", type=Path, default=Path("data/private/aihub/web"),
                         help="브라우저용 H.264 변환본 캐시 디렉터리")
     parser.add_argument("--min-sharpness", type=float, default=None, help="화질 게이트 통과분만")
-    parser.add_argument("--simple-scope", action="store_true", help="유턴·우회전끼리 유형 제외")
+    parser.add_argument("--simple-scope", action="store_true", help="단순 범위만")
+    parser.add_argument("--min-precollision-sec", type=float, default=None,
+                        help="충돌 전 맥락이 이 초 미만인 클립 제외")
     args = parser.parse_args()
     examples = select_examples(args.gt, args.ids_from, args.limit, args.min_sharpness,
-                               args.simple_scope)
+                               args.simple_scope, args.min_precollision_sec)
     handler = partial(Handler, examples=examples, out=args.out, web_cache=args.web_cache)
 
     def pretranscode() -> None:  # 보는 동안 뒤에서 미리 변환해 둔다
