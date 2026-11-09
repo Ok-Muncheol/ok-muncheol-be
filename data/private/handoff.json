@@ -24,26 +24,26 @@
         {
           "path": "data/private/01_fault_standards/processed/chunks.jsonl",
           "role": "searchable chunks",
-          "bytes": 2671606,
-          "sha256": "493b0cc1bfbfc4dd41e10723d3fbbfb02a5ac28b2f7b8c184399bdef267c8b46"
+          "bytes": 2823901,
+          "sha256": "fe2b9647e56c80e661eafc32e8db32fd85dd12844b5d275949adafd6ce75e257"
         },
         {
           "path": "data/private/01_fault_standards/processed/embeddings.jsonl",
           "role": "precomputed document vectors",
-          "bytes": 31522956,
-          "sha256": "9ac71b9bf58b122d75ab326ee29b4da66f776075237aec73bd6908ac693f465a"
+          "bytes": 31675251,
+          "sha256": "2f40e69c43d12ad3dd21f82f08a55562df00fc72ee6f45d09ebb6d6012c31e1b"
         },
         {
           "path": "data/private/01_fault_standards/evaluation.jsonl",
           "role": "evaluation questions and reference parent IDs",
-          "bytes": 265098,
-          "sha256": "9b2884afe59a89edec9f06f45171bd7a2376ebb1e165d2172e05bba79d7180a5"
+          "bytes": 279998,
+          "sha256": "d4b2f73cbaa8bf294cb9f39e298eef88fb3029a33cd5bf54f6ea1a6d030ed900"
         },
         {
           "path": "data/private/01_fault_standards/processed/charts.jsonl",
           "role": "charts",
-          "bytes": 380779,
-          "sha256": "a665a09d8a9acafa945133b3f07d878ae0bb92a077047d534df483cf8f392d1f"
+          "bytes": 398599,
+          "sha256": "d70c98369d272f493d807ac5ca654477e3e056dd949cd195c4d04c4383d45c24"
         },
         {
           "path": "data/private/01_fault_standards/processed/modifiers.jsonl",
@@ -61,13 +61,17 @@
       "documents": [
         {
           "edition": "2023.6",
-          "source_uri": "file:///C:/Users/Admin/Desktop/230630_자동차사고%20과실비율%20인정기준_최종.pdf",
+          "source_uri": "230630_자동차사고 과실비율 인정기준_최종.pdf",
           "document_id": "fault-standards-2023-06",
           "content_hash": "6502fca09a6f9cb26c6166f182429f9c947582dbdbbe1e844a3c7949fbfab06e",
           "effective_from": "",
           "effective_to": null,
           "corpus": "fault_standards",
-          "parser_version": "pdfplumber-0.11.10:v1"
+          "parser_version": "pdfplumber-0.11.10:v1",
+          "effective_period_status": "unknown",
+          "effective_from_source": null,
+          "source_name": "230630_자동차사고 과실비율 인정기준_최종.pdf",
+          "source_uri_type": "document_name_not_download_url"
         }
       ],
       "no_answer_questions": 0,
@@ -91,44 +95,48 @@
         {
           "path": "data/private/02_dispute_cases/processed/chunks.jsonl",
           "role": "searchable chunks",
-          "bytes": 2149142,
-          "sha256": "4c740176d2eb7cfba58fba56082f5c6f6cd1bc8d0176e7bdf036ec1a50998fa1"
+          "bytes": 2524727,
+          "sha256": "d2feac52bff3cfa8840e00614c2c5c629b96440a2203840267e3479843efa4f8"
         },
         {
           "path": "data/private/02_dispute_cases/processed/embeddings.jsonl",
           "role": "precomputed document vectors",
-          "bytes": 37463705,
-          "sha256": "02b6793c5f1c63e8248cb38794d94a4e7cea5f75ba57432172cf74b3f45ac329"
+          "bytes": 37839290,
+          "sha256": "2997a6219f868922f1d599c6b239cb9b01064b3aad8bbe2bc9e429b132727482"
         },
         {
           "path": "data/private/02_dispute_cases/evaluation.jsonl",
           "role": "evaluation questions and reference parent IDs",
-          "bytes": 273757,
-          "sha256": "ce7012aeff01b8dd3fc909d942a9ef5e0a9aaf86d44f901c4b3ad44a3627516c"
+          "bytes": 288657,
+          "sha256": "d7e5e48c0ec2d964d8120e59e787a2327455002643e974aafe15c0ec614e73d8"
         },
         {
           "path": "data/private/02_dispute_cases/processed/cases.jsonl",
           "role": "cases",
-          "bytes": 1266762,
-          "sha256": "0262dfd7f7e8f6fc91bba743ec38edb41c070ffe6eb259cb4f2a3f2dd3ff18b8"
+          "bytes": 1379664,
+          "sha256": "57e86911d552aab00848c0c4d8252d8b1a7b320a007a1c614ec2305284496035"
         },
         {
           "path": "data/private/02_dispute_cases/processed/chart_mappings.jsonl",
           "role": "chart_mappings",
-          "bytes": 147651,
-          "sha256": "06033cae3460833e4803e20d33efb9ddd3cde8b0b03108775730632be1ba861f"
+          "bytes": 195336,
+          "sha256": "26b4378202ea67b138d5f9f784725b497eeeea0c6c6bbba81d4246d0d62520b2"
         }
       ],
       "documents": [
         {
           "edition": "unconfirmed",
-          "source_uri": "file:///C:/Users/Admin/Desktop/(최종)과실비율심의사례_web.pdf",
+          "source_uri": "(최종)과실비율심의사례_web.pdf",
           "document_id": "dispute-cases-web",
           "content_hash": "3c1902f03df8ffc0bde03d4844c631e9dc82688dc6b29ac25af48d528e41260e",
           "effective_from": "",
           "effective_to": null,
           "corpus": "dispute_cases",
-          "parser_version": "pdfplumber-0.11.10:v2-visible-dedup"
+          "parser_version": "pdfplumber-0.11.10:v2-visible-dedup",
+          "effective_period_status": "unknown",
+          "effective_from_source": null,
+          "source_name": "(최종)과실비율심의사례_web.pdf",
+          "source_uri_type": "document_name_not_download_url"
         }
       ],
       "no_answer_questions": 0,
@@ -151,44 +159,48 @@
         {
           "path": "data/private/03_policy_terms/processed/chunks.jsonl",
           "role": "searchable chunks",
-          "bytes": 1881399,
-          "sha256": "002420b0cf7f3c6465467d578f1e828f32b4614b7bdd6f0c600b32ddc00907f1"
+          "bytes": 2040203,
+          "sha256": "080561e6f050a4052c886725cef3488113b29a7379183ceb5cb1d013a5fd8fb2"
         },
         {
           "path": "data/private/03_policy_terms/processed/embeddings.jsonl",
           "role": "precomputed document vectors",
-          "bytes": 17347226,
-          "sha256": "fbe9bf9cde8edf5eb702787afde478e6dc3aaebea5e7b65de81bfb4506bc92eb"
+          "bytes": 17506030,
+          "sha256": "3d537ff92cf34551b24fa4e55e1b58cadb9ff2e38af2868612c6f6429bed23fb"
         },
         {
           "path": "data/private/03_policy_terms/evaluation.jsonl",
           "role": "evaluation questions and reference parent IDs",
-          "bytes": 234895,
-          "sha256": "db5326d5e124fe23d27c177405b177a116ef83ec91b28f7a414156e08477c21a"
+          "bytes": 245535,
+          "sha256": "564ae1bda216cb85acf92d70d6a01372243900a2d0330d172256fb8e8756ea73"
         },
         {
           "path": "data/private/03_policy_terms/processed/clauses.jsonl",
           "role": "clauses",
-          "bytes": 757368,
-          "sha256": "e5beaf26aa54519dbc49694e014ea9ba3a92092c2f1b85c519d8fba25ed81fe9"
+          "bytes": 831028,
+          "sha256": "2ee7a94eadf02add581aba9e551c13e45906688aa026bb7ccf9ab2136f6f53a5"
         },
         {
           "path": "data/private/03_policy_terms/processed/appendices.jsonl",
           "role": "appendices",
-          "bytes": 388194,
-          "sha256": "71aa358714a46b1ef8d5794113fa4a83a70f24b65a7eb9ace910a2ee7a0213d0"
+          "bytes": 411626,
+          "sha256": "d337bf31ad54a0d955183f29a881cee530e86d61dfb16a2b4ae995922694eb90"
         }
       ],
       "documents": [
         {
-          "edition": "2026.11.11 개정 (표지)",
-          "source_uri": "file:///C:/Users/Admin/Desktop/삼성화재약관.pdf",
+          "edition": "2026.11.11",
+          "source_uri": "삼성화재약관.pdf",
           "document_id": "samsung-personal-auto-2026-11-11",
           "content_hash": "ca7f8fd3beb10b1eaba4d0acc54e930c8fd9ae15ee0b578b7796c6e1eec722d4",
           "effective_from": "",
           "effective_to": null,
           "corpus": "policy_terms",
-          "parser_version": "pdfplumber-0.11.10:v2-visible-dedup"
+          "parser_version": "pdfplumber-0.11.10:v2-visible-dedup",
+          "effective_period_status": "unknown",
+          "effective_from_source": null,
+          "source_name": "삼성화재약관.pdf",
+          "source_uri_type": "document_name_not_download_url"
         }
       ],
       "no_answer_questions": 0,

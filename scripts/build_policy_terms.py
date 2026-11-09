@@ -12,16 +12,18 @@ from build_dispute_cases import read, write
 
 from app.ingestion.policy_layout import extract_columns
 from app.ingestion.preprocess import preprocess_chunks
+from app.ingestion.retrieval_metadata import normalize_document, policy_coverage
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("blocks", type=Path)
     p.add_argument("--output", required=True, type=Path)
+    p.add_argument("--source-pdf", type=Path, help="Local PDF path, separate from display citation")
     a = p.parse_args()
     blocks = read(a.blocks)
     pages = [b for b in blocks if b["kind"] == "text"]
-    doc = pages[0]["document"]
+    doc = normalize_document(pages[0]["document"])
     if doc["document_id"] != "samsung-personal-auto-2026-11-11":
         p.error("이 스크립트의 페이지 경계는 제공된 삼성화재 약관 전용입니다.")
     # 목차·가이드와 본문을 구별한다. 다른 개정판은 경계 재확인이 필요하다.
@@ -29,7 +31,7 @@ def main():
     layouts = {}
     # 중간 목차는 원문 블록에 보존하되 조항 본문/비고로 색인하지 않는다.
     contents_pages = {58, 70, 78}
-    source = unquote(urlparse(doc["source_uri"]).path).lstrip("/")
+    source = a.source_pdf or unquote(urlparse(doc["source_uri"]).path).lstrip("/")
     # 이 PDF의 본문 제목(9.7pt)과 목차/주석 글꼴을 구별한다.
     with pdfplumber.open(source) as pdf:
         for b in pages:
@@ -139,6 +141,7 @@ def main():
                 "contract_edition_requires_confirmation",
             ],
         }
+        record.update(policy_coverage(record))
         records.append(record)
         for j, (source_page, text) in enumerate(pieces):
             chunks.append(
@@ -154,7 +157,7 @@ def main():
                         "clause_id": parent,
                         "article_number": record["article_number"],
                         "rider_number": record["rider_number"],
-                        "coverage": None,
+                        **policy_coverage(record),
                         "coverage_mentions": record["coverage_mentions"],
                         "side_note_parent_ids": record["side_note_parent_ids"],
                         "layout_version": "samsung-20261111-columns-v1",

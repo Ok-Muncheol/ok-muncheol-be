@@ -13,6 +13,7 @@ import pdfplumber
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.ingestion.preprocess import preprocess_chunks
+from app.ingestion.retrieval_metadata import candidate_chart_metadata
 
 
 def read(path):
@@ -31,6 +32,7 @@ def main():
     p.add_argument("--standards-blocks", type=Path, required=True)
     p.add_argument("--charts", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--source-pdf", type=Path, help="Local PDF path, separate from display citation")
     a = p.parse_args()
     blocks, standards, charts = read(a.blocks), read(a.standards_blocks), read(a.charts)
     mappings = []
@@ -58,7 +60,7 @@ def main():
     chart_index = {c["chart_id"]: c for c in charts}
     pages = [b for b in blocks if b["kind"] == "text"]
     source_pdf = pdfplumber.open(
-        unquote(urlparse(pages[0]["document"]["source_uri"]).path).lstrip("/")
+        a.source_pdf or unquote(urlparse(pages[0]["document"]["source_uri"]).path).lstrip("/")
     )
     groups = []
     for b in pages:
@@ -233,6 +235,7 @@ def main():
             "issues": issues,
             "split_group_id": f"dispute:{case_id}",
         }
+        record.update(candidate_chart_metadata(record))
         records.append(record)
         units = [("사고 사실", start, facts)] + [
             (name, x["page"], x["text"]) for name, rows in sections.items() for x in rows
@@ -256,7 +259,7 @@ def main():
                         "legacy_chart_ids": refs,
                         "chart_id_candidates": candidates,
                         "related_chart_ids": [],
-                        "mapping_status": "candidate_only",
+                        **candidate_chart_metadata(record),
                         "embedding_ready": False,
                         "retrieval_role": "card_similarity"
                         if name == "사고 사실"
