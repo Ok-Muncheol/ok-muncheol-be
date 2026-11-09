@@ -2,6 +2,7 @@
 
 from app.retrieval import common
 from app.schemas.retrieval import EvidenceHit, SearchQuery
+from app.tools._evidence import validate_hits
 from app.tools._request import prepare_request
 
 
@@ -11,4 +12,5 @@ async def search_fault_standards(query: SearchQuery) -> list[EvidenceHit]:
     Movement and signal fields are unreviewed candidates, so they are not hard filters.
     An unknown effective period must not exclude the document by accident date.
     """
-    return await common.search(prepare_request(query, "fault_standards"))
+    request = prepare_request(query, "fault_standards")
+    return validate_hits(request, await common.search(request))

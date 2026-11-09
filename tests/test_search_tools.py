@@ -1,9 +1,11 @@
 import asyncio
+from copy import deepcopy
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.retrieval import common
+from app.tools._evidence import _load
 from app.tools.dispute_cases import search_dispute_cases
 from app.tools.fault_standards import search_fault_standards
 from app.tools.policy_terms import search_policy_terms
@@ -80,3 +82,58 @@ def test_rejects_invalid_request_before_common_search(monkeypatch):
             search_dispute_cases({"text": "사실", "accident_date": "", "filters": {}, "top_k": 0})
         )
     search.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("tool", "corpus", "filters"),
+    [
+        (search_fault_standards, "fault_standards", {}),
+        (search_dispute_cases, "dispute_cases", {"chart_id": "차1-1"}),
+        (search_policy_terms, "policy_terms", {"edition": "2026.11.11"}),
+    ],
+)
+def test_real_corpus_hit_links_to_structured_record_and_pdf(monkeypatch, tool, corpus, filters):
+    chunks = _load(corpus)[0].values()
+    chunk = next(
+        row
+        for row in chunks
+        if all(
+            row["document"].get(key) == value or row["metadata"].get(key) == value
+            for key, value in filters.items()
+        )
+    )
+    hit = {"chunk": chunk, "score": 0.8, "retrieval_version": "test"}
+    monkeypatch.setattr(common, "search", AsyncMock(return_value=[hit]))
+    result = asyncio.run(
+        tool({"text": "근거", "accident_date": "", "filters": filters, "top_k": 1})
+    )
+    assert result == [hit]
+
+
+def test_rejects_page_or_text_not_in_index(monkeypatch):
+    original = next(iter(_load("fault_standards")[0].values()))
+    bad = deepcopy(original)
+    bad["page_start"] += 1
+    hit = {"chunk": bad, "score": 0.8, "retrieval_version": "test"}
+    monkeypatch.setattr(common, "search", AsyncMock(return_value=[hit]))
+    with pytest.raises(ValueError, match="indexed source"):
+        asyncio.run(
+            search_fault_standards({"text": "근거", "accident_date": "", "filters": {}, "top_k": 1})
+        )
+
+
+def test_rejects_result_outside_requested_chart(monkeypatch):
+    case = next(iter(_load("dispute_cases")[0].values()))
+    hit = {"chunk": case, "score": 0.8, "retrieval_version": "test"}
+    monkeypatch.setattr(common, "search", AsyncMock(return_value=[hit]))
+    with pytest.raises(ValueError, match="requested filters"):
+        asyncio.run(
+            search_dispute_cases(
+                {
+                    "text": "근거",
+                    "accident_date": "",
+                    "filters": {"chart_id": "차999-1"},
+                    "top_k": 1,
+                }
+            )
+        )
