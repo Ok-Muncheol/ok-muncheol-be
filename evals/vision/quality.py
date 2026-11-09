@@ -69,10 +69,10 @@ def collision_sec(video_path: Path, example_id: str | None = None,
     """(충돌 시각, 출처). example_id가 있으면 YOLO 궤적(없으면 계산해 캐시)의 최대 박스 시점을
     우선 쓴다."""
     if example_id is not None:
-        from evals.vision.run_vlm import _trajectory_features
+        from evals.vision.trajectory import cached_tracks
 
-        features = _trajectory_features(video_path, example_id, cache_dir)["features"]
-        points = [(p["t"], p["w"] * p["h"]) for tr in features["tracks"] for p in tr["points"]]
+        tracks = cached_tracks(video_path, cache_dir, example_id)
+        points = [(p["t"], p["w"] * p["h"]) for tr in tracks for p in tr["points"]]
         if points:
             return max(points, key=lambda x: x[1])[0], "yolo"
     return motion_collision_sec(video_path), "motion"

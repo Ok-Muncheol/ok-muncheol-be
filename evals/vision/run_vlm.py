@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from app.schemas.chart_scope import FIELD_OPTIONS
+from evals.vision import trajectory
 from evals.vision.keyframes import Strategy, extract_keyframes, signal_crops
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -172,21 +173,6 @@ def call_anthropic(client, model: str, content: list[dict]) -> tuple[dict, dict,
     return json.loads(text), response.usage.to_dict(), response.model
 
 
-def _trajectory_features(video_path: Path, example_id: str, cache_dir: Path) -> dict:
-    """광류·YOLO 궤적 특징. 건당 수 초 걸리므로 JSON으로 캐시한다."""
-    from evals.vision import trajectory
-
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cached = cache_dir / f"{example_id}.json"
-    if cached.exists():
-        return json.loads(cached.read_text())
-    features = trajectory.extract(video_path)
-    data = {"text": trajectory.describe(features), "ego_turn": features.ego_turn,
-            "ego_total_yaw": features.ego_total_yaw, "features": trajectory.to_dict(features)}
-    cached.write_text(json.dumps(data, ensure_ascii=False))
-    return data
-
-
 def predict_one(client, provider: str, model: str, example: dict, strategy: Strategy,
                 frames: int, evidence_dir: Path | None, known_fields: tuple[str, ...] = (),
                 max_width: int = 768, trajectory_cache: Path | None = None,
@@ -196,11 +182,13 @@ def predict_one(client, provider: str, model: str, example: dict, strategy: Stra
     trajectory_text = None
     trajectory_meta: dict = {}
     if trajectory_cache is not None:
-        features = _trajectory_features(Path(example["video_path"]), example["example_id"],
-                                        trajectory_cache)
+        # 광류·YOLO 궤적 특징. 건당 수 초 걸리므로 JSON 캐시(예전 버전은 광류만 다시 잰다)
+        features = trajectory.cached_features(Path(example["video_path"]), trajectory_cache,
+                                              example["example_id"])
         trajectory_text = features["text"]
         trajectory_meta = {"ego_turn": features["ego_turn"],
-                           "ego_total_yaw": features["ego_total_yaw"]}
+                           "ego_total_yaw": features["ego_total_yaw"],
+                           "collision_sec": features.get("collision_sec")}
     window = None
     if focus_window is not None:
         # 충돌 시각(YOLO 궤적 기준) 앞뒤 구간만 본다. 충돌 시각이 없으면 전체 구간
@@ -278,7 +266,8 @@ def main() -> None:
                         help="충돌 전 N초부터 1초 간격으로 화면 상단을 고해상도로 잘라 "
                              "신호등 판독에 붙인다")
     parser.add_argument("--trajectory-cache", type=Path, default=None,
-                        help="주면 광류·YOLO 궤적 특징을 프롬프트에 붙인다(캐시 디렉터리)")
+                        help="주면 광류·YOLO 궤적 특징을 프롬프트에 붙인다(캐시 디렉터리). "
+                             "예전 버전 캐시는 YOLO 결과를 두고 광류만 다시 재서 올린다")
     args = parser.parse_args()
     known_fields = tuple(k for k in args.known_fields.split(",") if k)
     focus_window = None

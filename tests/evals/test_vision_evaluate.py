@@ -1,4 +1,7 @@
 import json
+from pathlib import Path
+
+import pytest
 
 from evals.vision.evaluate import evaluate, format_table
 from evals.vision.keyframes import pick_adaptive, pick_uniform
@@ -87,6 +90,45 @@ def test_describe_mentions_ego_turn_and_tracks():
     track = VehicleTrack(1, "car", [TrackPoint(0.0, 0.5, 0.5, 0.1, 0.1)])
     text = describe(TrajectoryFeatures(15.0, 150, [10.0, 40.0], 40.0, "left_turn", [track]))
     assert "left_turn" in text and "#1(car" in text
+    assert "전체 구간" in text
+    text = describe(TrajectoryFeatures(15.0, 150, [10.0, 40.0], 40.0, "left_turn", [track],
+                                       collision_sec=4.0, ego_total_yaw_full=90.0))
+    assert "t4.0s 직전까지" in text
+
+
+def test_split_at_collision_drops_post_collision_yaw():
+    from evals.vision.trajectory import split_at_collision
+
+    yaws = [0.0] * 30 + [5.0] * 10            # 회전은 충돌 뒤에만 쌓인다
+    motion = [1.0] * 30 + [50.0] + [1.0] * 9  # 3.0초(10fps)에 차분 피크
+    assert split_at_collision(yaws, motion, fps=10.0, margin_sec=0.3) == (0.0, 50.0, 3.0)
+    # 움직임이 없으면 절단하지 않는다
+    assert split_at_collision([1.0, 2.0], [0.0, 0.0], 15.0) == (3.0, 3.0, None)
+
+
+def test_cached_features_upgrades_old_cache_without_rerunning_yolo(tmp_path, monkeypatch):
+    from evals.vision import trajectory
+
+    monkeypatch.setattr(trajectory, "ego_motion", lambda path: trajectory.EgoMotion(
+        [0.0, 30.0, 30.0, 0.0], [0.0, 1.0, 1.0, 9.0], 2.0))
+    monkeypatch.setattr(trajectory, "track_vehicles",
+                        lambda *a, **k: pytest.fail("업그레이드에서 YOLO를 다시 돌리면 안 된다"))
+    old = {"text": "", "ego_turn": "left_turn", "ego_total_yaw": 60.0,
+           "features": {"tracks": [{"track_id": 7, "cls": "car", "points": [
+               {"t": 0.0, "cx": 0.5, "cy": 0.5, "w": 0.1, "h": 0.1}]}]}}
+    (tmp_path / "x.json").write_text(json.dumps(old))
+
+    data = trajectory.cached_features(Path("unused.mp4"), tmp_path, "x")
+    assert data["version"] == trajectory.VERSION
+    assert data["features"]["tracks"][0]["track_id"] == 7
+    # 피크 프레임 3(1.5초) - round(0.3초×2fps)=1 → 프레임 2까지 누적 30도 = 좌회전. 전체는 60도
+    assert data["collision_sec"] == 1.5
+    assert (data["ego_total_yaw"], data["ego_turn"]) == (30.0, "left_turn")
+    assert data["features"]["ego_total_yaw_full"] == 60.0
+    # 올린 캐시는 다시 계산하지 않는다
+    monkeypatch.setattr(trajectory, "ego_motion",
+                        lambda path: pytest.fail("최신 캐시는 다시 계산하면 안 된다"))
+    assert trajectory.cached_features(Path("unused.mp4"), tmp_path, "x") == data
 
 
 def test_select_rows_applies_gate_and_simple_scope():
