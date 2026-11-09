@@ -23,6 +23,15 @@ dev = [
     "tiktoken>=0.7,<1",
     "ruff>=0.6",
 ]
+# 비전 평가(evals/vision/): AI Hub 설명서 코드표 추출·키프레임·VLM 호출. API 런타임에는 넣지 않는다
+vision-eval = [
+    "anthropic>=1",
+    "numpy>=2",
+    "openai>=1",
+    "opencv-python-headless>=4.10",
+    "pdfplumber>=0.11",
+    "ultralytics>=8.3",
+]
 
 [build-system]
 requires = ["hatchling"]
