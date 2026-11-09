@@ -43,5 +43,10 @@ def scope_gate(fields: dict[str, dict[str, object]]) -> tuple[str | None, list[s
 
 
 def build_graph() -> object:
-    """C 검색 도구·검증 3겹 연결. 두 번째 반박 성립은 추가 확인으로 분기."""
+    """C 검색 도구·검증 3겹 연결.
+
+    반박 검토가 실패하면 rebuttal_kind로 분기한다. wrong_chart는 차순위 도표로
+    MAX_REBUTTAL_RETRIES 만큼만 재실행하고, missing_fact·contradiction과 상한을 넘긴
+    wrong_chart는 재실행 없이 needs_confirmation으로 내린다.
+    """
     raise NotImplementedError("B: 고정 그래프·확인/재개·재실행 상한")
