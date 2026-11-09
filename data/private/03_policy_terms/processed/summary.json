@@ -1,0 +1,31 @@
+{
+  "general_articles": 62,
+  "riders": 122,
+  "chunks": 495,
+  "appendix_pages": 59,
+  "side_note_pages": 143,
+  "status": "unreviewed",
+  "limitations": [
+    "문서 전용 페이지 경계 사용",
+    "부속표는 페이지 단위 미구조화",
+    "항·호와 단서의 자동 의미 연결은 미완료",
+    "담보 mentions는 적용 담보 확정값이 아님"
+  ],
+  "evaluation": {
+    "file": "../evaluation.jsonl",
+    "count": 80,
+    "dataset_version": "source-eval-release-v1",
+    "sha256": "db5326d5e124fe23d27c177405b177a116ef83ec91b28f7a414156e08477c21a",
+    "label_status": "machine_reviewed",
+    "human_reviewed": false,
+    "question_categories": {
+      "direct": 52,
+      "exception": 18,
+      "condition_disambiguation": 8,
+      "cross_reference": 2
+    },
+    "multiple_gold_questions": 1,
+    "split": "test",
+    "split_note": "단일 평가 전용 세트. 독립된 개발셋/전문가 평가셋 없음."
+  }
+}

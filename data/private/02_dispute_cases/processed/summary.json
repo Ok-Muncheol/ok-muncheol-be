@@ -1,0 +1,28 @@
+{
+  "cases": 226,
+  "chunks": 1130,
+  "mapping_rows": 289,
+  "issues": {
+    "unreviewed_source": 226,
+    "legacy_mapping_requires_fact_check": 226,
+    "edition_unconfirmed": 226
+  },
+  "status": "unreviewed",
+  "evaluation": {
+    "file": "../evaluation.jsonl",
+    "count": 100,
+    "dataset_version": "source-eval-release-v1",
+    "sha256": "ce7012aeff01b8dd3fc909d942a9ef5e0a9aaf86d44f901c4b3ad44a3627516c",
+    "label_status": "machine_reviewed",
+    "human_reviewed": false,
+    "question_categories": {
+      "direct": 84,
+      "condition_disambiguation": 13,
+      "cross_reference": 2,
+      "exception": 1
+    },
+    "multiple_gold_questions": 1,
+    "split": "test",
+    "split_note": "단일 평가 전용 세트. 독립된 개발셋/전문가 평가셋 없음."
+  }
+}

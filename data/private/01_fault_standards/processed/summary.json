@@ -1,0 +1,31 @@
+{
+  "charts": 108,
+  "modifiers": 835,
+  "chunks": 923,
+  "page_start": 148,
+  "page_end": 488,
+  "possible_missing_chart_pages": [],
+  "issue_counts": {
+    "effective_period_unconfirmed": 108,
+    "unreviewed_source": 108
+  },
+  "status": "unreviewed",
+  "hard_filter_ready": false,
+  "evaluation": {
+    "file": "../evaluation.jsonl",
+    "count": 100,
+    "dataset_version": "source-eval-release-v1",
+    "sha256": "9b2884afe59a89edec9f06f45171bd7a2376ebb1e165d2172e05bba79d7180a5",
+    "label_status": "machine_reviewed",
+    "human_reviewed": false,
+    "question_categories": {
+      "direct": 85,
+      "condition_disambiguation": 12,
+      "cross_reference": 2,
+      "exception": 1
+    },
+    "multiple_gold_questions": 1,
+    "split": "test",
+    "split_note": "단일 평가 전용 세트. 독립된 개발셋/전문가 평가셋 없음."
+  }
+}

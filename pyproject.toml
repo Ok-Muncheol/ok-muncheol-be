@@ -7,13 +7,20 @@ dependencies = [
     "fastapi>=0.115",
 ]
 
-# Pydantic·LangGraph·DB는 부트스트랩에서 추가한다. 런타임 의존성은 여기 한 곳에 적고 requirements.txt는 `.`로 가리킨다.
 # 비전·PDF·임베딩 의존성은 API 런타임과 분리한다.
 
 [project.optional-dependencies]
+ingestion = ["pdfplumber>=0.11,<0.12"]
+embedding = ["openai>=1,<4", "python-dotenv>=1,<2", "tiktoken>=0.7,<1"]
+evaluation = ["numpy>=1.26,<3"]
 # 검증 도구 — make lint(ruff)·make test(pytest). CI check 잡이 같은 것을 설치한다(.github/workflows/ci.yml)
 dev = [
     "pytest>=8",
+    "pdfplumber>=0.11,<0.12",
+    "openai>=1,<4",
+    "numpy>=1.26,<3",
+    "python-dotenv>=1,<2",
+    "tiktoken>=0.7,<1",
     "ruff>=0.6",
 ]
 

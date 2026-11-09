@@ -1,0 +1,303 @@
+{
+  "status": "ready_for_index_import_not_business_approved",
+  "paths_relative_to": "project_root",
+  "embedding": {
+    "model": "text-embedding-3-small",
+    "dimensions": 1536,
+    "version": "text-embedding-3-small:1536:v1",
+    "similarity": "cosine",
+    "query_embedding_must_match": true
+  },
+  "corpora": [
+    {
+      "corpus": "fault_standards",
+      "intended_search_strategy": "attribute_first",
+      "chunks": 923,
+      "vectors": 923,
+      "evaluation_questions": 100,
+      "record_counts": {
+        "charts": 108,
+        "modifiers": 835,
+        "attributes": 236
+      },
+      "files": [
+        {
+          "path": "data/private/01_fault_standards/processed/chunks.jsonl",
+          "role": "searchable chunks",
+          "bytes": 2671606,
+          "sha256": "493b0cc1bfbfc4dd41e10723d3fbbfb02a5ac28b2f7b8c184399bdef267c8b46"
+        },
+        {
+          "path": "data/private/01_fault_standards/processed/embeddings.jsonl",
+          "role": "precomputed document vectors",
+          "bytes": 31522956,
+          "sha256": "9ac71b9bf58b122d75ab326ee29b4da66f776075237aec73bd6908ac693f465a"
+        },
+        {
+          "path": "data/private/01_fault_standards/evaluation.jsonl",
+          "role": "evaluation questions and reference parent IDs",
+          "bytes": 265098,
+          "sha256": "9b2884afe59a89edec9f06f45171bd7a2376ebb1e165d2172e05bba79d7180a5"
+        },
+        {
+          "path": "data/private/01_fault_standards/processed/charts.jsonl",
+          "role": "charts",
+          "bytes": 380779,
+          "sha256": "a665a09d8a9acafa945133b3f07d878ae0bb92a077047d534df483cf8f392d1f"
+        },
+        {
+          "path": "data/private/01_fault_standards/processed/modifiers.jsonl",
+          "role": "modifiers",
+          "bytes": 381875,
+          "sha256": "adbab861cfff9101d73e3bfd260049e12dd4a867e138e98d5f8dc53ed4dfcc6f"
+        },
+        {
+          "path": "data/private/01_fault_standards/processed/attributes.jsonl",
+          "role": "attributes",
+          "bytes": 60221,
+          "sha256": "6fc6e467bd6f72adbd361b47ae22063a7edfce683a535ddb53464cb3a10309a1"
+        }
+      ],
+      "documents": [
+        {
+          "edition": "2023.6",
+          "source_uri": "file:///C:/Users/Admin/Desktop/230630_자동차사고%20과실비율%20인정기준_최종.pdf",
+          "document_id": "fault-standards-2023-06",
+          "content_hash": "6502fca09a6f9cb26c6166f182429f9c947582dbdbbe1e844a3c7949fbfab06e",
+          "effective_from": "",
+          "effective_to": null,
+          "corpus": "fault_standards",
+          "parser_version": "pdfplumber-0.11.10:v1"
+        }
+      ],
+      "no_answer_questions": 0,
+      "source_review_status": "unreviewed business rules; machine-reviewed evaluation references",
+      "unknown_effective_periods": true,
+      "common_guide_parents": "No chart row for these parents. Materialize parent groups from chunks whose metadata.section is common_modifier_guide.",
+      "attribute_status": "filter_candidates only; hard_filter_ready is false until confirmed",
+      "numeric_rule_status": "calculation_ready remains false; numeric values require business review"
+    },
+    {
+      "corpus": "dispute_cases",
+      "intended_search_strategy": "fact_card_similarity",
+      "chunks": 1130,
+      "vectors": 1130,
+      "evaluation_questions": 100,
+      "record_counts": {
+        "cases": 226,
+        "chart_mappings": 289
+      },
+      "files": [
+        {
+          "path": "data/private/02_dispute_cases/processed/chunks.jsonl",
+          "role": "searchable chunks",
+          "bytes": 2149142,
+          "sha256": "4c740176d2eb7cfba58fba56082f5c6f6cd1bc8d0176e7bdf036ec1a50998fa1"
+        },
+        {
+          "path": "data/private/02_dispute_cases/processed/embeddings.jsonl",
+          "role": "precomputed document vectors",
+          "bytes": 37463705,
+          "sha256": "02b6793c5f1c63e8248cb38794d94a4e7cea5f75ba57432172cf74b3f45ac329"
+        },
+        {
+          "path": "data/private/02_dispute_cases/evaluation.jsonl",
+          "role": "evaluation questions and reference parent IDs",
+          "bytes": 273757,
+          "sha256": "ce7012aeff01b8dd3fc909d942a9ef5e0a9aaf86d44f901c4b3ad44a3627516c"
+        },
+        {
+          "path": "data/private/02_dispute_cases/processed/cases.jsonl",
+          "role": "cases",
+          "bytes": 1266762,
+          "sha256": "0262dfd7f7e8f6fc91bba743ec38edb41c070ffe6eb259cb4f2a3f2dd3ff18b8"
+        },
+        {
+          "path": "data/private/02_dispute_cases/processed/chart_mappings.jsonl",
+          "role": "chart_mappings",
+          "bytes": 147651,
+          "sha256": "06033cae3460833e4803e20d33efb9ddd3cde8b0b03108775730632be1ba861f"
+        }
+      ],
+      "documents": [
+        {
+          "edition": "unconfirmed",
+          "source_uri": "file:///C:/Users/Admin/Desktop/(최종)과실비율심의사례_web.pdf",
+          "document_id": "dispute-cases-web",
+          "content_hash": "3c1902f03df8ffc0bde03d4844c631e9dc82688dc6b29ac25af48d528e41260e",
+          "effective_from": "",
+          "effective_to": null,
+          "corpus": "dispute_cases",
+          "parser_version": "pdfplumber-0.11.10:v2-visible-dedup"
+        }
+      ],
+      "no_answer_questions": 0,
+      "source_review_status": "unreviewed business rules; machine-reviewed evaluation references",
+      "unknown_effective_periods": true,
+      "chart_mapping_status": "candidate_only: chart_id_candidates are retrieval candidates, related_chart_ids are not confirmed mappings",
+      "card_similarity_input": "chunks with metadata.retrieval_role=card_similarity contain facts; supporting_evidence contains issues/reasoning"
+    },
+    {
+      "corpus": "policy_terms",
+      "intended_search_strategy": "clause_bm25",
+      "chunks": 495,
+      "vectors": 495,
+      "evaluation_questions": 80,
+      "record_counts": {
+        "clauses": 184,
+        "appendices": 202
+      },
+      "files": [
+        {
+          "path": "data/private/03_policy_terms/processed/chunks.jsonl",
+          "role": "searchable chunks",
+          "bytes": 1881399,
+          "sha256": "002420b0cf7f3c6465467d578f1e828f32b4614b7bdd6f0c600b32ddc00907f1"
+        },
+        {
+          "path": "data/private/03_policy_terms/processed/embeddings.jsonl",
+          "role": "precomputed document vectors",
+          "bytes": 17347226,
+          "sha256": "fbe9bf9cde8edf5eb702787afde478e6dc3aaebea5e7b65de81bfb4506bc92eb"
+        },
+        {
+          "path": "data/private/03_policy_terms/evaluation.jsonl",
+          "role": "evaluation questions and reference parent IDs",
+          "bytes": 234895,
+          "sha256": "db5326d5e124fe23d27c177405b177a116ef83ec91b28f7a414156e08477c21a"
+        },
+        {
+          "path": "data/private/03_policy_terms/processed/clauses.jsonl",
+          "role": "clauses",
+          "bytes": 757368,
+          "sha256": "e5beaf26aa54519dbc49694e014ea9ba3a92092c2f1b85c519d8fba25ed81fe9"
+        },
+        {
+          "path": "data/private/03_policy_terms/processed/appendices.jsonl",
+          "role": "appendices",
+          "bytes": 388194,
+          "sha256": "71aa358714a46b1ef8d5794113fa4a83a70f24b65a7eb9ace910a2ee7a0213d0"
+        }
+      ],
+      "documents": [
+        {
+          "edition": "2026.11.11 개정 (표지)",
+          "source_uri": "file:///C:/Users/Admin/Desktop/삼성화재약관.pdf",
+          "document_id": "samsung-personal-auto-2026-11-11",
+          "content_hash": "ca7f8fd3beb10b1eaba4d0acc54e930c8fd9ae15ee0b578b7796c6e1eec722d4",
+          "effective_from": "",
+          "effective_to": null,
+          "corpus": "policy_terms",
+          "parser_version": "pdfplumber-0.11.10:v2-visible-dedup"
+        }
+      ],
+      "no_answer_questions": 0,
+      "source_review_status": "unreviewed business rules; machine-reviewed evaluation references",
+      "unknown_effective_periods": true
+    }
+  ],
+  "index_import_contract": {
+    "chunk_primary_key": "chunk_id",
+    "parent_join_key": "parent_id",
+    "embedding_join_key": "embeddings.jsonl -> chunk.chunk_id",
+    "vector_field": "embedding",
+    "text_field": "chunk.text",
+    "page_numbering": "PDF actual pages, 1-based",
+    "preserve_fields": [
+      "document",
+      "page_start",
+      "page_end",
+      "metadata",
+      "embedding_model",
+      "embedding_dimensions",
+      "embedding_version",
+      "embedding_content_hash"
+    ],
+    "unknown_filter_values": "null/empty means unknown, never false or non-applicable",
+    "auxiliary_reference_policy": "policy side_note/cited_law_appendix are auxiliary, not primary clauses",
+    "policy_coverage_context": "document section context, not proof that a contract covers the loss"
+  },
+  "evaluation_contract": {
+    "request_type": "SearchRequest",
+    "response_type": "list[EvidenceHit]",
+    "request_keys": [
+      "corpus",
+      "text",
+      "accident_date",
+      "filters",
+      "top_k"
+    ],
+    "response_parent_path": "hit.chunk.parent_id",
+    "prediction_file_shape": "{example_id: [parent_id, ...]}",
+    "scoring_level": "parent ID; duplicate chunks under same parent are collapsed",
+    "label_tier": "machine_reviewed",
+    "human_reviewed": false,
+    "query_origin": "GPT-5 source-grounded synthetic questions",
+    "gold_scope": "reviewed candidate sources only; exhaustive relevance not guaranteed",
+    "split_policy": "evaluation-only test set; no independent development split",
+    "date_policy": "empty accident_date is intentional for fixed-source retrieval; never invent an effective date",
+    "required_filter": "document_id pins the provided source; unknown dates/editions need a source-only evaluation mode",
+    "allow_machine_reviewed_flag_required": true
+  },
+  "not_included": [
+    ".env/API keys",
+    "raw PDF files",
+    "generation/embedding caches",
+    "temporary files"
+  ],
+  "integration_pending": [
+    "D: database schema, loading, online query embedding and common search implementation",
+    "D/C: source-only evaluation handling when accident_date is empty",
+    "Source URI values currently contain local file paths; map them to accessible storage for citations",
+    "Document effective periods and policy contract applicability are unconfirmed",
+    "Machine-reviewed labels are not expert-certified; no-answer cases are not covered"
+  ],
+  "evaluation_code": [
+    {
+      "path": "scripts/run_retrieval_evaluation.py",
+      "role": "evaluation runtime",
+      "bytes": 3355,
+      "sha256": "44700ffcf74e2db4902a16598895fd7786ec5ac9dd7c4c70b7c2d0e007c2977a"
+    },
+    {
+      "path": "evals/retrieval/evaluate.py",
+      "role": "evaluation runtime",
+      "bytes": 5213,
+      "sha256": "cc69ca7080eca2287e945681651d7c3632ce9b266b736d1827a74768762a8289"
+    },
+    {
+      "path": "evals/retrieval/dataset.py",
+      "role": "evaluation runtime",
+      "bytes": 531,
+      "sha256": "8db44ef3453246a9ab5a3f9672cd9fd28ff1b9e7e7ccecc86c4e48b1e65b53f9"
+    },
+    {
+      "path": "app/schemas/retrieval.py",
+      "role": "evaluation runtime",
+      "bytes": 1214,
+      "sha256": "2dae2d8f44a5f042737321cec948741c8c85bde894e33f2c9c156d88900dedff"
+    },
+    {
+      "path": "scripts/embed_corpora.py",
+      "role": "evaluation runtime",
+      "bytes": 4776,
+      "sha256": "9b4c7e7a2d33bbc020ffd3d89c61ca62b5b87842bac625d51f5a335ebe6998cf"
+    },
+    {
+      "path": "app/ingestion/embed.py",
+      "role": "evaluation runtime",
+      "bytes": 2174,
+      "sha256": "1194ea8912b22777f34099ae2e5760a513c6da305b74c788b2a7869d5177a394"
+    }
+  ],
+  "evaluation_commands": {
+    "saved_predictions": "python scripts/run_retrieval_evaluation.py --predictions <predictions.json> --allow-machine-reviewed",
+    "connected_search": "python scripts/run_retrieval_evaluation.py --search-callable app.retrieval.common:search --allow-machine-reviewed",
+    "connected_search_status": "not executable yet: app.retrieval.common.search currently raises NotImplementedError"
+  },
+  "totals": {
+    "chunks": 2548,
+    "vectors": 2548,
+    "evaluation_questions": 280
+  }
+}

@@ -33,9 +33,45 @@ SENSITIVE = re.compile(
 )
 
 
+# Publication explicitly authorized by the data owner; all other private files stay blocked.
+APPROVED_PUBLIC_CORPUS_FILES = frozenset(
+    [
+        "data/private/handoff.json",
+        "data/private/01_fault_standards/evaluation.jsonl",
+        "data/private/01_fault_standards/parsed/blocks.jsonl",
+        "data/private/01_fault_standards/processed/chunks.jsonl",
+        "data/private/01_fault_standards/processed/embeddings.jsonl",
+        "data/private/01_fault_standards/processed/summary.json",
+        "data/private/01_fault_standards/processed/attributes.jsonl",
+        "data/private/01_fault_standards/processed/charts.jsonl",
+        "data/private/01_fault_standards/processed/modifiers.jsonl",
+        "data/private/02_dispute_cases/evaluation.jsonl",
+        "data/private/02_dispute_cases/parsed/blocks.jsonl",
+        "data/private/02_dispute_cases/processed/chunks.jsonl",
+        "data/private/02_dispute_cases/processed/embeddings.jsonl",
+        "data/private/02_dispute_cases/processed/summary.json",
+        "data/private/02_dispute_cases/processed/cases.jsonl",
+        "data/private/02_dispute_cases/processed/chart_mappings.jsonl",
+        "data/private/03_policy_terms/evaluation.jsonl",
+        "data/private/03_policy_terms/parsed/blocks.jsonl",
+        "data/private/03_policy_terms/processed/chunks.jsonl",
+        "data/private/03_policy_terms/processed/embeddings.jsonl",
+        "data/private/03_policy_terms/processed/summary.json",
+        "data/private/03_policy_terms/processed/clauses.jsonl",
+        "data/private/03_policy_terms/processed/appendices.jsonl",
+    ]
+)
+
+
 def blocked(paths: list[str]) -> list[str]:
     # *.example은 플레이스홀더 템플릿이라 커밋 허용 (.gitignore의 !.env.example과 정합)
-    return [p for p in paths if SENSITIVE.search(p) and not p.endswith(".example")]
+    return [
+        p
+        for p in paths
+        if SENSITIVE.search(p)
+        and not p.endswith(".example")
+        and p not in APPROVED_PUBLIC_CORPUS_FILES
+    ]
 
 
 def main() -> int:

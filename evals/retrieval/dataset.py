@@ -12,6 +12,6 @@ class RetrievalExample(TypedDict):
     expected_edition: str | None
     split_group_id: str
     split: Literal["unassigned", "train", "dev", "test"]
-    label_status: Literal["unlabelled", "reviewed"]
+    label_status: Literal["unlabelled", "machine_reviewed", "reviewed"]
     synthetic: bool
     notes: str
