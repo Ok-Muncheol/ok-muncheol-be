@@ -138,8 +138,9 @@ YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는�
 `app/main.py`의 모듈 수준 `app`을 진입점으로 배포하고, 의존성은 `requirements.txt`(`.` → `pyproject.toml`)로 설치한다.
 경로 14개가 배포되지만 서비스 본문이 빈 경로는 501 `not_implemented`를 돌려준다. 인증 환경 변수가 없으면 보호 경로는 503으로 닫힌다.
 FE는 별도 Vercel 프로젝트 `ok-muncheol-fe`로 배포한다. 운영 주소는 FE `https://ok-muncheol-fe.vercel.app`,
-BE `https://ok-muncheol-be.vercel.app`이다(2026-11-09 확인). 오리진이 달라 CORS는 `CORS_ALLOW_ORIGINS`에 적은 출처만
-허용하고, 매번 바뀌는 FE Preview 주소에서는 BE 호출이 막힌다.
+BE `https://ok-muncheol-be.vercel.app`이다(2026-11-09 확인). 오리진이 달라 CORS는 `CORS_ALLOW_ORIGINS`에 적은 출처만 허용한다.
+두 레포 모두 PR 브랜치는 배포하지 않고 `main`만 배포한다(`vercel.json`의 `git.deploymentEnabled`). Hobby는 배포를 하루(24시간)
+100번까지만 만들어, PR push마다 Preview를 만들면 한도가 차서 `main` 배포까지 막힐 수 있다. 머지 전 확인은 CI `check`가 맡는다.
 
 ship은 `main` 머지 → main CI → 머지 커밋의 Vercel 배포 결과와 `/health` 응답까지 확인한다(`automation/pipeline.md` Step 3).
 
