@@ -59,6 +59,10 @@ matches_sensitive() {
   case "$base" in
     *.example) return ;;
   esac
+  # Same exact public corpus exceptions as sensitive_gate.py (owner authorized).
+  case "$file" in
+    data/private/handoff.json|data/private/01_fault_standards/evaluation.jsonl|data/private/01_fault_standards/parsed/blocks.jsonl|data/private/01_fault_standards/processed/chunks.jsonl|data/private/01_fault_standards/processed/embeddings.jsonl|data/private/01_fault_standards/processed/summary.json|data/private/01_fault_standards/processed/attributes.jsonl|data/private/01_fault_standards/processed/charts.jsonl|data/private/01_fault_standards/processed/modifiers.jsonl|data/private/02_dispute_cases/evaluation.jsonl|data/private/02_dispute_cases/parsed/blocks.jsonl|data/private/02_dispute_cases/processed/chunks.jsonl|data/private/02_dispute_cases/processed/embeddings.jsonl|data/private/02_dispute_cases/processed/summary.json|data/private/02_dispute_cases/processed/cases.jsonl|data/private/02_dispute_cases/processed/chart_mappings.jsonl|data/private/03_policy_terms/evaluation.jsonl|data/private/03_policy_terms/parsed/blocks.jsonl|data/private/03_policy_terms/processed/chunks.jsonl|data/private/03_policy_terms/processed/embeddings.jsonl|data/private/03_policy_terms/processed/summary.json|data/private/03_policy_terms/processed/clauses.jsonl|data/private/03_policy_terms/processed/appendices.jsonl) return ;;
+  esac
   for pattern in "${SENSITIVE_PATTERNS[@]}"; do
     # 패턴의 glob 매칭(*.pem 등)이 의도이므로 case 패턴을 따옴표로 감싸지 않는다
     # shellcheck disable=SC2254

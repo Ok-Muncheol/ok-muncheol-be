@@ -13,11 +13,14 @@ sys.dont_write_bytecode = True
 
 
 def main() -> None:
-    sources = [p for folder in ("app", "workers", "evals", "scripts")
-               for p in (ROOT / folder).rglob("*.py")]
+    sources = [
+        p
+        for folder in ("app", "workers", "evals", "scripts")
+        for p in (ROOT / folder).rglob("*.py")
+    ]
     modules = 0
     for path in sources:
-        ast.parse(path.read_text(), filename=str(path))
+        ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         if path.parts[-2] == "scripts":
             continue
         parts = list(path.relative_to(ROOT).with_suffix("").parts)
@@ -32,17 +35,18 @@ def main() -> None:
     for folder in ("data/corpora", "evals/retrieval", "docs/contracts"):
         for path in (ROOT / folder).rglob("*"):
             if path.suffix == ".json":
-                json.loads(path.read_text())
+                json.loads(path.read_text(encoding="utf-8"))
                 documents.append(path)
             elif path.suffix == ".jsonl":
-                for line in path.read_text().splitlines():
+                for line in path.read_text(encoding="utf-8").splitlines():
                     if line.strip():
                         json.loads(line)
                 documents.append(path)
     from app.schemas.examples import contract_examples
+
     expected = contract_examples()
     for path in (ROOT / "docs/contracts/examples.json",):
-        if path.exists() and json.loads(path.read_text()) != expected:
+        if path.exists() and json.loads(path.read_text(encoding="utf-8")) != expected:
             raise SystemExit(
                 f"Stale contract fixture: {path}. Run make contracts and refresh the FE fixture."
             )
