@@ -26,7 +26,7 @@ README 「브랜치·PR 규칙」이 원천이다 (FE 레포와 같은 규칙). 
 - **PR 제목 `[<타입>/#<이슈번호>] 설명`, 본문에 `close #<이슈번호>`.** `main`은 PR 필수(승인 0명), 필수 체크 `check`(ruff·`make check`·pytest)·`gitleaks`, 강제 푸시·삭제 금지로 보호된다. 머지는 **squash**다 (`automation/pipeline.md` 「제목 규범」).
 - **계약은 FE와 짝으로 바꾼다.** `app/schemas/` → `make contracts` → FE 타입·견본·화면 순서로 반영하고(`docs/contracts/README.md`), PR 본문에 대응 FE PR을 적는다(TEAM.md 「검증·PR 규칙」).
 - **배포는 Vercel 프로젝트 `ok-muncheol-be`에 연결되어 있다** (README 「기술 구성」, 2026-11-06 — FE·API를 한 프로젝트로 묶는 방식은 아직 미정). ship의 종착점은 **`main` 머지 + main push CI 성공 + 머지 커밋의 프로덕션 배포·`/health` 200**이다. `automation/pipeline.md` Step 3이 머지 커밋의 `Vercel` 커밋 상태로 판정한다.
-- **DB 마이그레이션은 사람이 적용한다.** Supabase DB는 팀이 함께 쓰므로 `main`에 머지된 마이그레이션만 적용하고, 적용 자체는 ship이 하지 않는다 — 머지 후 최종 보고에서 적용 대상 파일을 안내한다. (아직 SQL은 없다 — `supabase/migrations/README.md`)
+- **DB 마이그레이션은 사람이 적용한다.** Supabase DB는 팀이 함께 쓰므로 `main`에 머지된 마이그레이션만 적용하고, 적용 자체는 ship이 하지 않는다 — 머지 후 최종 보고에서 적용 대상 파일을 안내한다. (적용 순서·방법은 `supabase/migrations/README.md` 「적용」)
 
 ## Preflight
 

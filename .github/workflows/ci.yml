@@ -26,6 +26,7 @@ jobs:
       # 문법·import·타입 참조·JSON·계약 견본 동기화 (scripts/check_scaffold.py)
       - run: make check
       # tests/ 전체: API(tests/api/)·검색·코퍼스(tests/test_*.py)·비전 평가(tests/evals/)·ship 스크립트(tests/automation/)
+      # ·마이그레이션 파일 규칙(tests/migrations/, DB 동작 검사는 MIGRATION_TEST_DATABASE_URL이 없어 건너뜀)
       - run: make test
 
   # 커밋 이력에 API 키 등 시크릿이 섞이지 않았는지 검사한다
