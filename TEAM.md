@@ -51,7 +51,7 @@ FastAPI 앱은 인증·오류 응답·담당별 경로(`app/api/routes.py`)까�
 | `app/workflow/graph.py` | 확정 카드 → 도표 후보 → 구분 질문/재개 → 수정요소 → 검증 → 판단 결과 |
 | `app/api/judgments.py` | 판단 접수·재개, 질문 응답, 질의응답 요청·권한·멱등성 |
 | `app/validation/evidence.py` | ① 근거 체크: 도표·수정요소·인용 ID 실재, 적용판·페이지·원문 연결 |
-| `app/validation/rebuttal.py` | ② 반박 검토: 구분 조건 누락·차순위 후보·모순. 재실행 상한 1회 |
+| `app/validation/rebuttal.py` | ② 반박 검토: 성립 이유를 도표 오선택·사실 부족(구분 조건 누락)·모순으로 구분. 재실행은 도표 오선택만, 상한 1회 |
 | `app/validation/numerical.py` | ③ 코드 계산 검증: DB 수치·가감 부호·중복/배타·범위·A+B=100 |
 | `app/agents/qa.py` | 근거 설명·추가 질문·what-if. 공식 판단·승인 상태 직접 수정 금지 |
 | `app/schemas/judgment.py` | 질문/답변, 검증 결과, 세 판정 상태와 과실 계산 로그 |
@@ -59,7 +59,8 @@ FastAPI 앱은 인증·오류 응답·담당별 경로(`app/api/routes.py`)까�
 
 검색은 김지은의 도구를 호출한다. **기본 과실·수정요소 과실 산식은 구준휘**, **손해액·보험금·구상 산식은 옥석현**이 맡는다.
 답변으로 사실이 바뀌면 정지원의 카드 수정/확정 경로를 거쳐 재판단한다.
-첫 반박은 차순위 도표로 1회 재실행, 두 번째도 성립하면 `needs_confirmation`으로 내린다.
+반박이 도표 오선택이면 차순위 도표로 1회 재실행하고, 두 번째도 도표 오선택이면 `needs_confirmation`으로 내린다.
+사실 부족·모순은 도표를 바꿔도 풀리지 않으므로 재실행 없이 바로 `needs_confirmation`으로 내린다.
 `draft_ready`·`needs_confirmation`·`deferred`와 비동기 작업 상태를 분리한다.
 
 완료 기준: 미확정 카드 차단, 확인/재개·보류, 재실행 상한, 수치와 근거 일치, 입력 버전 추적.
