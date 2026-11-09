@@ -1,14 +1,14 @@
 """C: policy_terms 전용 검색 도구. D의 공통 검색 함수를 호출한다."""
 
-from app.retrieval.common import search
-from app.schemas.retrieval import EvidenceHit, SearchQuery, SearchRequest
+from app.retrieval import common
+from app.schemas.retrieval import EvidenceHit, SearchQuery
+from app.tools._request import prepare_request
 
 
 async def search_policy_terms(query: SearchQuery) -> list[EvidenceHit]:
-    """호출자가 다른 corpus를 끼워 넣어도 이 도구의 범위를 유지한다.
+    """Search clauses and riders in the requested edition and coverage.
 
-    TODO(C): 코퍼스별 필수 필터/구조 레코드 계약과 원문 연결 검증.
-    실제 검색은 D의 common.search 구현 후 동작한다.
+    The contract's edition belongs in filters['edition']; accident_date is not a
+    substitute. A coverage label is retrieval relevance, not proof of enrollment.
     """
-    request: SearchRequest = {**query, "corpus": "policy_terms"}
-    return await search(request)
+    return await common.search(prepare_request(query, "policy_terms"))
