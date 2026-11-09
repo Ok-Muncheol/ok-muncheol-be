@@ -1,14 +1,14 @@
 """C: fault_standards 전용 검색 도구. D의 공통 검색 함수를 호출한다."""
 
-from app.retrieval.common import search
-from app.schemas.retrieval import EvidenceHit, SearchQuery, SearchRequest
+from app.retrieval import common
+from app.schemas.retrieval import EvidenceHit, SearchQuery
+from app.tools._request import prepare_request
 
 
 async def search_fault_standards(query: SearchQuery) -> list[EvidenceHit]:
-    """호출자가 다른 corpus를 끼워 넣어도 이 도구의 범위를 유지한다.
+    """Search chart and modifier chunks; chart_id is an exact chart lookup.
 
-    TODO(C): 코퍼스별 필수 필터/구조 레코드 계약과 원문 연결 검증.
-    실제 검색은 D의 common.search 구현 후 동작한다.
+    Movement and signal fields are unreviewed candidates, so they are not hard filters.
+    An unknown effective period must not exclude the document by accident date.
     """
-    request: SearchRequest = {**query, "corpus": "fault_standards"}
-    return await search(request)
+    return await common.search(prepare_request(query, "fault_standards"))
