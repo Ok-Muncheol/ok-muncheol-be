@@ -5,7 +5,6 @@
 블랙박스 영상이나 담당자가 입력한 사고 사실을 구조화하고, 과실비율 인정기준·분쟁심의 결정례에 근거한
 **과실비율 검토 초안**을 제공한다. 최종 판단과 승인은 보상 담당자가 수행한다.
 
-- 설계 원본: [AI 기반 자동차보험 보상 의사결정 지원 솔루션 설계 초안](https://app.notion.com/p/40eada0d3ad7816d91b0c73930ba2455) — 2026-11-05 확인
 - 아키텍처 이미지: [accident-review-architecture-v7.png](docs/architecture/accident-review-architecture-v7.png) — 로컬 `ok-muncheol/서비스아키텍처` 원본, 2026-11-05 대조
 - 프론트엔드: [ok-muncheol-fe](https://github.com/Ok-Muncheol/ok-muncheol-fe)
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
@@ -46,7 +45,7 @@ FE의 대응 TEAM·타입·화면 초안은 [ok-muncheol-fe](https://github.com/
 구분 질문, 근거 체크·반박 검토·코드 계산의 3겹 검증, 보고서 템플릿 조립, 서류 추가 재산정,
 공식 결과와 분리된 what-if 실행 관계를 보여 준다. 모든 상자를 선행 MVP의 구현 범위로 해석하지 않는다.
 
-이미지의 일부 상세 표기와 2026-11-05 Notion 텍스트가 달라, 다음 항목은 최신 텍스트를 적용한다.
+이미지의 일부 상세 표기는 지금 적용하는 기준과 달라, 다음 항목은 오른쪽 기준을 따른다.
 
 | 이미지 v7 표기 | 적용할 기준 |
 | --- | --- |
@@ -61,21 +60,59 @@ FE의 대응 TEAM·타입·화면 초안은 [ok-muncheol-fe](https://github.com/
 
 ```mermaid
 flowchart TD
-    A[사건 접수·유형 확인] --> B{입력 경로}
-    B -->|영상| C[Storage 직접 업로드]
-    C --> D[Modal: YOLO 추적·특징 계산]
-    D --> E[VLM: 사실 카드 생성·교차 확인]
-    B -->|영상 없음| F[담당자 사실 카드 입력]
-    E --> G[담당자 확인·카드 확정]
+    subgraph INTAKE["접수·영상 분석"]
+        A["사건 접수·범위 확인<br/>POST /cases"] --> B{영상 있음?}
+        B -->|예| C["BE 발급 서명 URL로<br/>Storage 직접 업로드<br/>POST …/uploads"]
+        C -->|"POST …/analysis"| D["Modal GPU<br/>YOLO 추적·OpenCV<br/>키프레임·궤적"]
+        D --> E["OpenAI VLM<br/>탐지 결과 교차 확인<br/>사실 카드 초안"]
+    end
+
+    subgraph CARD["사실 카드"]
+        F["담당자 직접 입력<br/>진술서 등, 근거 프레임 없음"]
+        G["담당자 검토·수정·확정<br/>PATCH …/fact-card<br/>POST …/fact-card/confirm"]
+    end
+
+    B -->|아니오| F
+    E --> G
     F --> G
-    G --> H[도표 속성·적용판 필터]
-    H --> I{구분 칸 확인}
-    I -->|추가 질문| G
-    I -->|충족| J[도표 선택·수정요소 판정·결정례 첨부]
-    J --> K[근거 체크·반박 검토·코드 계산]
-    K --> L[판정 상태·보고서 템플릿 조립]
-    L --> M[담당자 검토·승인·버전 기록]
+
+    subgraph JUDGE["판단 그래프 · LangGraph"]
+        H{"범위 게이트<br/>check_chart_scope"}
+        I["도표 후보 검색 · pgvector<br/>속성·적용판 필터 우선<br/>retrieve_chart_candidates"]
+        J{"구분 칸 확인<br/>ask_or_resume"}
+        K["구분 질문 응답<br/>POST …/questions/<br/>{question_id}/answer"]
+        L["도표·수정요소 선택<br/>결정례 첨부<br/>select_chart_and_modifiers"]
+        M["근거 체크<br/>check_evidence"]
+        N["반박 검토 · OpenAI LLM<br/>review_rebuttal"]
+        O["과실 코드 계산·검증<br/>calculate_and_validate_fault"]
+        H -->|차대차·교차로| I --> J
+        J -->|미확인 칸 있음| K
+        J -->|모두 담당자 확인| L --> M
+        M -->|통과| N
+        N -->|불성립| O
+        N -->|"성립: 차순위 도표로 1회"| L
+    end
+
+    G -->|"POST …/judgments<br/>require_confirmed_card"| H
+    K -->|"카드 새 버전 → 재확정"| G
+
+    R1(["초안 작성 가능<br/>draft_ready"])
+    R2(["추가 확인 필요<br/>needs_confirmation"])
+    R3(["판단 보류<br/>deferred"])
+
+    H -->|"범위 밖·회전교차로 미결정"| R3
+    M -->|"검수한 도표 근거 없음"| R3
+    N -->|"두 번째 반박도 성립"| R2
+    O --> R1
+
+    R1 & R2 & R3 --> S["보고서 1~7항목 템플릿 조립<br/>LLM 호출 없음<br/>GET …/reports/{version}"]
+    S --> T["담당자 검토·승인·이력<br/>POST …/reports/<br/>{version}/approve"]
 ```
+
+`…`는 `/cases/{id}`의 줄임이다. 판단 그래프 상자의 영문 이름, `require_confirmed_card`, 판정 상태(둥근 상자)를 만드는
+`build_judgment_result`가 `app/workflow/graph.py` `STAGES`의 9단계다. 검증 3겹(근거·반박·계산)은 `app/validation/`,
+보고서 조립은 `app/reports/`에 있다.
+경로와 단계는 코드에 연결돼 있지만 범위 게이트(`scope_gate`) 외 단계 본문은 대부분 아직 `NotImplementedError`다.
 
 SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과를 검증한 뒤 선택적으로 추가한다.
 마스크 접촉으로 실제 충돌을 확정하거나 픽셀 변위로 실제 속도·과속을 판정하지 않는다.
@@ -88,7 +125,6 @@ SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과
 | 구성 | 설계 기술 | 역할 |
 | --- | --- | --- |
 | API | Python · FastAPI · Vercel Functions | 사건·사실 카드·판단 실행·보고서·권한 |
-| 비동기 작업 | Vercel Queues | 단계별 작업 실행·재시도·진행 상태 기록 |
 | 비전 워커 | Modal GPU · YOLO · OpenCV, SAM2 선택 | 탐지·추적·특징·근거 프레임 |
 | 판단 | LangGraph, VLM·LLM API | 구조화 사실 추출·고정 판단 그래프·반박 검토 |
 | 검색·색인 | LangChain · Kiwi · pgvector · pg_trgm | 코퍼스별 전처리·구조화 검색·한국어 BM25 |
@@ -101,8 +137,9 @@ YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는�
 **배포는 Vercel 프로젝트 `ok-muncheol-be`에 연결되어 있다(2026-11-06).** `main` push마다 Python 런타임이
 `app/main.py`의 모듈 수준 `app`을 진입점으로 배포하고, 의존성은 `requirements.txt`(`.` → `pyproject.toml`)로 설치한다.
 경로 14개가 배포되지만 서비스 본문이 빈 경로는 501 `not_implemented`를 돌려준다. 인증 환경 변수가 없으면 보호 경로는 503으로 닫힌다.
-설계 원본은 FE·API를 한 Vercel 프로젝트로 배포하는 목표다. 두 Git 저장소를 그 배포 단위에 연결하는 방식,
-라우팅은 미정이다. CORS는 `CORS_ALLOW_ORIGINS`에 적은 출처만 허용한다. lumi의 별도 프로젝트 배포 설정을 그대로 복제하지 않는다.
+FE는 별도 Vercel 프로젝트 `ok-muncheol-fe`로 배포한다. 운영 주소는 FE `https://ok-muncheol-fe.vercel.app`,
+BE `https://ok-muncheol-be.vercel.app`이다(2026-11-09 확인). 오리진이 달라 CORS는 `CORS_ALLOW_ORIGINS`에 적은 출처만
+허용하고, 매번 바뀌는 FE Preview 주소에서는 BE 호출이 막힌다.
 
 ship은 `main` 머지 → main CI → 머지 커밋의 Vercel 배포 결과와 `/health` 응답까지 확인한다(`automation/pipeline.md` Step 3).
 
