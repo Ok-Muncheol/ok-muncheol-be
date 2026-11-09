@@ -3,6 +3,8 @@
 현재 실행 가능한 기능 테스트는 없다. `make check`는 문법·import·JSON 검사다.
 `make test`(pytest)는 `tests/` 전체를 돌린다. API 인증·오류 응답·경로 배선은 `tests/api/`, 검색·코퍼스는 `tests/test_*.py`,
 비전 평가는 `tests/evals/`, ship 게이트·폴링 스크립트는 `tests/automation/`에 있다.
+마이그레이션 파일 규칙·계약 동기화는 `tests/migrations/`에 있고, DB 동작 검사는 `MIGRATION_TEST_DATABASE_URL`이 있을 때만 돈다
+(`supabase/migrations/README.md` 「로컬 검사」).
 다음 계약이 구현될 때 의미 있는 동작 테스트를 이 폴더에 추가하면 CI `check`가 함께 돌린다.
 
 | 담당 | 우선 검증 |
