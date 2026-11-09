@@ -222,7 +222,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 make lint       # ruff
 make check      # Python 문법·import·타입 참조·JSON·견본 동기화
-make test       # pytest — API 인증·오류·배선(tests/api/), ship 게이트·폴링 스크립트(tests/automation/)
+make test       # pytest — tests/ 전체(API·검색·코퍼스·비전 평가·ship 스크립트)
 .venv/bin/uvicorn app.main:app --reload  # 로컬 서버. .env.example 참고
 make contracts  # app/schemas/examples.py → docs/contracts/examples.json
 ```

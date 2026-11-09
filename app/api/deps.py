@@ -38,13 +38,18 @@ def _decode(token: str, settings: Settings) -> dict[str, object]:
                 audience=settings.jwt_audience, options=options,
             )
         if algorithm in ASYMMETRIC_ALGORITHMS and settings.jwks_url:
-            key = _jwks_client(settings.jwks_url).get_signing_key_from_jwt(token)
+            try:
+                signing_key = _jwks_client(settings.jwks_url).get_signing_key_from_jwt(token)
+            except jwt.PyJWKClientConnectionError as exc:
+                # 공개키 목록을 받아 오지 못한 것만 서버 쪽 문제(503)다.
+                # 목록에 없는 키 ID는 위조·다른 프로젝트 토큰이므로 아래에서 401로 떨어진다
+                raise ApiException(
+                    503, "auth_unavailable", "인증 키를 불러오지 못했습니다.", True
+                ) from exc
             return jwt.decode(
-                token, key, algorithms=ASYMMETRIC_ALGORITHMS, audience=settings.jwt_audience,
-                issuer=settings.jwt_issuer, options=options,
+                token, signing_key.key, algorithms=ASYMMETRIC_ALGORITHMS,
+                audience=settings.jwt_audience, issuer=settings.jwt_issuer, options=options,
             )
-    except jwt.PyJWKClientError as exc:
-        raise ApiException(503, "auth_unavailable", "인증 키를 불러오지 못했습니다.", True) from exc
     except jwt.PyJWTError as exc:
         raise unauthorized() from exc
     raise unauthorized("이 서명 방식의 토큰은 받지 않습니다.")

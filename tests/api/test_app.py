@@ -1,5 +1,6 @@
 """B(통합): 인증·오류 응답·경로 배선 검증. 서비스 함수는 바꿔 끼우고 DB·모델 없이 돈다."""
 
+import json
 import time
 
 import jwt
@@ -197,7 +198,9 @@ def test_asymmetric_jwks_token_checks_issuer(client, monkeypatch):
 
     class FakeJwks:
         def get_signing_key_from_jwt(self, _token):
-            return private.public_key()
+            return jwt.PyJWK.from_dict(
+                {**json.loads(jwt.algorithms.ECAlgorithm.to_jwk(private.public_key())),
+                 "kid": "k1", "alg": "ES256"})
 
     url = "https://proj.supabase.co"
     monkeypatch.setattr(deps, "_jwks_client", lambda _url: FakeJwks())
@@ -213,3 +216,30 @@ def test_asymmetric_jwks_token_checks_issuer(client, monkeypatch):
     assert client.get("/cases/case-1", headers=es256("https://other/auth/v1")).status_code == 401
     # 비밀키 미설정이면 HS256 토큰은 받지 않는다(알고리즘 혼동 방지)
     assert client.get("/cases/case-1", headers=token()).status_code == 401
+
+
+@pytest.mark.parametrize(("error", "status", "code"), [
+    # 목록에 없는 키 ID: 위조·다른 프로젝트 토큰 → 401
+    (jwt.PyJWKClientError("Unable to find a signing key that matches: x"), 401, "unauthorized"),
+    # 공개키 목록 조회 실패: 서버 쪽 문제 → 503, 재시도 가능
+    (jwt.PyJWKClientConnectionError("Fail to fetch data from the url"), 503, "auth_unavailable"),
+])
+def test_jwks_lookup_failures(client, monkeypatch, error, status, code):
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app.api import deps
+
+    class FailingJwks:
+        def get_signing_key_from_jwt(self, _token):
+            raise error
+
+    monkeypatch.setattr(deps, "_jwks_client", lambda _url: FailingJwks())
+    app.dependency_overrides[get_settings] = lambda: settings(
+        supabase_url="https://proj.supabase.co", supabase_jwt_secret=None)
+    payload = {"sub": "u", "aud": "authenticated", "exp": int(time.time()) + 60}
+    forged = jwt.encode(payload, ec.generate_private_key(ec.SECP256R1()), algorithm="ES256",
+                        headers={"kid": "unknown"})
+    res = client.get("/cases/case-1", headers={"Authorization": f"Bearer {forged}"})
+    assert res.status_code == status
+    assert res.json()["error"]["code"] == code
+    assert res.json()["error"]["retryable"] is (status == 503)

@@ -141,7 +141,7 @@ FastAPI 앱은 인증·오류 응답·담당별 경로(`app/api/routes.py`)까�
 
 검증은 `make lint`(ruff)·`make check`(문법·import·JSON)·`make test`(pytest)이고, CI `check`가 같은 순서로 돈다.
 `make contracts`는 계약 견본을 다시 만든다. 검증 도구는 `.venv/bin/pip install -e ".[dev]"`로 설치하고 모델 키는 필요 없다.
-지금 `make test`에는 ship 게이트·폴링 스크립트 테스트(`tests/automation/`)만 있다. 서버 실행은 아직 없다.
+`make test`는 `tests/` 전체를 돌린다. 로컬 서버는 `.venv/bin/uvicorn app.main:app --reload`로 띄운다(`.env.example` 참고).
 구현 검증 목록은 [tests/README.md](tests/README.md), 평가 규칙은 [evals/retrieval/README.md](evals/retrieval/README.md)에 있다.
 
 1. 이슈에 담당·단계·입출력·완료 기준·계약/데이터 영향을 적는다.

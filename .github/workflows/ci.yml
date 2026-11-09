@@ -25,7 +25,7 @@ jobs:
       - run: make lint
       # 문법·import·타입 참조·JSON·계약 견본 동기화 (scripts/check_scaffold.py)
       - run: make check
-      # API 인증·오류·배선(tests/api/)과 ship 게이트·폴링 스크립트(tests/automation/)
+      # tests/ 전체: API(tests/api/)·검색·코퍼스(tests/test_*.py)·비전 평가(tests/evals/)·ship 스크립트(tests/automation/)
       - run: make test
 
   # 커밋 이력에 API 키 등 시크릿이 섞이지 않았는지 검사한다
