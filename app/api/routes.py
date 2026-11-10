@@ -16,7 +16,7 @@ from app.api.deps import ActorId, IdempotencyKey
 from app.api.errors import unprocessable, version_conflict
 from app.schemas.facts import FactCard, FactPatch
 from app.schemas.judgment import QuestionAnswer
-from app.schemas.reports import CalculationResult, ReviewReport
+from app.schemas.reports import ClaimResult, ConfirmResult, CounterpartyInfo, ReviewReport
 
 router = APIRouter()
 
@@ -35,6 +35,33 @@ class JudgmentRequest(BaseModel):
 
 class AskRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
+
+
+class ReportConfirmRequest(BaseModel):
+    counterparty: CounterpartyInfo | None = None
+
+
+class DocumentsRequest(BaseModel):
+    """서류(계약·견적·증빙)와 면책 체크(case_facts). 면책만 바꿀 때는 documents를 비운다."""
+
+    documents: list[dict[str, object]] = Field(default_factory=list)
+    case_facts: dict[str, object] | None = None
+
+
+class EstimateRequest(BaseModel):
+    """견적서 PDF는 FE가 서명 URL로 Storage에 올리고 그 경로만 보낸다.
+
+    Vercel 요청 본문 한도(4.5MB) 때문에 파일을 API로 직접 받지 않는다.
+    """
+
+    storage_path: str = Field(min_length=1)
+    party_id: str = Field(min_length=1)
+
+
+class AgreedFaultRequest(BaseModel):
+    agreed_counterparty_fault: int | None = None
+    fault_change_reason: str | None = None
+    clear: bool = False
 
 
 # ── A: 사건 접수·영상 ──────────────────────────────────────────────
@@ -105,22 +132,47 @@ async def ask_question(actor_id: ActorId, case_id: str, body: AskRequest) -> dic
     return await judgments.ask_question(actor_id, case_id, body.text)
 
 
-# ── D: 보고서·산정·구상 ───────────────────────────────────────────
+# ── D: 보고서·확인 완료·서류·구상(docs/d-claims-reports.md 「HTTP 경로」) ────────
 @router.get("/cases/{case_id}/reports/{version}", tags=["D reports"])
 async def get_report(actor_id: ActorId, case_id: str, version: int) -> ReviewReport:
     return await reports.get_report(actor_id, case_id, version)
 
 
-@router.post("/cases/{case_id}/reports/{version}/approve", tags=["D reports"])
-async def approve_report(actor_id: ActorId, case_id: str, version: int) -> ReviewReport:
-    return await reports.approve_report(actor_id, case_id, version)
+@router.post("/cases/{case_id}/reports/{version}/confirm", tags=["D reports"])
+async def confirm_report(
+    actor_id: ActorId, case_id: str, version: int, body: ReportConfirmRequest | None = None
+) -> ConfirmResult:
+    """담당자 확인 완료 1회. 청구서 조건이 맞으면 구상 청구서를 함께 만든다."""
+    counterparty = body.counterparty if body else None
+    return await reports.confirm_report(actor_id, case_id, version, counterparty=counterparty)
 
 
-@router.post("/cases/{case_id}/reports/{version}/calculation", tags=["D reports"])
-async def calculate_payment(actor_id: ActorId, case_id: str, version: int) -> CalculationResult:
-    return await reports.calculate_payment(actor_id, case_id, version)
+@router.get("/cases/{case_id}/reports/{version}/claim", tags=["D reports"])
+async def get_claim(actor_id: ActorId, case_id: str, version: int) -> ClaimResult:
+    return await reports.get_claim(actor_id, case_id, version)
 
 
-@router.post("/cases/{case_id}/reports/{version}/claim-export", tags=["D reports"])
-async def export_claim(actor_id: ActorId, case_id: str, version: int) -> dict[str, object]:
-    return await reports.export_claim(actor_id, case_id, version)
+@router.post("/cases/{case_id}/documents", tags=["D reports"])
+async def add_documents(
+    actor_id: ActorId, case_id: str, body: DocumentsRequest
+) -> ReviewReport | None:
+    """서류 추가 → 자동 재산정. 추가 확인·보류 사건이면 서류만 저장하고 null."""
+    return await reports.add_documents(actor_id, case_id, body.documents, body.case_facts)
+
+
+@router.post("/cases/{case_id}/estimates", tags=["D reports"])
+async def upload_estimate(
+    actor_id: ActorId, case_id: str, body: EstimateRequest
+) -> ReviewReport | None:
+    """Storage 경로의 견적서를 /tmp로 내려받아 reports.upload_estimate에 넘긴다(후속)."""
+    raise NotImplementedError("B: 견적서 Storage 내려받기 — 업로드 서명 URL·서버 키 준비 뒤 연결")
+
+
+@router.patch("/cases/{case_id}/agreed-fault", tags=["D reports"])
+async def set_agreed_fault(
+    actor_id: ActorId, case_id: str, body: AgreedFaultRequest
+) -> ReviewReport:
+    return await reports.set_agreed_fault(
+        actor_id, case_id, agreed_counterparty_fault=body.agreed_counterparty_fault,
+        fault_change_reason=body.fault_change_reason, clear=body.clear,
+    )
