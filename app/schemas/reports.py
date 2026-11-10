@@ -220,3 +220,20 @@ class ClaimPackage(TypedDict):
     rule_version: str
     rule_notice: str | None  # 예시 규칙이면 "예시 규칙 기준 — 약관 검수 전 초안"
     assumptions: list[str]  # 산정에 쓴 기본 가정(계약·자기부담금·면책 미입력). 없으면 []
+
+
+class ConfirmResult(TypedDict):
+    """confirm_report 응답. 청구서를 못 만들면 package·html은 null, 사유는 claim_blocked_reasons."""
+
+    report: ReviewReport
+    package: ClaimPackage | None
+    html: str | None
+    claim_blocked_reason: str | None  # claim_blocked_reasons의 첫 번째 값(없으면 null)
+    claim_blocked_reasons: list[str]  # 청구서 조건이 안 맞는 사유 전부. 만들었으면 []
+
+
+class ClaimResult(TypedDict):
+    """get_claim 응답: 그 보고서 버전으로 만든 구상 청구서."""
+
+    package: ClaimPackage
+    html: str

@@ -302,14 +302,14 @@ class ApiFlowTest(unittest.TestCase):
         self.assertIs(
             run(api.add_documents(actor, cid, [fx.estimate()])), v3
         )  # 같은 서류 재전송 → 새 버전 없음
-        with self.assertRaises(api.StaleVersion):
+        with fx.raises_api(self, 409, "version_conflict"):
             run(api.confirm_report(actor, cid, 2))
         out = run(api.confirm_report(actor, cid, 3))
         self.assertEqual(
             (out["report"]["approval_status"], out["report"]["approved_by"]), ("approved", actor)
         )
         self.assertEqual(out["package"]["amounts"]["planned"], 6_650_000)
-        with self.assertRaises(PermissionError):
+        with fx.raises_api(self, 403, "forbidden"):
             run(api.get_report("someone-else", cid, 1))
 
 

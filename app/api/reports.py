@@ -10,15 +10,22 @@
 4. confirm_report   — 담당자 [확인 완료] 한 번: 최신·draft_ready면 확인 기록.
                       청구서 조건이 맞으면 구상 청구 패키지 생성, 아니면 package=None +
                       claim_blocked_reason(견적서 필요·지급 불가·상대 과실 0% 등)
+5. get_claim        — 그 보고서 버전으로 만든 청구서 다시 조회
 기본 가정(1차 판정 초안): 계약 서류 없음 → 자차 가입·보험기간 안·운전자 범위 안(한도 검사 생략),
 자기부담금 → rules.py 기본 규칙, 면책 사실 미입력 → 해당 없음.
 가정은 8번·청구서에 표시하고 막지 않는다.
-HTTP 라우터는 D 통합(app/main.py)에서 이 함수들을 감싸 붙인다.
+HTTP 경로는 app/api/routes.py(구준휘 님)가 이 함수들을 감싸 붙인다.
+경로 표는 docs/d-claims-reports.md.
+오류: 내부 예외는 그대로 두고, 공개 서비스 함수 경계(_api_boundary)에서만 app/api/errors.py의
+ApiException으로 바꾼다 — 없음 404, 담당 아님 403, 최신 아님 409, 처리 불가 입력·상태 422.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC
+from functools import wraps
 
+from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.calculation.estimate_reader import read_estimate_pdf
 from app.calculation.exclusions import (
     EXCLUSION_FACT_KEYS,
@@ -34,15 +41,29 @@ from app.calculation.rules import DEFAULT_RULES, RuleSet
 from app.claims.package import ClaimPackageBlocked, build_claim_package, compute_recovery
 from app.reports.assembler import assemble_review
 from app.reports.render import package_html
-from app.reports.repository import CaseRecord, InMemoryReportRepository
+from app.reports.repository import (
+    CaseRecord,
+    InMemoryReportRepository,
+    NotCaseOwner,
+    RecordNotFound,
+)
 from app.retrieval.common import configure_retrieval, fetch_by_parent
 from app.retrieval.embedding import OpenAIEmbedder
 from app.retrieval.loader import handoff_terms_edition, load_index
 from app.schemas.facts import FactCard
 from app.schemas.judgment import JudgmentResult
-from app.schemas.reports import CounterpartyInfo, RecoveryAmounts, ReviewReport
+from app.schemas.reports import (
+    ClaimResult,
+    ConfirmResult,
+    CounterpartyInfo,
+    RecoveryAmounts,
+    ReviewReport,
+)
 
 __all__ = [
+    "AgreedFaultInvalid",
+    "CardNotConfirmed",
+    "CaseFactsInvalid",
     "ClaimPackageBlocked",
     "ConfirmBlocked",
     "InMemoryReportRepository",
@@ -51,6 +72,7 @@ __all__ = [
     "configure",
     "configure_with_knowledge_base",
     "confirm_report",
+    "get_claim",
     "get_report",
     "services",
     "set_agreed_fault",
@@ -65,6 +87,46 @@ class StaleVersion(ValueError):
 
 class ConfirmBlocked(ValueError):
     """확인 완료할 수 없는 보고서(추가 확인·보류 판단)."""
+
+
+class CaseFactsInvalid(ValueError):
+    """면책 체크박스(case_facts) 입력이 허용 키·값이 아님."""
+
+
+class CardNotConfirmed(ValueError):
+    """확정되지 않은 사실 카드로 판단 결과를 넘김."""
+
+
+class AgreedFaultInvalid(ValueError):
+    """협의 과실 입력·해제 요청을 처리할 수 없음(이유 없음, 범위 밖, 산정 결과 없음 등)."""
+
+
+# 하위 클래스를 먼저 본다(StaleVersion·ConfirmBlocked 등은 ValueError).
+_API_ERRORS: tuple[tuple[type[Exception], Callable[[Exception], ApiException]], ...] = (
+    (StaleVersion, lambda e: version_conflict(str(e))),
+    (ConfirmBlocked, lambda e: unprocessable("confirm_blocked", str(e))),
+    (CaseFactsInvalid, lambda e: unprocessable("invalid_case_facts", str(e))),
+    (CardNotConfirmed, lambda e: unprocessable("card_not_confirmed", str(e))),
+    (AgreedFaultInvalid, lambda e: unprocessable("invalid_agreed_fault", str(e))),
+    (NotCaseOwner, lambda e: forbidden(str(e))),
+    (RecordNotFound, lambda e: not_found(str(e))),
+)
+
+
+def _api_boundary[**P, R](fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    """공개 서비스 함수 경계: 알려진 내부 예외만 ApiException으로 바꾼다. 나머지는 그대로(500)."""
+
+    @wraps(fn)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return await fn(*args, **kwargs)
+        except Exception as exc:
+            for kind, to_api in _API_ERRORS:
+                if isinstance(exc, kind):
+                    raise to_api(exc) from exc
+            raise
+
+    return wrapper
 
 
 @dataclass
@@ -166,13 +228,13 @@ def validate_case_facts(case_facts: dict[str, object]) -> None:
     """면책 체크박스 입력 검사. 키는 무면허·음주·고의만, 값은 True/False/None(미입력)만."""
     extra = [k for k in case_facts if k not in EXCLUSION_FACT_KEYS]
     if extra:
-        raise ValueError(
+        raise CaseFactsInvalid(
             f"case_facts에 허용되지 않은 키: {', '.join(map(str, extra))} (허용: "
             f"{', '.join(EXCLUSION_FACT_KEYS)})"
         )
     bad = [k for k, v in case_facts.items() if v is not None and not isinstance(v, bool)]
     if bad:
-        raise ValueError(f"case_facts 값은 true/false/null만 허용: {', '.join(bad)}")
+        raise CaseFactsInvalid(f"case_facts 값은 true/false/null만 허용: {', '.join(bad)}")
 
 
 def _same_inputs(a: ReviewReport | None, b: ReviewReport) -> bool:
@@ -184,26 +246,29 @@ def _same_inputs(a: ReviewReport | None, b: ReviewReport) -> bool:
     return ca.get("inputs_hash") == cb.get("inputs_hash") and a.get("recovery") == b.get("recovery")
 
 
+@_api_boundary
 async def submit_judgment(
     actor_id: str, card: FactCard, judgment: JudgmentResult, *, education_mode: bool = False
 ) -> ReviewReport:
     """B가 판단을 끝내면 호출. 카드가 확정 상태여야 한다. draft_ready면 산정까지 한 보고서가
     나온다."""
     if card["status"] != "confirmed":
-        raise ValueError("확정되지 않은 사실 카드입니다")
+        raise CardNotConfirmed("확정되지 않은 사실 카드입니다")
     rec = services.repo.open(card["case_id"], actor_id)
     if rec.owner_id != actor_id:
-        raise PermissionError("담당 사건이 아닙니다")
+        raise NotCaseOwner("담당 사건이 아닙니다")
     rec.card = card
     report = await _draft(rec, judgment, "판단 결과 반영", education_mode)
     rec.reports.append(report)
     return report
 
 
+@_api_boundary
 async def get_report(actor_id: str, case_id: str, version: int) -> ReviewReport:
     return services.repo.get(actor_id, case_id).report(version)
 
 
+@_api_boundary
 async def add_documents(
     actor_id: str,
     case_id: str,
@@ -236,6 +301,7 @@ async def add_documents(
     return draft
 
 
+@_api_boundary
 async def upload_estimate(
     actor_id: str, case_id: str, pdf_path: str, party_id: str
 ) -> ReviewReport | None:
@@ -252,6 +318,7 @@ async def upload_estimate(
     return await add_documents(actor_id, case_id, [doc, evidence])  # type: ignore[list-item]
 
 
+@_api_boundary
 async def set_agreed_fault(
     actor_id: str,
     case_id: str,
@@ -265,18 +332,20 @@ async def set_agreed_fault(
     rec = services.repo.get(actor_id, case_id)
     base = rec.latest_ready()
     if base is None or not base.get("calculation"):
-        raise ValueError("산정 결과가 있는 보고서가 필요합니다")
+        raise AgreedFaultInvalid("산정 결과가 있는 보고서가 필요합니다")
     if not fault_change_reason:
-        raise ValueError("협의 과실을 바꾸거나 되돌리면 이유를 함께 입력해야 합니다")
+        raise AgreedFaultInvalid("협의 과실을 바꾸거나 되돌리면 이유를 함께 입력해야 합니다")
     if clear:
         if agreed_counterparty_fault is not None:
-            raise ValueError("협의 과실 되돌리기와 새 협의 과실 입력은 함께 할 수 없습니다")
+            raise AgreedFaultInvalid(
+                "협의 과실 되돌리기와 새 협의 과실 입력은 함께 할 수 없습니다"
+            )
         if rec.fault_agreement.get("agreed_counterparty_fault") is None:
-            raise ValueError("되돌릴 협의 과실이 없습니다")
+            raise AgreedFaultInvalid("되돌릴 협의 과실이 없습니다")
     elif agreed_counterparty_fault is None:
-        raise ValueError("협의 상대 과실(%)을 입력하세요 (되돌리려면 clear=True)")
+        raise AgreedFaultInvalid("협의 상대 과실(%)을 입력하세요 (되돌리려면 clear=True)")
     elif not 0 <= agreed_counterparty_fault <= 100:
-        raise ValueError("상대 과실은 0~100% 사이여야 합니다")
+        raise AgreedFaultInvalid("상대 과실은 0~100% 사이여야 합니다")
     rec.fault_agreement = {
         "agreed_counterparty_fault": None if clear else agreed_counterparty_fault,
         "fault_change_reason": fault_change_reason,
@@ -291,9 +360,10 @@ async def set_agreed_fault(
     return report
 
 
+@_api_boundary
 async def confirm_report(
     actor_id: str, case_id: str, version: int, *, counterparty: CounterpartyInfo | None = None
-) -> dict[str, object]:
+) -> ConfirmResult:
     """담당자 [확인 완료] 한 번. 막는 경우는 최신 버전 아님(StaleVersion)·draft_ready
     아님(ConfirmBlocked) 두 가지뿐.
     확인 기록을 남기고, 청구서 조건이 맞으면 구상 청구 패키지를 만든다. 아니면 package/html=None과
@@ -320,7 +390,7 @@ async def confirm_report(
             rules=services.rules,
             now=now,
         )
-    except ClaimPackageBlocked as exc:
+    except ClaimPackageBlocked as exc:  # ValueError 하위 클래스라 먼저 잡는다
         return {
             "report": report,
             "package": None,
@@ -328,6 +398,8 @@ async def confirm_report(
             "claim_blocked_reasons": list(exc.reasons),
             "claim_blocked_reason": exc.reasons[0],
         }
+    except ValueError as exc:  # 협의 과실 변경 이유 없음 등 패키지 입력 오류
+        raise AgreedFaultInvalid(str(exc)) from exc
     same = next((p for p in rec.packages if p["idempotency_key"] == pkg["idempotency_key"]), None)
     if same is None:
         rec.packages.append(pkg)
@@ -339,3 +411,14 @@ async def confirm_report(
         "claim_blocked_reasons": [],
         "claim_blocked_reason": None,
     }
+
+
+@_api_boundary
+async def get_claim(actor_id: str, case_id: str, version: int) -> ClaimResult:
+    """그 보고서 버전으로 만든 구상 청구서(confirm_report가 만든 것). 버전·청구서가 없으면 404."""
+    rec = services.repo.get(actor_id, case_id)
+    rec.report(version)  # 버전이 없으면 RecordNotFound
+    pkg = next((p for p in reversed(rec.packages) if p["report_version"] == version), None)
+    if pkg is None:
+        raise RecordNotFound(f"보고서 v{version}으로 만든 청구서가 없습니다")
+    return {"package": pkg, "html": package_html(pkg)}

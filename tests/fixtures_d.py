@@ -1,5 +1,8 @@
 """D 테스트용 합성 입력. 실제 사고·도표·약관·금액이 아니다(모든 ID에 synthetic/example 표시)."""
 
+from contextlib import contextmanager
+
+from app.api.errors import ApiException
 from app.schemas.facts import FactCard, FactField
 from app.schemas.judgment import JudgmentResult
 from app.schemas.retrieval import EvidenceHit
@@ -204,3 +207,16 @@ NO_EXCLUSION = [
     }
     for k in ("무면허", "음주", "고의")
 ]
+
+
+@contextmanager
+def raises_api(test, status: int, code: str | None = None, message: str | None = None):
+    """D 서비스 함수가 ApiException(status·code)을 던지는지. message는 메시지에 들어갈 문구."""
+    with test.assertRaises(ApiException) as ctx:
+        yield ctx
+    error = ctx.exception.error
+    test.assertEqual(ctx.exception.status_code, status, error)
+    if code is not None:
+        test.assertEqual(error["code"], code)
+    if message is not None:
+        test.assertIn(message, error["message"])

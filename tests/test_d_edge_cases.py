@@ -483,19 +483,19 @@ class ApiEdgeFlowTest(unittest.TestCase):
 
     def test_agreed_fault_validation(self):
         self.ready()
-        with self.assertRaisesRegex(ValueError, "이유"):
+        with fx.raises_api(self, 422, "invalid_agreed_fault", "이유"):
             self.agree(60)
-        with self.assertRaisesRegex(ValueError, "0~100"):
+        with fx.raises_api(self, 422, "invalid_agreed_fault", "0~100"):
             self.agree(120, "x")
         self.agree(60, "협의")
-        with self.assertRaisesRegex(ValueError, "이유"):
+        with fx.raises_api(self, 422, "invalid_agreed_fault", "이유"):
             self.agree(clear=True)
-        with self.assertRaisesRegex(ValueError, "함께 할 수 없습니다"):
+        with fx.raises_api(self, 422, "invalid_agreed_fault", "함께 할 수 없습니다"):
             self.agree(50, "x", clear=True)
 
     def test_clear_without_agreement_rejected(self):
         self.ready()
-        with self.assertRaisesRegex(ValueError, "되돌릴 협의 과실이 없습니다"):
+        with fx.raises_api(self, 422, "invalid_agreed_fault", "되돌릴 협의 과실이 없습니다"):
             self.agree(reason="x", clear=True)
 
     def test_no_agreement_shown_in_section_9(self):
@@ -517,7 +517,7 @@ class ApiEdgeFlowTest(unittest.TestCase):
         self.ready()
         first = self.confirm(2)["package"]
         self.agree(60, "협의")
-        with self.assertRaises(api.StaleVersion):  # 예전 확인본으로는 불가
+        with fx.raises_api(self, 409, "version_conflict"):  # 예전 확인본으로는 불가
             self.confirm(2)
         second = self.confirm(3)["package"]
         self.assertEqual((first["package_version"], first["counterparty_fault"]), (1, 70))
