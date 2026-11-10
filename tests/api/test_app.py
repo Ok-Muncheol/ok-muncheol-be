@@ -56,10 +56,10 @@ def test_health_is_open(client):
 
 
 def test_openapi_matches_fe_api_client():
-    # FE src/lib/api/client.ts ApiClient 메서드 16개
-    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 15
+    # FE src/lib/api/client.ts ApiClient 메서드 17개
+    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 16
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 16
+    assert ops == 17
 
 
 def test_missing_token_is_401_api_error(client):
@@ -294,6 +294,25 @@ def test_answer_passes_actor_case_and_body(client, monkeypatch):
     res = client.post("/cases/case-1/questions/q-1/answer", json=body, headers=token())
     assert res.status_code == 200
     assert seen == {"actor": "user-1", "case": "case-1", "question": "q-1", "unknown": True}
+
+
+def test_judgment_read_passes_actor_and_case(client, monkeypatch):
+    seen = []
+    view = {"task_id": "run-1", "status": "waiting_for_confirmation", "result": None,
+            "questions": [{"question_id": "q-1", "answer": None}]}
+
+    async def read(actor_id, case_id):
+        seen.append((actor_id, case_id))
+        return view if case_id == "case-1" else None
+
+    monkeypatch.setattr(judgments, "get_judgment", read)
+    res = client.get("/cases/case-1/judgment", headers=token())
+    assert (res.status_code, res.json()) == (200, view)
+    # 판단을 시작하지 않은 사건은 404가 아니라 null이다
+    res = client.get("/cases/case-2/judgment", headers=token())
+    assert (res.status_code, res.json()) == (200, None)
+    assert seen == [("user-1", "case-1"), ("user-1", "case-2")]
+    assert client.get("/cases/case-1/judgment").status_code == 401
 
 
 def test_every_route_calls_an_existing_service_function():
