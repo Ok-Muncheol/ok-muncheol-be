@@ -24,14 +24,14 @@
         {
           "path": "data/private/01_fault_standards/processed/chunks.jsonl",
           "role": "searchable chunks",
-          "bytes": 2823901,
-          "sha256": "fe2b9647e56c80e661eafc32e8db32fd85dd12844b5d275949adafd6ce75e257"
+          "bytes": 2813053,
+          "sha256": "8d3d85609fe9114f858dfda25a475237fa58f8a31c365c7bf832d8cc1e349d33"
         },
         {
           "path": "data/private/01_fault_standards/processed/embeddings.jsonl",
           "role": "precomputed document vectors",
-          "bytes": 31675251,
-          "sha256": "2f40e69c43d12ad3dd21f82f08a55562df00fc72ee6f45d09ebb6d6012c31e1b"
+          "bytes": 31664403,
+          "sha256": "8eb8b98a0373735c3a62cb913b6b7f9ac784ab444894da609bfcdd92cbb371c5"
         },
         {
           "path": "data/private/01_fault_standards/evaluation.jsonl",
@@ -42,8 +42,8 @@
         {
           "path": "data/private/01_fault_standards/processed/charts.jsonl",
           "role": "charts",
-          "bytes": 398599,
-          "sha256": "d70c98369d272f493d807ac5ca654477e3e056dd949cd195c4d04c4383d45c24"
+          "bytes": 397303,
+          "sha256": "46db7957e6412eba5ce3cdee9b47847edce043ac53271f03646d660b171d7020"
         },
         {
           "path": "data/private/01_fault_standards/processed/modifiers.jsonl",
@@ -148,43 +148,50 @@
     {
       "corpus": "policy_terms",
       "intended_search_strategy": "clause_bm25",
-      "chunks": 495,
-      "vectors": 495,
-      "evaluation_questions": 80,
+      "chunks": 544,
+      "vectors": 544,
+      "evaluation_questions": 88,
       "record_counts": {
         "clauses": 184,
-        "appendices": 202
+        "appendices": 208,
+        "schedule_values": 119
       },
       "files": [
         {
           "path": "data/private/03_policy_terms/processed/chunks.jsonl",
           "role": "searchable chunks",
-          "bytes": 2040203,
-          "sha256": "080561e6f050a4052c886725cef3488113b29a7379183ceb5cb1d013a5fd8fb2"
+          "bytes": 2288166,
+          "sha256": "a31702329847c7e5a0a3247c90ab9963faea5634474b6ff04558d08cc7e3b1c8"
         },
         {
           "path": "data/private/03_policy_terms/processed/embeddings.jsonl",
           "role": "precomputed document vectors",
-          "bytes": 17506030,
-          "sha256": "3d537ff92cf34551b24fa4e55e1b58cadb9ff2e38af2868612c6f6429bed23fb"
+          "bytes": 19284879,
+          "sha256": "4088f040301b1cbe5860740617438a72cefbfb4a7ce44ee3e166e2ee55a3cc5d"
         },
         {
           "path": "data/private/03_policy_terms/evaluation.jsonl",
           "role": "evaluation questions and reference parent IDs",
-          "bytes": 245535,
-          "sha256": "564ae1bda216cb85acf92d70d6a01372243900a2d0330d172256fb8e8756ea73"
+          "bytes": 270328,
+          "sha256": "efd395892e153aade35724e8fcbaddf41756278acb53323ff21e20df92cc5597"
         },
         {
           "path": "data/private/03_policy_terms/processed/clauses.jsonl",
           "role": "clauses",
           "bytes": 831028,
-          "sha256": "2ee7a94eadf02add581aba9e551c13e45906688aa026bb7ccf9ab2136f6f53a5"
+          "sha256": "7041b142779e3e780c5bd68f7f8786874f99badfd314ee446e6095ab86b2b780"
         },
         {
           "path": "data/private/03_policy_terms/processed/appendices.jsonl",
           "role": "appendices",
-          "bytes": 411626,
-          "sha256": "d337bf31ad54a0d955183f29a881cee530e86d61dfb16a2b4ae995922694eb90"
+          "bytes": 428102,
+          "sha256": "b4a4574a3f4a524edcee46383334d657b99b5e9e0f16a64043823fa7d1ec5ab7"
+        },
+        {
+          "path": "data/private/03_policy_terms/processed/schedule_values.jsonl",
+          "role": "schedule_values",
+          "bytes": 115762,
+          "sha256": "b21c9b54dac4f59271a43ae5435b44b36638c92587ae3b740858ffc441f36766"
         }
       ],
       "documents": [
@@ -205,7 +212,9 @@
       ],
       "no_answer_questions": 0,
       "source_review_status": "unreviewed business rules; machine-reviewed evaluation references",
-      "unknown_effective_periods": true
+      "unknown_effective_periods": true,
+      "payment_standard_status": "별표1~5 items are appendices.record_type=payment_standard_item (chunk metadata clause_type=payment_standard); accident_date_from/to restrict some items, and hits outside the request accident_date are rejected by validate_hits",
+      "schedule_value_status": "schedule_values.jsonl holds 별표4·5 numbers machine-matched to source text; calculation_ready=false until business review"
     }
   ],
   "index_import_contract": {
@@ -247,7 +256,7 @@
     "query_origin": "GPT-5 source-grounded synthetic questions",
     "gold_scope": "reviewed candidate sources only; exhaustive relevance not guaranteed",
     "split_policy": "evaluation-only test set; no independent development split",
-    "date_policy": "empty accident_date is intentional for fixed-source retrieval; never invent an effective date",
+    "date_policy": "empty accident_date is intentional for fixed-source retrieval; never invent an effective date. Exception: payment-standard items split by accident date (metadata accident_date_from/to) carry the date stated in the question",
     "required_filter": "document_id pins the provided source; unknown dates/editions need a source-only evaluation mode",
     "allow_machine_reviewed_flag_required": true
   },
@@ -308,8 +317,8 @@
     "connected_search_status": "not executable yet: app.retrieval.common.search currently raises NotImplementedError"
   },
   "totals": {
-    "chunks": 2548,
-    "vectors": 2548,
-    "evaluation_questions": 280
+    "chunks": 2597,
+    "vectors": 2597,
+    "evaluation_questions": 288
   }
 }

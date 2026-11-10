@@ -32,7 +32,7 @@ def main():
     corpus_settings = [
         ("fault_standards", ["charts", "modifiers", "attributes"], "attribute_first"),
         ("dispute_cases", ["cases", "chart_mappings"], "fact_card_similarity"),
-        ("policy_terms", ["clauses", "appendices"], "clause_bm25"),
+        ("policy_terms", ["clauses", "appendices", "schedule_values"], "clause_bm25"),
     ]
     manifest = {
         "status": "ready_for_index_import_not_business_approved",
@@ -78,7 +78,7 @@ def main():
             "query_origin": "GPT-5 source-grounded synthetic questions",
             "gold_scope": "reviewed candidate sources only; exhaustive relevance not guaranteed",
             "split_policy": "evaluation-only test set; no independent development split",
-            "date_policy": "empty accident_date is intentional for fixed-source retrieval; never invent an effective date",  # noqa: E501 -- source text or prompt kept intact
+            "date_policy": "empty accident_date is intentional for fixed-source retrieval; never invent an effective date. Exception: payment-standard items split by accident date (metadata accident_date_from/to) carry the date stated in the question",  # noqa: E501 -- source text or prompt kept intact
             "required_filter": "document_id pins the provided source; unknown dates/editions need a source-only evaluation mode",  # noqa: E501 -- source text or prompt kept intact
             "allow_machine_reviewed_flag_required": True,
         },
@@ -178,6 +178,13 @@ def main():
             )
             item["numeric_rule_status"] = (
                 "calculation_ready remains false; numeric values require business review"
+            )
+        if corpus == "policy_terms":
+            item["payment_standard_status"] = (
+                "별표1~5 items are appendices.record_type=payment_standard_item (chunk metadata clause_type=payment_standard); accident_date_from/to restrict some items, and hits outside the request accident_date are rejected by validate_hits"  # noqa: E501 -- source text or prompt kept intact
+            )
+            item["schedule_value_status"] = (
+                "schedule_values.jsonl holds 별표4·5 numbers machine-matched to source text; calculation_ready=false until business review"  # noqa: E501 -- source text or prompt kept intact
             )
         if corpus == "dispute_cases":
             item["chart_mapping_status"] = (

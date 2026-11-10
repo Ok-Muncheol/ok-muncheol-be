@@ -30,6 +30,19 @@ Git에는 코드·`data/corpora/*/manifest.json`·합성 견본만 둔다.
 | `case` | `cases.jsonl` | `parent_id` | 예 |
 | `chart_mapping` | `chart_mappings.jsonl` | `<legacy_chart_id>\|<chart_id>\|<source_pdf_page>` (같은 키 여러 줄은 `body.links`로 묶음) | 아니오 |
 | `clause` / `appendix` | `clauses.jsonl` / `appendices.jsonl` | `parent_id` | 예 |
+| `schedule_value` | `schedule_values.jsonl` | `record_id` (예: `<document_id>:별표4:base:1`) | 아니오 |
+
+약관 `appendices.jsonl`의 `record_type`:
+
+- `payment_standard_item`: 보험금 지급기준 별표1~5의 항목. 부모 ID는 `<document_id>:payment_standard:별표N[:절]:<항목>`이에요(예: `별표3:1:from-2023-01-01`). 청크 `metadata.clause_type`은 `payment_standard`이고, `schedule`·`section`·`item`이 들어 있어요. 일부 항목에는 `accident_date_from`/`accident_date_to`도 있어요.
+- `cited_law_schedule`: 자배법 시행령 별표1·2(p.106–119). 쪽마다 청크가 하나예요.
+- `side_note`·`appendix_page`(p.264–293 인용 법조문): 보조 근거예요.
+
+검색 규칙:
+
+- 약관 검색은 `filters.schedule`(예: `"별표3"`)을 받아요.
+- 청크의 적용 사고일 범위가 요청 `accident_date` 밖이면 `validate_hits`가 거절해요. 그래서 공통 검색이 먼저 걸러야 해요.
+- 계산에 쓰는 수치(별표4 감액 비율, 별표5 급별 금액)는 청크가 아니라 `schedule_value` 레코드에서 가져와요. 원문과 기계 대조만 했기 때문에 `calculation_ready=false`예요.
 
 ## 검증 어댑터 (`app/tools/_evidence.py`의 `EvidenceStore`)
 

@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 import pdfplumber
 from build_dispute_cases import read, write
 
+from app.ingestion import policy_appendix
 from app.ingestion.policy_layout import extract_columns
 from app.ingestion.preprocess import preprocess_chunks
 from app.ingestion.retrieval_metadata import normalize_document, policy_coverage
@@ -210,8 +211,34 @@ def main():
                 },
             }
         )
+    # 보험금 지급기준 별표(p.91–105)는 표 칸 좌표로 항목 단위 레코드·청크를 만든다.
+    with pdfplumber.open(source) as pdf:
+        segments = []
+        for page in policy_appendix.SCHEDULE_PAGES:
+            segments += policy_appendix.page_segments(pdf.pages[page - 1], page)
+    items = policy_appendix.assemble_items(segments)
+    schedule_records, schedule_chunks = policy_appendix.build_schedule(items, doc)
+    cited_records, cited_chunks = policy_appendix.build_cited(
+        [b for b in pages if 106 <= b["page"] <= 119], doc
+    )
+    appendix += schedule_records + cited_records
+    chunks += schedule_chunks + cited_chunks
+    by_label = {(i["schedule"]["number"], i["label"].split(".")[0]): i for i in items}
+
+    def item_lines(number, letter):
+        return [line for _, line in by_label[(number, letter)]["lines"]]
+
+    values = policy_appendix.passenger_reduction_records(
+        "\n".join(item_lines(4, "가") + item_lines(4, "나")), doc, 104
+    )
+    values += policy_appendix.amount_table_records(
+        item_lines(5, "가"), doc, 105, "별표5-가-상해", policy_appendix.INJURY_COLUMNS
+    )
+    values += policy_appendix.amount_table_records(
+        item_lines(5, "나"), doc, 105, "별표5-나-후유장애", policy_appendix.DISABILITY_COLUMNS
+    )
     for b in pages:
-        if 91 <= b["page"] <= 119 or 264 <= b["page"] <= 293:
+        if 264 <= b["page"] <= 293:
             parent = f"{doc['document_id']}:appendix:p{b['page']}"
             appendix.append(
                 {
@@ -224,39 +251,43 @@ def main():
                     "record_type": "appendix_page",
                 }
             )
-            if b["page"] >= 264:
-                chunks.append(
-                    {
-                        "chunk_id": hashlib.sha256(parent.encode()).hexdigest()[:24],
-                        "parent_id": parent,
-                        "document": doc,
-                        "page_start": b["page"],
-                        "page_end": b["page"],
-                        "text": "자동차보험약관 인용 법조문\n" + b["text"],
-                        "metadata": {
-                            "clause_type": "cited_law_appendix",
-                            "review_status": "unreviewed",
-                            "retrieval_role": "auxiliary_reference",
-                            "embedding_ready": False,
-                            "requires_parent_context": True,
-                        },
-                    }
-                )
+            chunks.append(
+                {
+                    "chunk_id": hashlib.sha256(parent.encode()).hexdigest()[:24],
+                    "parent_id": parent,
+                    "document": doc,
+                    "page_start": b["page"],
+                    "page_end": b["page"],
+                    "text": "자동차보험약관 인용 법조문\n" + b["text"],
+                    "metadata": {
+                        "clause_type": "cited_law_appendix",
+                        "review_status": "unreviewed",
+                        "retrieval_role": "auxiliary_reference",
+                        "embedding_ready": False,
+                        "requires_parent_context": True,
+                    },
+                }
+            )
     chunks = preprocess_chunks(chunks)
     a.output.mkdir(parents=True, exist_ok=True)
     write(a.output, "clauses", records)
     write(a.output, "chunks", chunks)
     write(a.output, "appendices", appendix)
+    write(a.output, "schedule_values", values)
     summary = {
         "general_articles": sum(r["clause_type"] == "general_article" for r in records),
         "riders": sum(r["clause_type"] == "rider" for r in records),
         "chunks": len(chunks),
         "appendix_pages": sum(r["record_type"] == "appendix_page" for r in appendix),
         "side_note_pages": sum(r["record_type"] == "side_note" for r in appendix),
+        "payment_standard_items": len(schedule_records),
+        "cited_law_schedules": len(cited_records),
+        "schedule_values": len(values),
         "status": "unreviewed",
         "limitations": [
             "문서 전용 페이지 경계 사용",
-            "부속표는 페이지 단위 미구조화",
+            "별표 수치 구조 레코드(schedule_values)는 기계 대조만 했고 calculation_ready=false",
+            "별표2 등 다른 별표의 수치는 청크 서술로만 있고 구조 레코드가 아님",
             "항·호와 단서의 자동 의미 연결은 미완료",
             "담보 mentions는 적용 담보 확정값이 아님",
         ],

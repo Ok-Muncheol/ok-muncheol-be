@@ -100,6 +100,17 @@ async def _check_parent(store: EvidenceStore, corpus: str, chunk: dict, parent: 
                 raise ValueError("Clause references missing source note")
 
 
+def within_accident_window(accident_date: str, metadata: dict) -> bool:
+    """별표 항목에 적용 사고일 범위가 있으면 사고 일자가 그 안이어야 한다.
+
+    두 값 모두 ISO 날짜(YYYY-MM-DD)라 문자열로 비교한다.
+    """
+    if not accident_date:
+        return True
+    start, end = metadata.get("accident_date_from"), metadata.get("accident_date_to")
+    return (not start or accident_date >= start) and (not end or accident_date <= end)
+
+
 def _matches(filters: dict, document: dict, parent: dict | None) -> bool:
     for name, expected in filters.items():
         if name in {"document_id", "edition"}:
@@ -156,6 +167,10 @@ async def validate_hits(request: SearchRequest, hits: list[EvidenceHit]) -> list
             await _check_parent(store, corpus, indexed, parent)
         if not _matches(request["filters"], document, parent):
             raise ValueError("Search hit does not satisfy the requested filters")
+        # 약관 적용판은 사고 일자로 정하지 않는다. 다만 같은 판 안에서도
+        # 별표 항목은 적용 사고일이 나뉜다(별표3 과실상계).
+        if not within_accident_window(request["accident_date"], indexed["metadata"]):
+            raise ValueError("Search hit applies to a different accident date range")
         score = hit.get("score")
         if (
             isinstance(score, bool)

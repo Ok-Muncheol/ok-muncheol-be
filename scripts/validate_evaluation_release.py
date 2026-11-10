@@ -1,4 +1,4 @@
-"""280문항 릴리스의 원문·근거 ID·인용구·모델 검수·분할 일관성 검증."""
+"""288문항 릴리스(약관 88 = 조항 80 + 별표 8)의 원문·근거 ID·인용구·모델 검수·분할 일관성 검증."""
 
 import hashlib
 import json
@@ -8,7 +8,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from build_evaluation_release import TARGET_COUNTS, VERSION, norm, source_text  # noqa: E402 -- standalone CLI adds repository root before app imports
+from build_evaluation_release import (  # noqa: E402 -- standalone CLI adds repository root before app imports
+    TARGET_COUNTS,
+    VERSION,
+    load_records,
+    norm,
+    source_text,
+)
 from embed_corpora import LOCATIONS, read  # noqa: E402 -- standalone CLI adds repository root before app imports
 
 
@@ -24,7 +30,7 @@ def main():
     ):
         base = ROOT / "data/private" / folder
         examples = read(base / "evaluation.jsonl")
-        records = {r["parent_id"]: r for r in read(base / version / f"{stem}.jsonl")}
+        records = {r["parent_id"]: r for r in load_records(base, version, corpus, stem)}
         parents = {c["parent_id"] for c in read(base / version / "chunks.jsonl")}
         target_count = TARGET_COUNTS[corpus]
         assert len(examples) == target_count, f"{folder}: exactly {target_count} examples required"

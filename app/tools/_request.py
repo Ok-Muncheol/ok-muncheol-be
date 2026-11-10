@@ -10,7 +10,9 @@ COMMON_FILTERS = frozenset({"document_id", "edition"})
 CORPUS_FILTERS = {
     "fault_standards": frozenset({"chart_id"}),
     "dispute_cases": frozenset({"chart_id", "case_id"}),
-    "policy_terms": frozenset({"coverage", "clause_id", "article_number", "rider_number"}),
+    "policy_terms": frozenset(
+        {"coverage", "clause_id", "article_number", "rider_number", "schedule"}
+    ),
 }
 
 
