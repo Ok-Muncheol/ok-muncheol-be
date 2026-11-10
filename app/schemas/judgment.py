@@ -3,7 +3,7 @@
 from typing import Literal, NotRequired, TypedDict
 
 from app.schemas.common import ApiError, JudgmentStatus, TaskStatus, VersionRef
-from app.schemas.retrieval import EvidenceHit
+from app.schemas.retrieval import Corpus, EvidenceHit
 
 
 class ConfirmationQuestion(TypedDict):
@@ -115,3 +115,60 @@ class JudgmentRunView(TypedDict):
     report_version: int | None
     questions: list[QuestionView]
     updated_at: str
+
+
+# ── 근거 질의응답·what-if(POST /cases/{id}/qa, 1차 확장) ─────────────────────
+QaToolName = Literal["get_judgment_log", "search_dispute_cases", "search_policy_terms", "simulate"]
+
+
+class QaCitation(TypedDict):
+    """답에 인용한 근거. 도구가 돌려준 근거만 남는다. ref는 답 본문의 [E1] 같은 표시다."""
+
+    ref: str
+    chunk_id: str
+    parent_id: str
+    corpus: Corpus
+    edition: str
+    page_start: int
+    page_end: int
+    excerpt: str
+
+
+class QaHypothesis(TypedDict):
+    """simulate 가정 실행 결과. 공식 판단·보고서와 분리되고 저장하지 않는다.
+
+    status: completed(가정 판정이 남) / waiting_for_confirmation(가정한 사실로도
+    확인할 칸이 남아 멈춤, open_fields) / failed(error).
+    """
+
+    changes: dict[str, str]
+    status: Literal["completed", "waiting_for_confirmation", "failed"]
+    judgment_status: JudgmentStatus | None
+    chart_id: str | None
+    fault_A: int | None
+    fault_B: int | None
+    reasons: list[str]
+    open_fields: list[str]
+    error: ApiError | None
+
+
+class QaToolCall(TypedDict):
+    name: str
+    ok: bool
+
+
+class QaAnswer(TypedDict):
+    """POST /cases/{id}/qa 응답. 최신 판정(judgment_version)을 기준으로 답한다.
+
+    공식 판단·보고서·확인 완료 상태는 바꾸지 않는다. 가정 결과는 hypotheticals에만 있다.
+    fact_change_hint: 가정 실행을 했으면 공식 반영 경로(사실 카드 수정·확정 → 판단 다시 요청)
+    안내, 아니면 null.
+    """
+
+    case_id: str
+    judgment_version: int
+    answer: str
+    citations: list[QaCitation]
+    hypotheticals: list[QaHypothesis]
+    tool_calls: list[QaToolCall]
+    fact_change_hint: str | None

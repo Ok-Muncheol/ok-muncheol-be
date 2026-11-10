@@ -5,7 +5,8 @@
 비전 평가는 `tests/evals/`, ship 게이트·폴링 스크립트는 `tests/automation/`에 있다.
 마이그레이션 파일 규칙·계약 동기화는 `tests/migrations/`에 있다. DB 동작 검사(마이그레이션, 판단 저장 `tests/api/test_judgment_service.py`)는
 `MIGRATION_TEST_DATABASE_URL`이 있을 때 돌고, CI는 Postgres 서비스로 늘 돌린다(`supabase/migrations/README.md` 「로컬 검사」).
-판단 그래프·검증 3겹은 `tests/workflow/`·`tests/validation/`에 있다.
+판단 그래프·검증 3겹은 `tests/workflow/`·`tests/validation/`에 있다. 근거 질의응답 에이전트(도구 루프·근거 표시·가정 결과 분리)는
+`tests/agents/`, 판정·카드를 읽고 가정 실행이 저장하지 않는지는 `tests/api/test_judgment_service.py`가 본다.
 다음 계약이 구현될 때 의미 있는 동작 테스트를 이 폴더에 추가하면 CI `check`가 함께 돌린다.
 
 D(옥석현) — 흐름: 판단 → 바로 산정 → 서류 추가 시 자동 재산정 → 담당자 확인 완료 1회 → 구상 청구서, 지급 내역 입력 없음:
