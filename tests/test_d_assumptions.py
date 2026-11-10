@@ -243,7 +243,7 @@ class AssumptionTest(unittest.TestCase):
         self.submit()
         for bad in ({"무보험": True}, {"음주": "yes"}, {"고의": 1}, {"음주": False, "과속": False}):
             with self.subTest(bad=bad):
-                with self.assertRaises(ValueError):
+                with fx.raises_api(self, 422, "invalid_case_facts"):
                     self.add([fx.estimate()], bad)
         rec = api.services.repo.get(self.actor, self.case)
         self.assertEqual(
@@ -262,7 +262,7 @@ class AssumptionTest(unittest.TestCase):
         self.assertEqual(
             (v2["versions"]["report_version"], v2["approval_status"]), (2, "draft")
         )  # 확인 풀림
-        with self.assertRaises(api.StaleVersion):
+        with fx.raises_api(self, 409, "version_conflict"):
             self.confirm(1)
         second = self.confirm(2)
         self.assertIsNone(second["claim_blocked_reason"])

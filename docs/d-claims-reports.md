@@ -61,14 +61,46 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | C | `policy_terms` 검색 결과의 `chunk.parent_id`를 조항 ID로 사용. 면책 근거는 `rules.py`의 조항 ID로 직접 가져옵니다(`fetch_by_parent`). `terms_edition`(계약 적용판)을 받아 주세요 |
 | A | `FactCard.party_mapping.insured_party_id`가 도표 A/B 중 하나와 일치해야 산정이 확정된다 |
 
+## HTTP 경로 (11-10, 구준휘 님과 합의)
+
+`app/api/routes.py`·README API 표·FE ApiClient는 구준휘 님이 맞춘다. D는 아래 서비스 함수(`app/api/reports.py`)만 제공한다.
+`…`는 `/cases/{case_id}`.
+
+| 메서드·경로 | 서비스 함수 | 요청 | 응답 |
+| --- | --- | --- | --- |
+| `GET …/reports/{v}` | `get_report(actor_id, case_id, version)` | - | `ReviewReport` |
+| `POST …/reports/{v}/confirm` | `confirm_report(actor_id, case_id, version, counterparty?)` | body: `counterparty`(선택, `CounterpartyInfo`) | `ConfirmResult` |
+| `POST /cases/{id}/estimates` | `upload_estimate(actor_id, case_id, pdf_path, party_id)` | body: `storage_path`, `party_id`. 구준휘 님 경로가 Storage에서 `/tmp`로 내려받아 `pdf_path`로 넘긴다 | `ReviewReport \| null` |
+| `POST /cases/{id}/documents` | `add_documents(actor_id, case_id, documents, case_facts?)` | body: `documents`, `case_facts`(선택) | `ReviewReport \| null` |
+| `GET …/reports/{v}/claim` | `get_claim(actor_id, case_id, version)` | - | `ClaimResult` |
+| `PATCH /cases/{id}/agreed-fault` | `set_agreed_fault(actor_id, case_id, agreed_counterparty_fault?, fault_change_reason, clear?)` | body: 같은 이름 | `ReviewReport` |
+| (경로 없음) | `submit_judgment(actor_id, card, result)` | 판단 완료 시 구준휘 님 쪽에서 호출 | `ReviewReport` |
+
+**삭제**: `POST …/reports/{v}/approve`, `POST …/reports/{v}/calculation`, `POST …/reports/{v}/claim-export` (D 함수 `approve_report`·`calculate_payment`·`export_claim`은 11-06에 없어졌다).
+
+### 오류 (`ApiException`, `app/api/errors.py`)
+
+내부 예외 클래스는 그대로 두고 서비스 함수 경계에서만 바꾼다. 아래에 없는 예외는 바꾸지 않는다(500, 예: 서버에 pdfplumber 없음 `EstimateReaderUnavailable`).
+
+| 상황 | 내부 예외 | HTTP | `code` |
+| --- | --- | --- | --- |
+| 사건·보고서 버전·청구서 없음 | `RecordNotFound`(`LookupError`) | 404 | `not_found` |
+| 담당 사건 아님 | `NotCaseOwner`(`PermissionError`) | 403 | `forbidden` |
+| 최신 버전이 아닌 보고서 확인 | `StaleVersion` | 409 | `version_conflict` |
+| 추가 확인·보류 보고서 확인 | `ConfirmBlocked` | 422 | `confirm_blocked` |
+| `case_facts` 키·값 오류(서류도 저장 안 함) | `CaseFactsInvalid` | 422 | `invalid_case_facts` |
+| 확정되지 않은 사실 카드 | `CardNotConfirmed` | 422 | `card_not_confirmed` |
+| 협의 과실 입력·해제 오류(이유 없음·0~100 밖·되돌릴 값 없음·산정 결과 없음) | `AgreedFaultInvalid` | 422 | `invalid_agreed_fault` |
+
 ## FE 타입 변경
 
 | 대상 | 변경 |
 | --- | --- |
-| `confirm_report` 결과 (11-06 갱신) | 항상 `{report, package, html, claim_blocked_reasons, claim_blocked_reason}`. 청구서를 만들면 `package`·`html` 채움, `claim_blocked_reasons: []`, `claim_blocked_reason: null`. 못 만들면 `package: null`, `html: null`, `claim_blocked_reasons: string[]`(해당 사유 전부, 예: 음주 + 견적서 없음 → `["지급 불가 — 구상할 보험금 없음", "견적서 필요 — 견적서 추가 후 청구서 생성"]`), `claim_blocked_reason: string`(= `claim_blocked_reasons[0]`, 기존 화면 호환). 화면에는 `claim_blocked_reasons`를 목록으로 보여 주기를 권장. 확인 기록(`report.approval_status="approved"`)은 두 경우 모두 남음. 예외는 `StaleVersion`(최신 아님)·`ConfirmBlocked`(추가 확인·보류)뿐 |
+| 응답 타입 (11-10) | `app/schemas/reports.py`에 `ConfirmResult`(report·package·html·claim_blocked_reason·claim_blocked_reasons)와 `ClaimResult`(package·html) 추가. `get_claim`은 그 보고서 버전으로 만든 청구서(재확인하면 마지막 것), 없으면 404 |
+| `confirm_report` 결과 (11-06 갱신) | 항상 `{report, package, html, claim_blocked_reasons, claim_blocked_reason}`. 청구서를 만들면 `package`·`html` 채움, `claim_blocked_reasons: []`, `claim_blocked_reason: null`. 못 만들면 `package: null`, `html: null`, `claim_blocked_reasons: string[]`(해당 사유 전부, 예: 음주 + 견적서 없음 → `["지급 불가 — 구상할 보험금 없음", "견적서 필요 — 견적서 추가 후 청구서 생성"]`), `claim_blocked_reason: string`(= `claim_blocked_reasons[0]`, 기존 화면 호환). 화면에는 `claim_blocked_reasons`를 목록으로 보여 주기를 권장. 확인 기록(`report.approval_status="approved"`)은 두 경우 모두 남음. 오류는 409 `version_conflict`(최신 아님)·422 `confirm_blocked`(추가 확인·보류)뿐 |
 | 면책 체크박스 뜻 (11-09) | 무면허·음주 체크박스 문구: **"운전자(계약자·기명피보험자·30일 초과 임차인·동거 친족)의 무면허/음주"**. 약관 제23조 제14호의 대상자에 맞춘 뜻이다. 그 밖의 운전자라면 체크하지 않는다 |
 | 담당자 입력과 LLM 판정 (11-09) | **담당자 입력이 우선한다.** `true` → LLM과 상관없이 `not_payable`, LLM 인용 조항을 근거로 표시. `false` + LLM pass·unknown → 통과. `false` + LLM fail → 통과 + 8번 경고 "LLM은 면책 가능성 제시(조항 …) — 담당자 확인"(`PreCheck.warning`, 산정 사유에도 포함). 입력 없음 → LLM 결과를 따르고 unknown이면 표시만 |
-| 면책 체크박스 (11-06) | 4개: 무면허·음주·고의·해당 없음 → `add_documents(..., case_facts=...)`. 키는 `무면허`·`음주`·`고의`만, 값은 `true`/`false`/`null`만(그 밖이면 `ValueError`, 서류도 저장하지 않음). 입력했던 값을 미입력으로 되돌리려면 그 키에 `null`. **아무것도 선택 안 함** → `case_facts`를 보내지 않음(미입력: "면책 사실 미입력 — 해당 없음으로 가정"). **'해당 없음'** → `{"무면허": false, "음주": false, "고의": false}`("담당자 확인 — 해당 없음"). **항목 선택** → 선택한 항목 `true`, 나머지 `false`(→ `not_payable`, 청구서 없음 "지급 불가 — 구상할 보험금 없음"). '해당 없음'과 항목은 함께 선택할 수 없게 |
+| 면책 체크박스 (11-06) | 4개: 무면허·음주·고의·해당 없음 → `add_documents(..., case_facts=...)`. 키는 `무면허`·`음주`·`고의`만, 값은 `true`/`false`/`null`만(그 밖이면 422 `invalid_case_facts`, 서류도 저장하지 않음). 입력했던 값을 미입력으로 되돌리려면 그 키에 `null`. **아무것도 선택 안 함** → `case_facts`를 보내지 않음(미입력: "면책 사실 미입력 — 해당 없음으로 가정"). **'해당 없음'** → `{"무면허": false, "음주": false, "고의": false}`("담당자 확인 — 해당 없음"). **항목 선택** → 선택한 항목 `true`, 나머지 `false`(→ `not_payable`, 청구서 없음 "지급 불가 — 구상할 보험금 없음"). '해당 없음'과 항목은 함께 선택할 수 없게 |
 | `PreCheck.result` (11-06) | `"assumed"` 추가 = 기본 가정(미입력). 화면 결과 문구 "기본 가정(미입력)". 확인 완료·청구서를 막지 않음 |
 | `CalculationResult` (11-06) | `NotRequired` `assumptions: list[str]` — 기본 가정 문구(계약·자기부담금·면책). 보고서 8번 본문에도 `기본 가정` 키로 같은 목록 |
 | `ClaimPackage` 가정 (11-06) | `assumptions: list[str]` 추가(없으면 `[]`), `basis["기본 가정"]`에도 같은 목록. HTML에 "기본 가정 N건" 표시 |

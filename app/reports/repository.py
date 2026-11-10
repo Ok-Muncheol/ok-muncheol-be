@@ -10,6 +10,14 @@ from app.schemas.facts import FactCard
 from app.schemas.reports import ClaimPackage, ReviewReport
 
 
+class RecordNotFound(LookupError):
+    """사건·보고서·청구서가 없음. API 경계에서 404로 바뀐다(KeyError 등 내부 오류와 구분)."""
+
+
+class NotCaseOwner(PermissionError):
+    """담당 사건이 아님. API 경계에서 403으로 바뀐다(파일 권한 오류와 구분)."""
+
+
 @dataclass
 class CaseRecord:
     case_id: str
@@ -33,7 +41,7 @@ class CaseRecord:
         for r in self.reports:
             if r["versions"]["report_version"] == version:
                 return r
-        raise LookupError(f"보고서 v{version}이 없습니다")
+        raise RecordNotFound(f"보고서 v{version}이 없습니다")
 
     def latest_ready(self) -> ReviewReport | None:
         """최신 보고서가 산정 가능한 판단(draft_ready)이면 그 보고서. 추가 확인·보류면 None."""
@@ -51,7 +59,7 @@ class InMemoryReportRepository:
     def get(self, actor_id: str, case_id: str) -> CaseRecord:
         rec = self._cases.get(case_id)
         if rec is None:
-            raise LookupError("사건이 없습니다")
+            raise RecordNotFound("사건이 없습니다")
         if rec.owner_id != actor_id:
-            raise PermissionError("담당 사건이 아닙니다")
+            raise NotCaseOwner("담당 사건이 아닙니다")
         return rec

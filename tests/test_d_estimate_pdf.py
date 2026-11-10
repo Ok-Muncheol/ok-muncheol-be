@@ -282,7 +282,7 @@ class UploadEstimateFlowTest(unittest.TestCase):
 
     def test_upload_requires_case_access(self):
         self.run_(api.submit_judgment(self.actor, fx.card(), fx.judgment()))
-        with self.assertRaises(PermissionError):
+        with fx.raises_api(self, 403, "forbidden"):
             self.run_(api.upload_estimate("someone-else", self.case, str(SAMPLE_10M), "P1"))
 
 

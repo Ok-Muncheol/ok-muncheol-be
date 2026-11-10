@@ -139,7 +139,8 @@ class ConfirmFlowTest(unittest.TestCase):
                 self.assertIsNone(v1["calculation"])
                 self.assertIsNone(self.add([fx.contract(), fx.estimate()], NO_FLAGS))  # 서류만 저장
                 self.assertEqual(len(api.services.repo.get(self.actor, self.case).reports), 1)
-                with self.assertRaises(api.ConfirmBlocked):  # 확인 완료를 막는 두 경우 중 하나
+                # 확인 완료를 막는 두 경우 중 하나
+                with fx.raises_api(self, 422, "confirm_blocked"):
                     self.confirm(1)
 
     def test_counterparty_fault_0_confirms_without_package(self):
@@ -153,7 +154,7 @@ class ConfirmFlowTest(unittest.TestCase):
 
     def test_only_latest_version_can_be_confirmed(self):
         self.ready()
-        with self.assertRaises(api.StaleVersion):
+        with fx.raises_api(self, 409, "version_conflict"):
             self.confirm(1)
 
     def test_same_inputs_same_package(self):
@@ -185,7 +186,7 @@ class ConfirmFlowTest(unittest.TestCase):
             (v3["calculation"]["insurance_payment"], v3["recovery"]["planned"]),
             (11_500_000, 8_050_000),
         )
-        with self.assertRaises(api.StaleVersion):
+        with fx.raises_api(self, 409, "version_conflict"):
             self.confirm(2)
         second = self.confirm(3)["package"]
         self.assertEqual(
