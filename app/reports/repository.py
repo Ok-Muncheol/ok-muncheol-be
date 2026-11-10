@@ -230,14 +230,12 @@ class PostgresReportRepository:
                     )
                 for pkg in rec.packages[saved.packages:]:
                     await conn.execute(
-                        "insert into public.claim_packages (case_id, report_id, report_version,"
+                        "insert into public.claim_packages (case_id, report_version,"
                         " package_version, idempotency_key, package, created_by)"
-                        " select %s, r.id, %s, %s, %s, %s, %s from public.review_reports r"
-                        " where r.case_id = %s and r.report_version = %s",
+                        " values (%s, %s, %s, %s, %s, %s)",
                         (
                             rec.case_id, pkg["report_version"], pkg["package_version"],
                             pkg["idempotency_key"], Json(pkg), actor_id,
-                            rec.case_id, pkg["report_version"],
                         ),
                     )
         except psycopg.errors.UniqueViolation as exc:

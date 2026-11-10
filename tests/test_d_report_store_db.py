@@ -15,7 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 import psycopg
 import pytest
 from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
+from psycopg.types.json import Json, Jsonb
 
 from app import db
 from app.api import reports as api
@@ -294,6 +294,64 @@ def test_browser_roles_read_only_own_cases(database_url, store):
             "authenticated", ACTOR,
             f"delete from public.claim_packages where case_id = '{case_id}'",
         )
+
+
+def test_identity_sequence_is_closed_to_browser_roles(database_url):
+    """Supabase 기본 권한이 새 시퀀스에 주는 anon·authenticated 권한을 회수했는지."""
+    seq = "public.case_documents_seq_seq"
+    for role in ("anon", "authenticated"):
+        for privilege in ("USAGE", "SELECT", "UPDATE"):
+            granted = rows(
+                database_url, "select has_sequence_privilege(%s, %s, %s) as ok",
+                role, seq, privilege,
+            )[0]["ok"]
+            assert granted is False, (role, privilege)
+    assert rows(
+        database_url, "select has_sequence_privilege('service_role', %s, 'USAGE') as ok", seq
+    )[0]["ok"] is True
+    # 이 마이그레이션의 시퀀스는 이것 하나(나머지 키는 uuid)
+    owned = rows(
+        database_url,
+        "select c.relname from pg_class c join pg_depend d on d.objid = c.oid"
+        " join pg_class t on t.oid = d.refobjid where c.relkind = 'S' and t.relname = any(%s)",
+        ["review_reports", "case_documents", "report_case_inputs", "claim_packages"],
+    )
+    assert [r["relname"] for r in owned] == ["case_documents_seq_seq"]
+
+
+def test_claim_package_must_match_an_existing_report_version(database_url, store):
+    case_id = new_case(database_url)
+    card, result = judged(database_url, case_id)
+    run(api.submit_judgment(ACTOR, card, result))
+    run(api.add_documents(ACTOR, case_id, [fx.contract(), fx.estimate()], NO_FLAGS))  # v2
+    package = run(api.confirm_report(ACTOR, case_id, 2, counterparty=fx.counterparty()))["package"]
+
+    def insert(report_version: int, body: dict, case: str = case_id) -> None:
+        with psycopg.connect(database_url, autocommit=True) as conn:
+            conn.execute(
+                "insert into public.claim_packages (case_id, report_version, package_version,"
+                " idempotency_key, package, created_by) values (%s, %s, %s, %s, %s, %s)",
+                (case, report_version, body["package_version"], body["idempotency_key"],
+                 Json(body), ACTOR),
+            )
+
+    # 없는 보고서 버전(v9)을 가리키면 외래키 위반
+    v9 = {**package, "report_version": 9, "package_version": 2, "idempotency_key": "k-v9"}
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        insert(9, v9)
+    # 칼럼은 v1, 본문은 v2 → 본문 일치 검사 위반
+    v1 = {**package, "package_version": 3, "idempotency_key": "k-v1"}
+    with pytest.raises(psycopg.errors.CheckViolation):
+        insert(1, v1)
+    # 다른 사건의 보고서 버전은 가리킬 수 없다(case_id도 외래키에 들어 있음)
+    other = new_case(database_url)
+    moved = {**package, "case_id": other, "package_version": 4, "idempotency_key": "k-other"}
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        insert(2, moved, case=other)
+    assert rows(
+        database_url, "select count(*) as n from public.claim_packages where case_id in (%s, %s)",
+        case_id, other,
+    )[0]["n"] == 1
 
 
 def test_tables_missing_is_503_reports_db_not_ready():

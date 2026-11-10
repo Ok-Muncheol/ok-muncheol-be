@@ -109,11 +109,12 @@ create trigger report_case_inputs_set_updated_at
 before update on public.report_case_inputs
 for each row execute function private.set_updated_at();
 
--- 구상 청구서(ClaimPackage). 확인 완료한 보고서 버전에서 만든다. 같은 입력(idempotency_key)은 한 번만
+-- 구상 청구서(ClaimPackage). 확인 완료한 보고서 버전에서 만든다. 같은 입력(idempotency_key)은 한 번만.
+-- 보고서는 (case_id, report_version) 하나로만 가리킨다. 보고서 id를 따로 두지 않으므로
+-- "id는 v2, report_version은 v3" 같은 어긋남이 생길 수 없고, case_id도 외래키에 들어 있어 부모와 같다.
 create table public.claim_packages (
   id uuid primary key default gen_random_uuid(),
   case_id uuid not null,
-  report_id uuid not null,
   report_version integer not null,
   package_version integer not null
     constraint claim_packages_package_version_check check (package_version >= 1),
@@ -125,7 +126,7 @@ create table public.claim_packages (
   constraint claim_packages_case_version_key unique (case_id, package_version),
   constraint claim_packages_case_idempotency_key unique (case_id, idempotency_key),
   constraint claim_packages_report_fk
-    foreign key (report_id, case_id) references public.review_reports (id, case_id),
+    foreign key (case_id, report_version) references public.review_reports (case_id, report_version),
   constraint claim_packages_body_matches check (
     package ->> 'case_id' = case_id::text
     and (package ->> 'report_version')::integer = report_version
@@ -167,3 +168,8 @@ to authenticated;
 grant all on table
   public.review_reports, public.case_documents, public.report_case_inputs, public.claim_packages
 to service_role;
+
+-- 시퀀스: Supabase 기본 권한이 새 시퀀스에도 anon·authenticated 권한을 준다. 쓰기는 BE만 하므로 회수한다.
+-- 이 파일의 identity·serial 시퀀스는 case_documents.seq 하나다(나머지 키는 gen_random_uuid()).
+revoke all on sequence public.case_documents_seq_seq from anon, authenticated;
+grant all on sequence public.case_documents_seq_seq to service_role;
