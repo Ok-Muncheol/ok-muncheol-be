@@ -13,7 +13,7 @@
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Literal, TypedDict, get_args
+from typing import Literal, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -23,19 +23,18 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
 from app.schemas.chart_scope import (
+    ANY_VALUE,
     EXCLUDED_MODIFIERS,
     FIELD_OPTIONS,
     IN_SCOPE_ACCIDENT_TYPES,
     IN_SCOPE_LOCATION_TYPES,
     MANUAL_ONLY_MODIFIERS,
-    MODIFIER_REQUIRED_CONFIRMED_FIELDS,
     PENDING_DECISION_LOCATION_TYPES,
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
     REASON_OUT_OF_SCOPE,
     REASON_PENDING_DECISION,
     REQUIRED_CONFIRMED_FIELDS,
-    Modifier,
     unconfirmed_fields,
 )
 from app.schemas.facts import FactCard
@@ -50,8 +49,13 @@ from app.schemas.judgment import (
 from app.validation.evidence import check_evidence
 from app.validation.numerical import calculation_lines, check_numerical
 from app.validation.rebuttal import Reviewer, review_rebuttal
-from app.workflow.candidates import ChartCandidate, confirmed_values, retrieve_from_corpus
-from app.workflow.state import AppliedModifier, ChartSelection, JudgmentState, Outcome
+from app.workflow.candidates import (
+    ChartCandidate,
+    ChartVariant,
+    confirmed_values,
+    retrieve_from_corpus,
+)
+from app.workflow.state import ChartSelection, JudgmentState, Outcome
 
 STAGES = (
     "require_confirmed_card",
@@ -69,8 +73,7 @@ MAX_REBUTTAL_RETRIES = 1
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.10"
-AUTO_MODIFIER_CODES: tuple[str, ...] = get_args(Modifier)
+RULE_VERSION = "judgment-rules-2026.11.10.2"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 FIELD_LABELS = {
@@ -202,19 +205,50 @@ def _required_fields(card: FactCard) -> tuple[str, ...]:
     return REQUIRED_CONFIRMED_FIELDS.get(location, REQUIRED_CONFIRMED_FIELDS["other"])  # type: ignore[arg-type]
 
 
+def _concrete(conditions: dict[str, str]) -> dict[str, str]:
+    """`*`(무관)을 뺀, 실제로 도표를 가르는 칸과 값."""
+    return {k: v for k, v in conditions.items() if v != ANY_VALUE}
+
+
+def _needed_fields(candidate: ChartCandidate) -> list[str]:
+    """이 도표를 고르는 데 값이 필요한 칸(속성·변형 조건에서 `*` 제외). 나온 순서를 지킨다."""
+    keys = list(_concrete(candidate["attributes"]))
+    for variant in candidate["base_variants"]:
+        keys += [k for k in _concrete(variant["conditions"]) if k not in keys]
+    return keys
+
+
+def _variant_fits(variant: ChartVariant, values: dict[str, str]) -> bool:
+    """확인한 값과 어긋나지 않는 변형인가. 아직 확인하지 않은 칸은 어긋남으로 보지 않는다."""
+    return all(values.get(k, v) == v for k, v in _concrete(variant["conditions"]).items())
+
+
+def _matched_fields(candidate: ChartCandidate, values: dict[str, str]) -> list[str]:
+    """확인한 값과 일치하는 칸(`*` 제외). 변형 조건은 카드와 맞는 변형 중 가장 많이 맞는 것을
+    센다."""
+    matched = [k for k in _concrete(candidate["attributes"]) if k in values]
+    best: list[str] = []
+    for variant in candidate["base_variants"]:
+        if _variant_fits(variant, values):
+            hits = [k for k in _concrete(variant["conditions"]) if k in values and k not in matched]
+            if len(hits) > len(best):
+                best = hits
+    return matched + best
+
+
 def open_fields(state: JudgmentState) -> list[str]:
-    """아직 묻지 않은 구분 칸: 범위 필수 칸 + 후보 도표가 가르는 칸. 확인됐거나 '모른다'면 뺀다."""
+    """아직 묻지 않은 구분 칸: 범위 필수 칸 + 후보 도표가 가르는 칸. 확인됐거나 '모른다'면 뺀다.
+
+    남은 후보가 모두 `*`(무관)로 둔 필수 칸은 묻지 않는다.
+    수정요소는 자동 적용하지 않으므로 수정요소 조건 칸도 묻지 않는다.
+    """
     card = state["card"]
     values = confirmed_values(card)
     unknown = set(state.get("unknown_fields", []))
-    ordered: list[str] = list(_required_fields(card))
-    for candidate in _eligible(state):
-        ordered += list(candidate["attributes"])
-        for variant in candidate["base_variants"]:
-            ordered += list(variant["conditions"])
-        for modifier in candidate["modifiers"]:
-            if modifier["code"] in AUTO_MODIFIER_CODES and modifier["conditions"] is not None:
-                ordered += list(modifier["conditions"])
+    needed = [_needed_fields(c) for c in _eligible(state)]
+    ordered = [k for k in _required_fields(card) if not needed or any(k in n for n in needed)]
+    for keys in needed:
+        ordered += keys
     result: list[str] = []
     for key in ordered:
         if key in FIELD_OPTIONS and key not in values and key not in unknown and key not in result:
@@ -225,6 +259,8 @@ def open_fields(state: JudgmentState) -> list[str]:
 def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, str]]]:
     """확인한 칸과 모순 없는 검수 후보를 일치 칸 수·검색 점수로 정렬한다.
 
+    `*`은 어떤 값과도 맞는다. 속성과 기본 과실 변형을 모두 대조해, 카드로 고를 수 있는 변형이 없는
+    도표는 순위에 올리지 않는다(1순위가 변형에서 막혀 차순위를 보지 못하는 일을 막는다).
     (순위, [(도표, 제외 이유)]).
     """
     card = state["card"]
@@ -234,22 +270,35 @@ def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, s
     ranked: list[tuple[int, float, ChartCandidate]] = []
     skipped: list[tuple[str, str]] = []
     for candidate in _eligible(state):
+        chart_id = candidate["chart_id"]
         keys = set(candidate["attributes"])
         for variant in candidate["base_variants"]:
             keys |= set(variant["conditions"])
         if not required <= keys:
-            skipped.append((candidate["chart_id"], f"구분 칸 {sorted(required - keys)} 미정의"))
+            skipped.append((chart_id, f"구분 칸 {sorted(required - keys)} 미정의"))
             continue
-        mismatch = [k for k, v in candidate["attributes"].items() if k in values and values[k] != v]
+        attributes = _concrete(candidate["attributes"])
+        mismatch = [k for k, v in attributes.items() if k in values and values[k] != v]
         if mismatch:
-            skipped.append((candidate["chart_id"], f"카드와 불일치 {mismatch}"))
+            skipped.append((chart_id, f"카드와 불일치 {mismatch}"))
             continue
-        unverifiable = [k for k in candidate["attributes"] if k not in values and k in unknown]
+        unverifiable = [k for k in attributes if k not in values and k in unknown]
         if unverifiable:
-            skipped.append((candidate["chart_id"], f"확인 불가 칸 {unverifiable}"))
+            skipped.append((chart_id, f"확인 불가 칸 {unverifiable}"))
             continue
-        matched = sum(1 for k in candidate["attributes"] if k in values)
-        ranked.append((matched, candidate["score"], candidate))
+        fitting = [v for v in candidate["base_variants"] if _variant_fits(v, values)]
+        if not fitting:
+            conflict = sorted({k for v in candidate["base_variants"]
+                               for k, x in _concrete(v["conditions"]).items()
+                               if k in values and values[k] != x})
+            skipped.append((chart_id, f"카드와 맞는 기본 과실 변형 없음 {conflict}"))
+            continue
+        blocked = [{k for k in _concrete(v["conditions"]) if k not in values and k in unknown}
+                   for v in fitting]
+        if all(blocked):
+            skipped.append((chart_id, f"확인 불가 칸 {sorted(set().union(*blocked))}"))
+            continue
+        ranked.append((len(_matched_fields(candidate, values)), candidate["score"], candidate))
     ranked.sort(key=lambda item: (-item[0], -item[1]))
     ordered = [c for _, _, c in ranked]
     preferred = state.get("preferred_chart_id")
@@ -259,71 +308,45 @@ def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, s
 
 
 def _pick_variant(candidate: ChartCandidate, values: dict[str, str]) -> tuple[object, list[str]]:
-    """조건이 모두 확인된 변형을 고른다. 없으면 (None, 확인해야 할 칸)."""
+    """조건이 모두 확인된 변형을 고른다(`*`은 무관). 없으면 (None, 확인해야 할 칸)."""
     missing: list[str] = []
     for variant in candidate["base_variants"]:
-        conditions = variant["conditions"]
+        conditions = _concrete(variant["conditions"])
         if all(values.get(k) == v for k, v in conditions.items()):
             return variant, []
         missing += [k for k in conditions if k not in values and k not in missing]
     return None, missing
 
 
-def _apply_modifiers(
-    candidate: ChartCandidate, values: dict[str, str]
-) -> tuple[list[AppliedModifier], list[tuple[object, str]]]:
-    applied: list[AppliedModifier] = []
+def _unresolved_modifiers(candidate: ChartCandidate) -> list[tuple[object, str]]:
+    """MVP는 수정요소를 자동 적용하지 않는다(`chart_scope` 주석). 모두 담당자 판단으로 넘긴다."""
     unresolved: list[tuple[object, str]] = []
     for modifier in candidate["modifiers"]:
-        code = modifier["code"]
-        if code in EXCLUDED_MODIFIERS or code in MANUAL_ONLY_MODIFIERS:
+        if modifier["code"] in EXCLUDED_MODIFIERS or modifier["code"] in MANUAL_ONLY_MODIFIERS:
             unresolved.append((modifier, "자동 적용 제외(담당자 입력 전용)"))
-            continue
-        conditions, delta = modifier["conditions"], modifier["delta"]
-        if code not in AUTO_MODIFIER_CODES or conditions is None or delta is None:
-            unresolved.append((modifier, "조건·가감치를 코드로 판정할 수 없음"))
-            continue
-        needed = [k for k in MODIFIER_REQUIRED_CONFIRMED_FIELDS[code] if k not in values]  # type: ignore[index]
-        needed += [k for k in conditions if k not in values and k not in needed]
-        if needed:
-            unresolved.append((modifier, f"확인되지 않은 칸: {', '.join(needed)}"))
-            continue
-        if all(values.get(k) == v for k, v in conditions.items()):
-            applied.append({
-                "modifier_id": modifier["modifier_id"], "party": modifier["party"],
-                "name": modifier["name"], "code": code, "delta": delta,
-            })
         else:
-            unresolved.append((modifier, "적용 조건 불일치"))
-    return applied, unresolved
+            unresolved.append((modifier, "자동 적용하지 않음(담당자 판단)"))
+    return unresolved
 
 
 def modifier_decisions(
-    candidate: ChartCandidate, applied: list[AppliedModifier],
-    unresolved: list[tuple[object, str]],
+    candidate: ChartCandidate, unresolved: list[tuple[object, str]],
 ) -> list[ModifierDecision]:
     """보고서 5번. 도표 레코드 순서대로, 가감치가 있는 요소만 담는다.
 
-    가감치가 없는(비적용) 요소는 이 도표의 대상이 아니다.
+    자동 적용하지 않으므로 모두 불명(담당자 판단)이다. 가감치가 없는(비적용) 요소는 이 도표의
+    대상이 아니다.
     """
-    applied_ids = {a["modifier_id"] for a in applied}
     why_by_id = {m["modifier_id"]: why for m, why in unresolved}  # type: ignore[index]
     decisions: list[ModifierDecision] = []
     for modifier in candidate["modifiers"]:
         if modifier["delta"] is None:
             continue
-        fields = [*MODIFIER_REQUIRED_CONFIRMED_FIELDS.get(modifier["code"], ()),  # type: ignore[call-overload]
-                  *(modifier["conditions"] or {})]
-        if modifier["modifier_id"] in applied_ids:
-            decision, why = "적용", "적용 조건 충족"
-        else:
-            why = why_by_id.get(modifier["modifier_id"], "판정하지 않음")
-            decision = "미적용" if why == "적용 조건 불일치" else "불명"
         decisions.append({
             "modifier_id": modifier["modifier_id"], "name": modifier["name"],
-            "applies_to": modifier["party"], "delta": modifier["delta"],
-            "decision": decision, "evidence_fields": list(dict.fromkeys(fields)),  # type: ignore[typeddict-item]
-            "reason": why,
+            "applies_to": modifier["party"], "delta": modifier["delta"], "decision": "불명",
+            "evidence_fields": list(dict.fromkeys(modifier["conditions"] or {})),  # type: ignore[typeddict-item]
+            "reason": why_by_id.get(modifier["modifier_id"], "판정하지 않음"),
         })
     return decisions
 
@@ -342,9 +365,9 @@ def alternative_reasons(
     for chart_id, check in zip(state.get("excluded_chart_ids", []), rebutted, strict=False):
         reason = "; ".join(check["reasons"]) or "도표 오선택"
         out.append({"chart_id": chart_id, "reason": f"반박 검토로 제외 — {reason}"})
-    best_matched = sum(1 for k in best["attributes"] if k in values)
+    best_matched = len(_matched_fields(best, values))
     for candidate in others:
-        matched = sum(1 for k in candidate["attributes"] if k in values)
+        matched = len(_matched_fields(candidate, values))
         if matched < best_matched:
             why = f"확인한 칸 {matched}개 일치(선택 도표 {best_matched}개)"
         elif matched == best_matched:
@@ -422,17 +445,16 @@ def build_graph(
     def select_chart_and_modifiers(state: JudgmentState) -> dict:
         card = state["card"]
         values = confirmed_values(card)
+        # 담당자가 "모른다"고 한 범위 필수 칸. 그 칸이 `*`(무관)인 도표만 _rank를 통과한다
         unknown = [k for k in _required_fields(card) if k in state.get("unknown_fields", [])]
         update: dict = {"stage": "select_chart_and_modifiers", "selection": None}
-        if unknown:
-            update["outcome"] = _outcome(
-                "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
-            )
-            return update
         ranked, skipped = _rank(state)
         if not ranked:
             excluded = [f"{chart_id}: {why}" for chart_id, why in skipped]
-            update["outcome"] = _outcome("deferred", [REASON_NO_REVIEWED_CHART, *excluded])
+            update["outcome"] = _outcome(
+                "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
+                or [REASON_NO_REVIEWED_CHART, *excluded]
+            )
             return update
         best = ranked[0]
         variant, missing = _pick_variant(best, values)
@@ -442,17 +464,19 @@ def build_graph(
                 or [f"{best['chart_id']}: 기본 과실 변형 조건 불일치"]
             )
             return update
-        applied, unresolved = _apply_modifiers(best, values)
-        matched = [k for k in best["attributes"] if k in values]
+        unresolved = _unresolved_modifiers(best)
+        matched = _matched_fields(best, values)
         selection: ChartSelection = {
             "chart_id": best["chart_id"], "parent_id": best["parent_id"],
             "edition": best["edition"], "variant": variant,  # type: ignore[typeddict-item]
-            "applied_modifiers": applied, "unresolved_modifiers": unresolved,  # type: ignore[typeddict-item]
+            # 수정요소 가감은 담당자가 보고서 단계에서 정한다. 그래프는 기본 과실만 계산한다
+            "applied_modifiers": [], "unresolved_modifiers": unresolved,  # type: ignore[typeddict-item]
             "alternatives": [c["chart_id"] for c in ranked[1:]],
             "reasons": [
                 f"{best['chart_id']} 선택: 확인한 칸 {len(matched)}개 일치 ({', '.join(matched)})",
+                *(f"{k}: 확인 불가 — {best['chart_id']} 선택에는 쓰지 않음" for k in unknown),
             ],
-            "modifier_decisions": modifier_decisions(best, applied, unresolved),
+            "modifier_decisions": modifier_decisions(best, unresolved),
             "alternative_reasons": alternative_reasons(state, best, ranked[1:], skipped, values),
         }
         update["selection"] = selection

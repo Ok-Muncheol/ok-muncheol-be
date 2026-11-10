@@ -52,12 +52,16 @@ REQUIRED_CONFIRMED_FIELDS: dict[LocationType, tuple[ChartFieldKey, ...]] = {
     "other": ("accident_type", "location_type"),
 }
 
-# 수정요소. 과속·서행 불이행은 자동 후보에 올리지 않는다(README: 영상으로 속도를 판정하지 않음).
-Modifier = Literal["night", "signal_violation"]
-MODIFIER_REQUIRED_CONFIRMED_FIELDS: dict[Modifier, tuple[ChartFieldKey, ...]] = {
-    "night": ("night",),
-    "signal_violation": ("signal_A", "signal_B"),
-}
+# C 도표 레코드의 `scope_attributes`·`scope_variants[].conditions` 값으로만 쓰는 "무관" 표기.
+# 그 도표가 이 칸으로 갈리지 않는다는 뜻이다. 카드 값이 무엇이든, 담당자가 모른다고 해도
+# 맞는 것으로 본다. 칸을 아예 빼면 "미정의"(검수 누락)라 필수 칸 검사에서 후보가 빠진다.
+ANY_VALUE = "*"
+
+# 수정요소는 MVP에서 자동 적용하지 않는다(2026-11-10 결정). 2023.6 도표 표에는 카드 칸만으로
+# 판정할 수 있는 행이 없다. 야간 가산은 공통 수정요소이고 조건이 "등화 미점등·감속 불이행"이다.
+# 도표 표의 "신호불이행·지연"은 방향지시기 신호이고, 신호 위반은 기본 비율(도표 선택)에 들어 있다.
+# 모든 수정요소는 담당자 판단(불명)으로 넘기고, 아래 코드는 그중 담당자 입력 전용임을 표시한다.
+# 과속·서행 불이행은 영상으로 속도를 판정하지 않는다(README).
 MANUAL_ONLY_MODIFIERS: tuple[str, ...] = ("slow_down_failure",)
 EXCLUDED_MODIFIERS: tuple[str, ...] = ("speeding",)
 MANUAL_MODIFIER_SOURCE = "담당자 입력"
