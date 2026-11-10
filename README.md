@@ -155,9 +155,12 @@ ship은 `main` 머지 → main CI → 머지 커밋의 Vercel 배포 결과와 `
 | --- | --- |
 | 사건 | `accident_type`, 사고 일시, 당사자 수 |
 | 당사자 | `party_tracks`, `video_ego_party_id`, `insured_party_id`, `chart_party_A_id`, `chart_party_B_id` |
-| 장소·신호 | `location_type`, `signal_state_A/B`, `priority_road` |
-| 움직임 | `movement_A/B`, `lane_change_A/B`, `motion_trend_A/B` |
-| 보조 사실 | `collision_point`, `time_condition`, `narrative`, `evidence_frames` |
+| 장소·신호 | `location_type`, `road_priority`, `signal_A/B` |
+| 움직임 | `movement_A/B`, `entry_order`, `lane_change_A/B`, `motion_trend_A/B` |
+| 보조 사실 | `night`, `collision_point`, `time_condition`, `narrative`, `evidence_frames` |
+
+도표 선택에 쓰는 칸(`accident_type`·`location_type`·`road_priority`·`movement_A/B`·`signal_A/B`·`entry_order`·`night`)의
+이름과 허용값은 `app/schemas/chart_scope.py`가 원천이다. 판단 그래프는 이 칸 중 `human_confirmed`인 값만 쓴다.
 
 각 사실 필드는 `value`, `source`, `model_confidence`, `verification_status`, `evidence_frame_ids`를 가진다.
 `needs_review`는 근거 충돌·확인 필요, `human_confirmed`는 담당자 확인을 뜻한다. 수동 입력에서 모델 확신도는
