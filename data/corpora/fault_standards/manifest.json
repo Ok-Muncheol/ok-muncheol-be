@@ -1,0 +1,54 @@
+{
+  "corpus": "fault_standards",
+  "status": "pending_storage_and_rights_review",
+  "documents": [
+    {
+      "document_id": "fault-standards-2023-06",
+      "source_uri": "corpus-sources/fault_standards/fault-standards-2023-06.pdf",
+      "source_name": "230630_자동차사고 과실비율 인정기준_최종.pdf",
+      "storage_object": {
+        "bucket": "corpus-sources",
+        "path": "fault_standards/fault-standards-2023-06.pdf",
+        "relation": "original",
+        "sha256": "6502fca09a6f9cb26c6166f182429f9c947582dbdbbe1e844a3c7949fbfab06e",
+        "bytes": 16982418,
+        "note": "원본 그대로 업로드. 저장본 해시 = content_hash"
+      },
+      "edition": "2023.6",
+      "edition_source": "표지 '2023.6.'(1쪽), 판권면 '개정: 2023년 6월 / 발행: 2023년 6월, 제10차 개정'(600쪽)",
+      "effective_from": "",
+      "effective_to": null,
+      "effective_period_status": "unknown",
+      "effective_period_note": "원문·과실비율정보포털 모두 시행일 표기 없음. 파일명 230630은 게시일로 보이며 시행일 근거가 아님. 협회 확인 전까지 비워 둔다.",
+      "content_hash": "6502fca09a6f9cb26c6166f182429f9c947582dbdbbe1e844a3c7949fbfab06e",
+      "parser_version": "pdfplumber-0.11.10:v1",
+      "usage_review": {
+        "status": "permission_required",
+        "rights_holder": "손해보험협회",
+        "copyright_notice": "본책의 저작권 및 판권은 손해보험협회에 있습니다. (600쪽 판권면)",
+        "portal_condition": "과실비율정보포털 PDF 안내: '개인 참고용 활용(책자 발간 및 배포용으로는 이용 불가)'",
+        "public_redistribution": "not_allowed",
+        "private_storage_and_authenticated_display": "pending_rights_holder_confirmation",
+        "finding": "저작권·판권이 협회에 있고 포털이 개인 참고용으로 제한한다. 공개 저장소·공개 URL 재배포는 불가. 비공개 Storage 보관과 권한 있는 사용자의 페이지 단위 열람은 협회 이용 허락을 받기 전까지 개발·내부 검토 용도로만 쓴다.",
+        "evidence_urls": ["https://accident.knia.or.kr/standard"],
+        "reviewed_at": "2026-11-10"
+      },
+      "reviewed_by": null
+    }
+  ],
+  "embedding_model": "text-embedding-3-small",
+  "embedding_dimensions": 1536,
+  "embedding_version": "text-embedding-3-small:1536:v1",
+  "required_document_fields": [
+    "document_id",
+    "source_uri",
+    "edition",
+    "effective_from",
+    "effective_to",
+    "content_hash",
+    "parser_version",
+    "usage_review",
+    "reviewed_by"
+  ],
+  "notes": "메타데이터만 둔다. 원본 PDF·페이지 텍스트·청크·벡터·평가셋은 커밋하지 않는다(비공개 Storage·data/private·DB)."
+}

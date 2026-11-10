@@ -1,0 +1,54 @@
+{
+  "corpus": "dispute_cases",
+  "status": "pending_storage_and_rights_review",
+  "documents": [
+    {
+      "document_id": "dispute-cases-web",
+      "source_uri": "corpus-sources/dispute_cases/dispute-cases-web.pdf",
+      "source_name": "(최종)과실비율심의사례_web.pdf",
+      "storage_object": {
+        "bucket": "corpus-sources",
+        "path": "dispute_cases/dispute-cases-web.pdf",
+        "relation": "lossless_recompressed_copy",
+        "sha256": "1c7169093be9d438f6f11d88dbd4d4ffbe5e219f7d3ec28a2587a1bd4554a278",
+        "bytes": 51360998,
+        "note": "원본(55,127,877바이트)이 업로드 한도를 넘어 qpdf로 무손실 재압축한 사본(472쪽 동일). 해시는 버킷 파일을 내려받아 계산한 값. 재압축은 재현되지 않으므로(파일 ID 변경) 이 해시가 저장본 기준이다. content_hash는 파싱에 쓴 원본 해시로 둔다."
+      },
+      "edition": "unconfirmed",
+      "edition_source": "원문에 발행일·판권면 없음(472쪽). 발간사(12쪽) '심의위원회가 2007년 설립되어 어느덧 13년'으로 2020년 전후 발간으로 추정될 뿐 확정 근거가 아님.",
+      "effective_from": "",
+      "effective_to": null,
+      "effective_period_status": "unknown",
+      "effective_period_note": "결정례 모음이라 시행일 개념이 없다. 발간일이 확인되면 edition에 넣고 effective_from은 비워 둔다.",
+      "content_hash": "3c1902f03df8ffc0bde03d4844c631e9dc82688dc6b29ac25af48d528e41260e",
+      "parser_version": "pdfplumber-0.11.10:v2-visible-dedup",
+      "usage_review": {
+        "status": "permission_required",
+        "rights_holder": "손해보험협회 과실비율분쟁 심의위원회(추정, 원문에 저작권 표기 없음)",
+        "copyright_notice": null,
+        "portal_condition": "과실비율정보포털 자료실(research)에 현재 게시물이 없어 배포 조건을 확인할 수 없음. 자료실 일반 안내: '위원회가 저작권을 보유하지 않은 자료의 경우, 출처 링크를 통해 자세한 내용을 확인하시기 바랍니다.'",
+        "public_redistribution": "not_allowed",
+        "private_storage_and_authenticated_display": "pending_rights_holder_confirmation",
+        "finding": "저작권 표기가 없다고 이용이 자유로운 것은 아니다. 발행 주체가 인정기준과 같은 협회·심의위원회이므로 같은 수준(공개 재배포 불가, 내부 검토 용도)으로 취급하고 입수 경로·이용 조건을 위원회에 확인한다.",
+        "evidence_urls": ["https://accident.knia.or.kr/research"],
+        "reviewed_at": "2026-11-10"
+      },
+      "reviewed_by": null
+    }
+  ],
+  "embedding_model": "text-embedding-3-small",
+  "embedding_dimensions": 1536,
+  "embedding_version": "text-embedding-3-small:1536:v1",
+  "required_document_fields": [
+    "document_id",
+    "source_uri",
+    "edition",
+    "effective_from",
+    "effective_to",
+    "content_hash",
+    "parser_version",
+    "usage_review",
+    "reviewed_by"
+  ],
+  "notes": "메타데이터만 둔다. 원본 PDF·페이지 텍스트·청크·벡터·평가셋은 커밋하지 않는다(비공개 Storage·data/private·DB)."
+}

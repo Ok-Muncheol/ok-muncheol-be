@@ -1,195 +1,156 @@
-"""Corpus record and source-page contract for the three search tools.
+"""C: 세 검색 도구의 결과를 DB 색인과 대조한다. 저장소·data/private 파일을 읽지 않는다.
 
-The index is immutable within a process. Restart a worker after replacing corpus files.
+DB 조회는 `EvidenceStore`로 추상화한다.
+D(옥석현)가 DB 연결과 함께 `configure_evidence_store`로 어댑터를 등록한다.
+테이블·칼럼 계약은 `docs/contracts/corpus-index.md`(초안, D 합의 전)에 있다.
+
+| 메서드 | 테이블 | 조회 키 |
+| --- | --- | --- |
+| `get_chunk` | `corpus_chunks` | `(corpus, chunk_id)` |
+| `get_parent` | `corpus_records` (`is_parent`) | `(corpus, parent_id)` |
+| `get_source_page` | `corpus_source_pages` | `(document_id, page)` |
+| `get_related` | `corpus_records` | `(corpus, kind, record_id)` |
+
+파일에서 하던 적재 시점 무결성 검사(중복 ID, 청크 없는 부모 등)는 적재 행 생성 단계
+(`scripts/export_corpus_index_rows.py`)와 DB 제약이 맡는다. 여기서는 결과 한 건마다 출처를 확인한다.
 """
 
-import json
 import math
-from functools import lru_cache
-from pathlib import Path
+from collections.abc import Callable
+from typing import Protocol
 
 from app.schemas.retrieval import EvidenceHit, SearchRequest
 
-ROOT = Path(__file__).resolve().parents[2] / "data" / "private"
-FOLDERS = {
-    "fault_standards": "01_fault_standards",
-    "dispute_cases": "02_dispute_cases",
-    "policy_terms": "03_policy_terms",
-}
+# SearchChunk 계약 필드. DB 행의 raw_text·display_text·임베딩 칼럼은 비교하지 않는다.
+CHUNK_FIELDS = ("chunk_id", "parent_id", "document", "page_start", "page_end", "text", "metadata")
 
 
-def _read(path: Path) -> list[dict]:
-    try:
-        with path.open(encoding="utf-8") as stream:
-            return [json.loads(line) for line in stream if line.strip()]
-    except OSError as exc:
-        raise RuntimeError(f"Corpus source file unavailable: {path}") from exc
+class EvidenceStore(Protocol):
+    async def get_chunk(self, corpus: str, chunk_id: str) -> dict | None: ...
+
+    async def get_parent(self, corpus: str, parent_id: str) -> dict | None: ...
+
+    async def get_source_page(self, document_id: str, page: int) -> dict | None: ...
+
+    async def get_related(self, corpus: str, kind: str, record_id: str) -> dict | None: ...
 
 
-@lru_cache(maxsize=3)
-def _load(corpus: str) -> tuple[dict, dict, dict, dict]:
-    base = ROOT / FOLDERS[corpus]
-    chunks = _read(base / "processed" / "chunks.jsonl")
-    blocks = _read(base / "parsed" / "blocks.jsonl")
-    record_file = {
-        "fault_standards": "charts.jsonl",
-        "dispute_cases": "cases.jsonl",
-        "policy_terms": "clauses.jsonl",
-    }[corpus]
-    records = _read(base / "processed" / record_file)
-    if corpus == "policy_terms":
-        records += _read(base / "processed" / "appendices.jsonl")
-    chunk_index = {row["chunk_id"]: row for row in chunks}
-    record_index = {row["parent_id"]: row for row in records}
-    if len(chunk_index) != len(chunks) or len(record_index) != len(records):
-        raise ValueError(f"Duplicate chunk or parent ID in {corpus} corpus")
-    indexed_parents = {row["parent_id"] for row in chunks}
-    if corpus == "fault_standards":
-        modifiers = _read(base / "processed" / "modifiers.jsonl")
-        modifier_ids = {row["modifier_id"] for row in modifiers}
-        charts = {row["chart_id"] for row in records}
-        if any(not set(row["modifier_ids"]) <= modifier_ids for row in records):
-            raise ValueError("Chart references missing modifier IDs")
-        if any(row["chart_id"] not in charts for row in modifiers):
-            raise ValueError("Modifier references missing chart ID")
-        if any(
-            row["chart_id"] not in charts for row in _read(base / "processed" / "attributes.jsonl")
-        ):
-            raise ValueError("Attribute references missing chart ID")
-        if any(parent not in indexed_parents for parent in record_index):
-            raise ValueError("Chart lacks searchable chunks")
-    if corpus == "dispute_cases":
-        mapping_rows = _read(base / "processed" / "chart_mappings.jsonl")
-        mapping_keys = {
-            (row["legacy_chart_id"], row["chart_id"], row["source_pdf_page"])
-            for row in mapping_rows
-        }
-        for record in records:
-            if record["parent_id"] not in indexed_parents:
-                raise ValueError("Case lacks searchable chunks")
-            if any(
-                (link["legacy_chart_id"], link["chart_id"], link["source_pdf_page"])
-                not in mapping_keys
-                for link in record["mapping_evidence"]
-            ):
-                raise ValueError("Case chart link is absent from source crosswalk")
-    if corpus == "policy_terms":
-        for record in records:
-            if "clause_id" not in record:
-                continue
-            if record["parent_id"] not in indexed_parents:
-                raise ValueError("Clause lacks searchable chunks")
-            if any(note not in record_index for note in record["side_note_parent_ids"]):
-                raise ValueError("Clause references missing source note")
-    page_index = {}
-    for block in blocks:
-        document = block["document"]
-        entry = page_index.setdefault(
-            document["document_id"], {"pages": set(), "hash": document["content_hash"]}
-        )
-        if entry["hash"] != document["content_hash"]:
-            raise ValueError("Parsed blocks have conflicting document hashes")
-        entry["pages"].add(block["page"])
-    chart_ids = set()
-    if corpus == "dispute_cases":
-        chart_ids = {
-            row["chart_id"] for row in _read(ROOT / "01_fault_standards/processed/charts.jsonl")
-        }
-    return chunk_index, record_index, page_index, {"chart_ids": chart_ids}
+_store_factory: Callable[[], EvidenceStore] | None = None
 
 
-def _record_for(chunk: dict, records: dict, corpus: str) -> dict | None:
-    parent = chunk["parent_id"]
-    if corpus == "fault_standards" and chunk["metadata"].get("section") == "common_modifier_guide":
-        if not parent.startswith(f"{chunk['document']['document_id']}:modifier-guide:"):
-            raise ValueError("Modifier guide parent ID does not match its source document")
-        return None
-    record = records.get(parent)
-    if record is None:
-        raise ValueError(f"No structured source record for parent_id {parent}")
-    if record.get("document", {}).get("document_id") != chunk["document"]["document_id"]:
-        raise ValueError(f"Source document differs for parent_id {parent}")
-    if chunk["page_start"] < record["page_start"] or chunk["page_end"] > record["page_end"]:
-        raise ValueError(f"Chunk page outside parent record: {parent}")
+def configure_evidence_store(factory: Callable[[], EvidenceStore] | None) -> None:
+    """D가 DB 연결 시점에 어댑터를 등록한다. None이면 해제한다(테스트용)."""
+    global _store_factory
+    _store_factory = factory
+
+
+def crosswalk_key(link: dict) -> str:
+    """결정례 도표 대조표(`chart_mapping`) 행의 record_id. 적재 스크립트와 같은 규칙을 쓴다."""
+    return f"{link['legacy_chart_id']}|{link['chart_id']}|{link['source_pdf_page']}"
+
+
+async def _check_parent(store: EvidenceStore, corpus: str, chunk: dict, parent: dict) -> None:
+    document_id = chunk["document"]["document_id"]
+    parent_id = chunk["parent_id"]
+    if parent.get("document", {}).get("document_id") != document_id:
+        raise ValueError(f"Source document differs for parent_id {parent_id}")
+    if chunk["page_start"] < parent["page_start"] or chunk["page_end"] > parent["page_end"]:
+        raise ValueError(f"Chunk page outside parent record: {parent_id}")
     metadata = chunk["metadata"]
     if corpus == "fault_standards":
-        if not parent.endswith(":" + record["chart_id"]):
-            raise ValueError(f"Chart ID differs from parent_id {parent}")
+        if not parent_id.endswith(":" + parent["chart_id"]):
+            raise ValueError(f"Chart ID differs from parent_id {parent_id}")
+        for modifier_id in parent.get("modifier_ids", []):
+            modifier = await store.get_related(corpus, "modifier", modifier_id)
+            if modifier is None or modifier.get("chart_id") != parent["chart_id"]:
+                raise ValueError("Chart references missing modifier IDs")
     elif corpus == "dispute_cases":
-        if metadata.get("case_id") != record["case_id"]:
-            raise ValueError(f"Case ID differs from parent_id {parent}")
-        if record.get("chart_id"):
-            if record["chart_id"] not in _load(corpus)[3]["chart_ids"]:
-                raise ValueError(f"Linked chart does not exist: {parent}")
+        if metadata.get("case_id") != parent["case_id"]:
+            raise ValueError(f"Case ID differs from parent_id {parent_id}")
+        for link in parent.get("mapping_evidence", []):
+            if await store.get_related(corpus, "chart_mapping", crosswalk_key(link)) is None:
+                raise ValueError("Case chart link is absent from source crosswalk")
+        chart_id = parent.get("chart_id")
+        if chart_id:
+            if await store.get_related("fault_standards", "chart", chart_id) is None:
+                raise ValueError(f"Linked chart does not exist: {parent_id}")
             if not any(
-                link.get("chart_id") == record["chart_id"]
-                for link in record.get("mapping_evidence", [])
+                link.get("chart_id") == chart_id for link in parent.get("mapping_evidence", [])
             ):
-                raise ValueError(f"Linked chart lacks crosswalk evidence: {parent}")
-            if metadata.get("chart_id") != record["chart_id"]:
-                raise ValueError(f"Chunk chart ID differs from case record: {parent}")
-    elif corpus == "policy_terms" and "clause_id" in record:
-        if metadata.get("clause_id") != record["clause_id"]:
-            raise ValueError(f"Clause ID differs from parent_id {parent}")
-        if metadata.get("coverage") != record["coverage"]:
-            raise ValueError(f"Coverage differs from clause record: {parent}")
-    return record
+                raise ValueError(f"Linked chart lacks crosswalk evidence: {parent_id}")
+            if metadata.get("chart_id") != chart_id:
+                raise ValueError(f"Chunk chart ID differs from case record: {parent_id}")
+    elif corpus == "policy_terms" and "clause_id" in parent:
+        if metadata.get("clause_id") != parent["clause_id"]:
+            raise ValueError(f"Clause ID differs from parent_id {parent_id}")
+        if metadata.get("coverage") != parent.get("coverage"):
+            raise ValueError(f"Coverage differs from clause record: {parent_id}")
+        for note_id in parent.get("side_note_parent_ids", []):
+            if await store.get_parent(corpus, note_id) is None:
+                raise ValueError("Clause references missing source note")
 
 
-def _matches(filters: dict, chunk: dict, record: dict | None, corpus: str) -> bool:
-    document = chunk["document"]
+def _matches(filters: dict, document: dict, parent: dict | None) -> bool:
     for name, expected in filters.items():
         if name in {"document_id", "edition"}:
             actual = document.get(name)
-        elif name == "chart_id":
-            actual = record.get("chart_id") if record else None
-        elif name in {"case_id", "clause_id", "article_number", "rider_number", "coverage"}:
-            actual = record.get(name) if record else None
         else:
-            raise ValueError(f"Unsupported {corpus} filter: {name}")
+            actual = parent.get(name) if parent else None
         if actual != expected:
             return False
     return True
 
 
-def validate_hits(request: SearchRequest, hits: list[EvidenceHit]) -> list[EvidenceHit]:
-    """Reject hits detached from an indexed chunk, structured parent, or PDF page."""
+async def validate_hits(request: SearchRequest, hits: list[EvidenceHit]) -> list[EvidenceHit]:
+    """색인 청크·구조 레코드·PDF 페이지와 연결되지 않은 결과를 거절한다."""
     if not isinstance(hits, list):
         raise TypeError("Search results must be a list of EvidenceHit")
     if not hits:
         return hits
-    corpus = request["corpus"]
-    chunks, records, pages, _ = _load(corpus)
     if len(hits) > request["top_k"]:
         raise ValueError("Search returned more hits than top_k")
+    if _store_factory is None:
+        raise RuntimeError("DB evidence store is not configured")
+    store = _store_factory()
+    corpus = request["corpus"]
     for hit in hits:
         if not isinstance(hit, dict) or not isinstance(hit.get("chunk"), dict):
             raise ValueError("Search hit has no source chunk")
         chunk = hit["chunk"]
-        indexed = chunks.get(chunk.get("chunk_id"))
+        chunk_id = chunk.get("chunk_id")
+        indexed = await store.get_chunk(corpus, chunk_id) if isinstance(chunk_id, str) else None
         if indexed is None:
             raise ValueError("Search hit has an unknown chunk_id")
-        for field in ("parent_id", "page_start", "page_end", "text", "document"):
-            if chunk.get(field) != indexed[field]:
+        for field in CHUNK_FIELDS:
+            if chunk.get(field) != indexed.get(field):
                 raise ValueError(f"Search hit {field} differs from indexed source")
-        if chunk.get("metadata") != indexed["metadata"]:
-            raise ValueError("Search hit metadata differs from indexed source")
         document = indexed["document"]
         if document.get("corpus") != corpus:
             raise ValueError("Search hit belongs to another corpus")
-        source = pages.get(document["document_id"])
-        if source is None or source["hash"] != document["content_hash"]:
-            raise ValueError("Search hit document differs from parsed PDF source")
-        if not all(
-            page in source["pages"] for page in range(chunk["page_start"], chunk["page_end"] + 1)
+        for page in range(indexed["page_start"], indexed["page_end"] + 1):
+            source = await store.get_source_page(document["document_id"], page)
+            if source is None or source.get("content_hash") != document["content_hash"]:
+                raise ValueError("Search hit page is absent from parsed PDF source")
+        parent_id = indexed["parent_id"]
+        parent = None
+        if corpus == "fault_standards" and indexed["metadata"].get("section") == (
+            "common_modifier_guide"
         ):
-            raise ValueError("Search hit page is absent from parsed PDF blocks")
-        record = _record_for(indexed, records, corpus)
-        if not _matches(request["filters"], indexed, record, corpus):
+            # 공통 수정요소 안내는 도표 행이 없다. 같은 문서의 안내 묶음 ID인지만 본다.
+            if not parent_id.startswith(f"{document['document_id']}:modifier-guide:"):
+                raise ValueError("Modifier guide parent ID does not match its source document")
+        else:
+            parent = await store.get_parent(corpus, parent_id)
+            if parent is None:
+                raise ValueError(f"No structured source record for parent_id {parent_id}")
+            await _check_parent(store, corpus, indexed, parent)
+        if not _matches(request["filters"], document, parent):
             raise ValueError("Search hit does not satisfy the requested filters")
+        score = hit.get("score")
         if (
-            not isinstance(hit.get("score"), (int, float))
-            or not math.isfinite(hit["score"])
+            isinstance(score, bool)
+            or not isinstance(score, (int, float))
+            or not math.isfinite(score)
             or not isinstance(hit.get("retrieval_version"), str)
             or not hit["retrieval_version"]
         ):

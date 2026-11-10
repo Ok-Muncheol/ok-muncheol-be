@@ -13,4 +13,4 @@ async def search_dispute_cases(query: SearchQuery) -> list[EvidenceHit]:
     Supporting chunks share the case parent_id with their fact-card chunk.
     """
     request = prepare_request(query, "dispute_cases")
-    return validate_hits(request, await common.search(request))
+    return await validate_hits(request, await common.search(request))
