@@ -6,6 +6,9 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "pyjwt[crypto]>=2.8",
+    # 판단 그래프(app/workflow/graph.py)·반박 검토(app/validation/rebuttal.py)
+    "langgraph>=1.2,<2",
+    "openai>=1,<4",
 ]
 
 # 비전·PDF·임베딩 의존성은 API 런타임과 분리한다.
