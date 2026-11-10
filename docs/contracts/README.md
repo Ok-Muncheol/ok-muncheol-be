@@ -8,7 +8,7 @@ FE 전달본의 `src/lib/api/types.ts`는 이 타입의 수동 대응 초안이�
 | --- | --- | --- |
 | FactCard·FactPatch | 정지원 | 구준휘 판단·옥석현 보고서·정지원 FE |
 | SearchChunk·EmbeddedChunk·SearchRequest·EvidenceHit | 김지은, 옥석현 공동 검토 | 구준휘 판단/QA·옥석현 산정/보고서·김지은 FE |
-| JudgmentState·JudgmentResult·QuestionAnswer | 구준휘 | 정지원 카드 재확인·옥석현 보고서·구준휘 FE |
+| JudgmentState·JudgmentResult·QuestionAnswer·JudgmentRunView | 구준휘 | 정지원 카드 재확인·옥석현 보고서·구준휘 FE |
 | CalculationResult·RecoveryAmounts·ReviewReport | 옥석현 | 구준휘 가정 실행·옥석현 FE |
 | TaskView·VersionRef·ApiError | 구준휘 통합, 전원 검토 | 전원 |
 
@@ -36,6 +36,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | GET·PATCH | `/cases/{id}/fact-card` | A | PATCH 본문은 `FactPatch` |
 | POST | `/cases/{id}/fact-card/confirm` | A | `{expected_version}` |
 | POST | `/cases/{id}/judgments` | B | `{card_version}`, `Idempotency-Key` 필수, 202. 버전 불일치 409, 미확정 422 |
+| GET | `/cases/{id}/judgment` | B | 최신 판단 실행 `JudgmentRunView`, 판단 전이면 `null`. 새로고침·재접속 복원 |
 | POST | `/cases/{id}/questions/{question_id}/answer` | B | 본문은 `QuestionAnswer`. 본문 `question_id`가 경로와 다르면 422 `question_mismatch` |
 | POST | `/cases/{id}/qa` | B | `{text}`, 1차 확장 |
 | GET | `/cases/{id}/reports/{version}` | D | |
@@ -75,8 +76,8 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 ## 판단 접수·질문 응답
 
 판단은 요청 안에서 끝까지 실행하고(`app/api/judgments.py`) 실행·질문·응답·검증 로그를 `judgment_runs` 계열 테이블에,
-그래프 체크포인트를 `langgraph` 스키마에 저장한다. FE는 응답의 `task_id`(= `judgment_runs.id`)로 실행 행·질문을 RLS로 읽고
-Realtime으로 변화를 받는다. 판정 결과(`JudgmentResult`)는 `judgment_runs.result`에 있다.
+그래프 체크포인트를 `langgraph` 스키마에 저장한다. FE는 판단 조회(`GET /cases/{id}/judgment`)로 최신 실행·판정·질문·답을 읽어
+새로고침·재접속을 복원하고, Realtime은 변경 알림으로만 쓴다. 판정 결과(`JudgmentResult`)는 `judgment_runs.result`에 있다.
 보고서 3·4·5번용 필드도 판단 그래프가 채운다. `base_fault_A`(선택한 기본 과실 A), `modifiers`(선택한 도표의 수정요소마다
 `decision` 적용·미적용·불명과 `reason`·`evidence_fields`, 가감치가 있는 요소만), `alternatives`(고르지 않은 도표와 이유)다.
 MVP 그래프는 수정요소를 자동 적용하지 않으므로 `modifiers`는 모두 불명(담당자 판단)이고 과실은 기본 과실이다.
@@ -86,6 +87,14 @@ MVP 그래프는 수정요소를 자동 적용하지 않으므로 `modifiers`는
 | --- | --- |
 | 판단 접수(202) | `TaskView` — `task_id`·`case_id`·`stage`·`status`(`completed`·`waiting_for_confirmation`·`failed`)·`input_version`(카드 버전) + `report_version`·`report_error` |
 | 질문 응답(200) | 판단 접수 응답 + `pending_question_ids`·`next_action`·`field_values` |
+| 판단 조회(200) | `JudgmentRunView` 또는 판단 전이면 `null` — 판단 버전이 가장 큰 실행 하나 |
+
+`JudgmentRunView`는 `judgment_runs` 행(`task_id`·`case_id`·`judgment_version`·`fact_card_version`·`criteria_version`·`rule_version`·
+`status`·`stage`·`rebuttal_retry_count`·`result`·`error`·`updated_at`)에 `report_version`(판정이 났으면 그 판단으로 만든 보고서의
+최신 버전, 못 만들었으면 `null`)과 `questions`를 더한다. `result`는 `completed`일 때만, `error`는 `failed`일 때만 온다.
+확인 대기(`waiting_for_confirmation`) 실행은 `result`가 비어 있으니 질문은 `questions`에서 읽는다. `questions`는 실행의 구분 질문
+(`ConfirmationQuestion`)마다 `answer`(`value`·`unknown`·`expected_card_version`·`resulting_card_version`·`answered_at`, 안 답했으면 `null`)를
+붙인다. 새 카드 버전의 판단이 확인 대기 실행을 대체하면 그 새 실행이 최신이라 대체된 실행은 오지 않는다. 견본은 `judgment_run_waiting`이다.
 
 `next_action`은 `answer_remaining`(남은 질문에 답한다), `update_fact_card`(값 답변을 카드에 반영·재확정한 뒤 새 카드 버전으로
 판단을 다시 요청한다. `field_values`가 칸별 답), `null`(모두 '모름'이라 같은 실행을 재개해 끝냈다) 중 하나다.

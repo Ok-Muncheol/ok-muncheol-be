@@ -5,7 +5,8 @@
 - 실행·질문·응답·검증 로그는 judgment_runs 계열 테이블(app/workflow/runs.py), 그래프 체크포인트는
   langgraph 스키마(LangGraph AsyncPostgresSaver)에 저장한다. thread_id = judgment_runs.id.
 - 응답은 TaskView(task_id = judgment_runs.id)다.
-  판정·질문·검증 로그는 FE가 RLS를 거쳐 테이블에서 읽는다.
+  새로고침·재접속 복원은 판단 조회(get_judgment — 최신 실행·판정·질문·답)가 맡는다.
+  Realtime은 변경 알림만 준다.
 - Idempotency-Key: 같은 키·같은 요청이면 저장한 응답을, 같은 키로 다른 요청이면 422를 돌려준다.
 - 같은 입력(카드·인정기준·규칙 버전)은 다시 판단하지 않고 기존 실행을 돌려준다.
 - 판정이 나면(세 상태 모두) D `reports.submit_judgment`로 보고서를 만든다. 같은 판단 버전의 보고서가
@@ -32,7 +33,7 @@ from app.api import reports
 from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.schemas.common import ApiError
 from app.schemas.facts import FactCard
-from app.schemas.judgment import QuestionAnswer
+from app.schemas.judgment import AnswerView, JudgmentRunView, QuestionAnswer, QuestionView
 from app.workflow import runs
 from app.workflow.graph import (
     CRITERIA_VERSION,
@@ -331,6 +332,50 @@ async def _after_answer(conn: AsyncConnection, run_id: str, actor_id: str) -> di
         for r in rows
     ]
     return {**view, **await _execute(conn, claimed, Command(resume=payload), actor_id)}
+
+
+async def get_judgment(actor_id: str, case_id: str) -> JudgmentRunView | None:
+    """사건의 최신 판단 실행과 구분 질문·답. 판단을 시작하지 않은 사건이면 None.
+
+    판정이 난 실행이면 그 판단으로 만든 보고서의 최신 버전을 싣는다.
+    확인 대기 실행은 result가 비어 있으니 질문은 questions에서 읽는다.
+    담당이 아니면 403, 사건이 없으면 404다.
+    """
+    case_id = _uuid(case_id, "사건")
+    async with services.connect() as conn:
+        await _require_assignee(conn, actor_id, case_id)
+        run = await runs.latest_run(conn, case_id)
+        if run is None:
+            return None
+        questions = await runs.question_views(conn, str(run["id"]))
+        report_version = None
+        if run["status"] == "completed":
+            report_version = await runs.report_version_for(conn, case_id, run["judgment_version"])
+    return {
+        "task_id": str(run["id"]), "case_id": str(run["case_id"]),
+        "judgment_version": run["judgment_version"], "fact_card_version": run["fact_card_version"],
+        "criteria_version": run["criteria_version"], "rule_version": run["rule_version"],
+        "status": run["status"], "stage": run["stage"],
+        "rebuttal_retry_count": run["rebuttal_retry_count"],
+        "result": run["result"], "error": run["error"], "report_version": report_version,
+        "questions": [_question_view(row) for row in questions],
+        "updated_at": run["updated_at"].isoformat(),
+    }
+
+
+def _question_view(row: runs.Row) -> QuestionView:
+    answer: AnswerView | None = None
+    if row["answered"]:
+        answer = {
+            "value": row["value"], "unknown": row["unknown"],
+            "expected_card_version": row["expected_card_version"],
+            "resulting_card_version": row["resulting_card_version"],
+            "answered_at": row["answered_at"].isoformat(),
+        }
+    return {
+        "question_id": str(row["id"]), "field_key": row["field_key"], "text": row["text"],
+        "options": list(row["options"]), "allow_unknown": row["allow_unknown"], "answer": answer,
+    }
 
 
 async def ask_question(actor_id: str, case_id: str, text: str) -> dict[str, object]:

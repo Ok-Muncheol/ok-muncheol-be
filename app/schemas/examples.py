@@ -3,7 +3,7 @@
 from app.schemas.chart_scope import FIELD_OPTIONS, REASON_NO_REVIEWED_CHART
 from app.schemas.common import ApiError, TaskView, VersionRef
 from app.schemas.facts import FactCard, FactField
-from app.schemas.judgment import ConfirmationQuestion, JudgmentResult
+from app.schemas.judgment import ConfirmationQuestion, JudgmentResult, JudgmentRunView
 from app.schemas.reports import ReviewReport
 
 
@@ -66,10 +66,21 @@ def contract_examples() -> dict[str, object]:
         "code": "FACT_CARD_VERSION_CONFLICT", "message": "최신 카드 버전을 다시 확인해 주세요.",
         "retryable": False,
     }
+    # 판단 조회(GET /cases/{id}/judgment): 구분 질문으로 멈춘 실행.
+    # result는 비어 있고 질문은 questions에 있다
+    run_waiting: JudgmentRunView = {
+        "task_id": "synthetic-run", "case_id": card["case_id"], "judgment_version": 1,
+        "fact_card_version": card["version"], "criteria_version": "synthetic-criteria",
+        "rule_version": "synthetic-rule", "status": "waiting_for_confirmation",
+        "stage": "ask_or_resume", "rebuttal_retry_count": 0, "result": None, "error": None,
+        "report_version": None, "questions": [{**question, "answer": None}],
+        "updated_at": "2026-11-05T09:10:00+09:00",
+    }
     return {
         "synthetic": True, "contract_version": "draft-1",
         "note": "필드 모양만 보여 주는 합성 양식. 실행 가능한 시나리오·검수 정답이 아님.",
         "fact_card_draft": draft, "fact_card_confirmed": card,
         "question": question, "judgment_deferred": judgment,
         "report_deferred": report, "task_failed": task, "version_conflict": conflict,
+        "judgment_run_waiting": run_waiting,
     }

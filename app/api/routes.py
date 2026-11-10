@@ -117,6 +117,15 @@ async def start_judgment(
     return await judgments.start_judgment(actor_id, card, idempotency_key)
 
 
+@router.get("/cases/{case_id}/judgment", tags=["B judgments"])
+async def get_judgment(actor_id: ActorId, case_id: str) -> dict[str, object] | None:
+    """최신 판단 실행과 구분 질문·답(JudgmentRunView). 판단 전이면 null. 새로고침·재접속 복원용.
+
+    응답 모델로 다시 검사하지 않는다 — 저장된 result는 필드가 늘기 전의 예전 모양일 수 있다.
+    """
+    return await judgments.get_judgment(actor_id, case_id)  # type: ignore[return-value]
+
+
 @router.post("/cases/{case_id}/questions/{question_id}/answer", tags=["B judgments"])
 async def answer_question(
     actor_id: ActorId, case_id: str, question_id: str, answer: QuestionAnswer

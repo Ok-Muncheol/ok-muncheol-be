@@ -257,6 +257,7 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 | `POST /cases/{id}/fact-card/confirm` | 담당자 카드 확정 |
 | `POST /cases/{id}/questions/{question_id}/answer` | 도표 구분 질문 응답·카드 이력 반영 |
 | `POST /cases/{id}/judgments` | 확정 카드 버전으로 판단 작업 접수·재개 |
+| `GET /cases/{id}/judgment` | 최신 판단 실행·판정·구분 질문과 답 조회(새로고침·재접속 복원) |
 | `GET /cases/{id}/reports/{version}` | 버전별 보고서·근거·판정 조회 |
 | `POST /cases/{id}/reports/{version}/confirm` | 담당자 확인 완료 1회·확인 이력 저장, 조건이 맞으면 구상 청구서 생성 |
 | `GET /cases/{id}/reports/{version}/claim` | 그 보고서 버전으로 만든 구상 청구서 조회 |

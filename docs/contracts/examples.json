@@ -223,5 +223,35 @@
     "code": "FACT_CARD_VERSION_CONFLICT",
     "message": "최신 카드 버전을 다시 확인해 주세요.",
     "retryable": false
+  },
+  "judgment_run_waiting": {
+    "task_id": "synthetic-run",
+    "case_id": "synthetic-case",
+    "judgment_version": 1,
+    "fact_card_version": 2,
+    "criteria_version": "synthetic-criteria",
+    "rule_version": "synthetic-rule",
+    "status": "waiting_for_confirmation",
+    "stage": "ask_or_resume",
+    "rebuttal_retry_count": 0,
+    "result": null,
+    "error": null,
+    "report_version": null,
+    "questions": [
+      {
+        "question_id": "synthetic-question",
+        "field_key": "movement_B",
+        "text": "상대 차량(B)의 진행 방향을 확인해 주세요.",
+        "options": [
+          "straight",
+          "left_turn",
+          "right_turn",
+          "u_turn"
+        ],
+        "allow_unknown": true,
+        "answer": null
+      }
+    ],
+    "updated_at": "2026-11-05T09:10:00+09:00"
   }
 }

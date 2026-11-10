@@ -2,7 +2,7 @@
 
 from typing import Literal, NotRequired, TypedDict
 
-from app.schemas.common import JudgmentStatus, VersionRef
+from app.schemas.common import ApiError, JudgmentStatus, TaskStatus, VersionRef
 from app.schemas.retrieval import EvidenceHit
 
 
@@ -73,3 +73,45 @@ class JudgmentResult(TypedDict):
     base_fault_A: NotRequired[int | None]
     modifiers: NotRequired[list[ModifierDecision]]
     alternatives: NotRequired[list[ChartAlternative]]
+
+
+class AnswerView(TypedDict):
+    """구분 질문에 단 답. 값 답변은 A의 카드 수정·재확정으로 새 카드 버전이 생겨야 판단에 쓰인다."""
+
+    value: str | None
+    unknown: bool
+    expected_card_version: int
+    # 답을 반영해 생긴 카드 버전. 그 버전의 판단 접수가 이 실행을 대체할 때 채운다(전이면 null)
+    resulting_card_version: int | None
+    answered_at: str
+
+
+class QuestionView(ConfirmationQuestion):
+    """판단 조회의 구분 질문과 답(아직 안 답했으면 null)."""
+
+    answer: AnswerView | None
+
+
+class JudgmentRunView(TypedDict):
+    """GET /cases/{id}/judgment — 사건의 최신 판단 실행(judgment_runs 행)과 구분 질문·답.
+
+    새로고침·재접속 복원용이다. 작업 상태(status)와 판정(result.status)을 분리한다.
+    result는 completed일 때만, error는 failed일 때만 온다. 확인 대기면 질문은 questions에서 읽는다.
+    """
+
+    task_id: str
+    case_id: str
+    judgment_version: int
+    fact_card_version: int
+    criteria_version: str
+    rule_version: str
+    status: TaskStatus
+    stage: str
+    rebuttal_retry_count: int
+    result: JudgmentResult | None
+    error: ApiError | None
+    # 판정이 났으면 그 판단으로 만든 보고서의 최신 버전.
+    # 못 만들었으면 null(판단 접수를 다시 보내면 다시 만든다)
+    report_version: int | None
+    questions: list[QuestionView]
+    updated_at: str

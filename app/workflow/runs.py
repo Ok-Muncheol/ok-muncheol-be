@@ -113,6 +113,21 @@ async def get_run(conn: AsyncConnection, run_id: str) -> Row | None:
     )
 
 
+async def latest_run(conn: AsyncConnection, case_id: str) -> Row | None:
+    """사건의 최신 판단 실행 = 판단 버전이 가장 큰 실행. 판단 전이면 None.
+
+    새 카드 버전의 판단이 확인 대기 실행을 대체하면 그 새 실행이 더 큰 버전이라
+    대체된 실행은 오지 않는다.
+    실패한 실행도 최신이면 그대로 돌려준다(다시 요청하면 새 버전이 생긴다).
+    """
+    return await _one(
+        conn,
+        f"select {RUN_COLUMNS} from public.judgment_runs where case_id = %s"
+        " order by judgment_version desc limit 1",
+        (case_id,),
+    )
+
+
 async def open_run(
     conn: AsyncConnection, *, case_id: str, card_version: int, criteria_version: str,
     rule_version: str, actor_id: str,
@@ -271,6 +286,23 @@ async def run_questions(conn: AsyncConnection, run_id: str) -> list[Row]:
     """실행의 질문과 응답(없으면 answered=False)."""
     cur = await conn.execute(
         "select q.id, q.field_key, a.value, a.unknown, a.expected_card_version,"
+        " (a.question_id is not null) as answered"
+        " from public.judgment_questions q"
+        " left join public.judgment_answers a on a.question_id = q.id"
+        " where q.run_id = %s order by q.field_key",
+        (run_id,),
+    )
+    return await cur.fetchall()  # type: ignore[return-value]
+
+
+async def question_views(conn: AsyncConnection, run_id: str) -> list[Row]:
+    """판단 조회용: 실행의 질문 전체(문구·보기 포함)와 답(없으면 answered=False).
+
+    순서는 run_questions와 같다.
+    """
+    cur = await conn.execute(
+        "select q.id, q.field_key, q.text, q.options, q.allow_unknown,"
+        " a.value, a.unknown, a.expected_card_version, a.resulting_card_version, a.answered_at,"
         " (a.question_id is not null) as answered"
         " from public.judgment_questions q"
         " left join public.judgment_answers a on a.question_id = q.id"

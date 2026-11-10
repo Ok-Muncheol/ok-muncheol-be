@@ -240,6 +240,45 @@ def test_access_and_answer_checks(service):
     assert api_error(lambda: answer(case_id, qs["signal_B"], "red")) == (409, "already_answered")
 
 
+def view(case_id: str, actor: str = ACTOR) -> dict | None:
+    return asyncio.run(judgments.get_judgment(actor, case_id))  # type: ignore[return-value]
+
+
+def test_judgment_view_restores_the_latest_run_with_questions(service):
+    case_id = new_case(service.url)
+    assert view(case_id) is None  # 판단 전
+    first = start(ACTOR, unconfirmed(case_id, "movement_B", "signal_B"), "key-0000041")
+    waiting = view(case_id)
+    assert waiting is not None
+    assert (waiting["task_id"], waiting["status"], waiting["stage"], waiting["judgment_version"],
+            waiting["fact_card_version"]) \
+        == (first["task_id"], "waiting_for_confirmation", "ask_or_resume", 1, 3)
+    # 확인 대기 실행은 result가 비어 있고 질문은 questions에서 읽는다
+    assert (waiting["result"], waiting["error"], waiting["report_version"]) == (None, None, None)
+    assert [q["field_key"] for q in waiting["questions"]] == ["movement_B", "signal_B"]
+    assert all(q["answer"] is None and q["options"] and q["text"] for q in waiting["questions"])
+    signal = next(q for q in waiting["questions"] if q["field_key"] == "signal_B")
+    answer(case_id, signal["question_id"], "red")
+    answers = {q["field_key"]: q["answer"] for q in view(case_id)["questions"]}  # type: ignore[index]
+    assert answers["movement_B"] is None
+    assert {k: answers["signal_B"][k] for k in ("value", "unknown", "expected_card_version",
+                                                "resulting_card_version")} \
+        == {"value": "red", "unknown": False, "expected_card_version": 3,
+            "resulting_card_version": None}
+    assert answers["signal_B"]["answered_at"]
+    # 새 카드 버전의 판단이 확인 대기 실행을 대체하면 그 새 실행이 최신이다
+    second = start(ACTOR, card(case_id=case_id, version=4), "key-0000042")
+    done = view(case_id)
+    assert done is not None
+    assert (done["task_id"], done["status"], done["judgment_version"], done["fact_card_version"]) \
+        == (second["task_id"], "completed", 2, 4)
+    assert (done["result"]["status"], done["questions"]) == ("draft_ready", [])  # type: ignore[index]
+    assert done["report_version"] == second["report_version"] is not None
+    assert api_error(lambda: view(case_id, OTHER)) == (403, "forbidden")
+    assert api_error(lambda: view(str(uuid.uuid4()))) == (404, "not_found")
+    assert api_error(lambda: view("not-a-uuid")) == (404, "not_found")
+
+
 def test_missing_dependency_fails_the_run_and_allows_a_new_one(service):
     case_id = new_case(service.url)
     service.retrieve.side_effect = NotImplementedError("D: 색인 미연결")
@@ -312,6 +351,14 @@ def test_http_routes_store_and_serialize(service, monkeypatch):
         res = client.post(f"/cases/{case_id}/questions/{q['id']}/answer", json=body)
         assert res.status_code == 422
         assert res.json()["error"]["code"] == "question_closed"
+        # 판단 조회: 시각은 ISO 문자열로, 답한 질문은 답과 함께 직렬화된다
+        res = client.get(f"/cases/{case_id}/judgment")
+        assert res.status_code == 200, res.text
+        got = res.json()
+        assert (got["status"], got["result"]["status"]) == ("completed", "deferred")
+        assert isinstance(got["updated_at"], str)
+        [question] = got["questions"]
+        assert (question["question_id"], question["answer"]["unknown"]) == (str(q["id"]), True)
     finally:
         app.dependency_overrides.clear()
 
