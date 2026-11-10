@@ -9,6 +9,7 @@ api_idempotency_keys. 제약은 `supabase/migrations/20261109163901_judgment_run
 from typing import Any
 
 from psycopg import AsyncConnection
+from psycopg.errors import UndefinedTable
 from psycopg.types.json import Jsonb
 
 from app.schemas.common import ApiError
@@ -277,6 +278,25 @@ async def run_questions(conn: AsyncConnection, run_id: str) -> list[Row]:
         (run_id,),
     )
     return await cur.fetchall()  # type: ignore[return-value]
+
+
+async def report_version_for(
+    conn: AsyncConnection, case_id: str, judgment_version: int
+) -> int | None:
+    """그 판단 버전으로 만든 보고서의 최신 버전(D review_reports).
+
+    없거나 테이블이 아직 없으면 None.
+    """
+    try:
+        row = await _one(
+            conn,
+            "select max(report_version) as version from public.review_reports"
+            " where case_id = %s and judgment_version = %s",
+            (case_id, judgment_version),
+        )
+    except UndefinedTable:
+        return None
+    return row["version"] if row else None
 
 
 async def claim_resume(conn: AsyncConnection, run_id: str) -> Row | None:

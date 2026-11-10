@@ -17,8 +17,9 @@ import pytest
 from psycopg.rows import dict_row
 
 from app import db
-from app.api import judgments
+from app.api import judgments, reports
 from app.api.errors import ApiException
+from app.reports.repository import InMemoryReportRepository, PostgresReportRepository
 from app.workflow.graph import Dependencies, question_id
 from app.workflow.runs import setup_checkpoints
 from tests.migrations.test_migrations_apply import ADMIN_URL, HERE, MIGRATIONS, _psql
@@ -71,8 +72,11 @@ def service(database_url):
         deps=Dependencies(retrieve=fake.retrieve, reviewer=fake.reviewer),
         connect=lambda: db.connect(database_url),
     )
+    # 판정 뒤 만드는 보고서(D submit_judgment)도 같은 테스트 DB에 저장한다
+    reports.configure(repo=PostgresReportRepository(connect=lambda: db.connect(database_url)))
     yield fake
     judgments.configure(deps=Dependencies(), connect=db.connect)
+    reports.configure(repo=InMemoryReportRepository())
 
 
 def new_case(url: str, assignee: str = ACTOR) -> str:
@@ -105,6 +109,11 @@ def api_error(call) -> tuple[int, str]:
     return caught.value.status_code, caught.value.error["code"]
 
 
+def report_count(url: str, case_id: str) -> int:
+    return rows(url, "select count(*) as n from public.review_reports where case_id = %s",
+                case_id)[0]["n"]
+
+
 def unconfirmed(case_id: str, *keys: str):
     c = card(case_id=case_id)
     for key in keys:
@@ -117,7 +126,13 @@ def test_draft_is_stored_and_requests_are_idempotent(service):
     c = card(case_id=case_id)
     view = start(ACTOR, c, "key-0000001")
     assert view == {"task_id": view["task_id"], "case_id": case_id,
-                    "stage": "build_judgment_result", "status": "completed", "input_version": 3}
+                    "stage": "build_judgment_result", "status": "completed", "input_version": 3,
+                    "report_version": 1, "report_error": None}
+    # 판정 뒤 보고서 v1이 그 판단 버전으로 만들어진다(D submit_judgment)
+    [report] = rows(service.url, "select report_version, judgment_version, fact_card_version"
+                    " from public.review_reports where case_id = %s", case_id)
+    assert (report["report_version"], report["judgment_version"], report["fact_card_version"]) \
+        == (1, 1, 3)
     [run] = rows(service.url, "select * from public.judgment_runs where case_id = %s", case_id)
     stored = tuple(run[k] for k in ("status", "judgment_status", "chart_id", "fault_a", "fault_b"))
     assert stored == ("completed", "draft_ready", "S-1", 20, 80)
@@ -132,8 +147,10 @@ def test_draft_is_stored_and_requests_are_idempotent(service):
     assert saved[0]["n"] > 0
     # 같은 키 = 저장한 응답, 새 키·같은 입력 = 기존 실행(다시 판단하지 않음)
     assert start(ACTOR, c, "key-0000001") == view
-    assert start(ACTOR, c, "key-0000002")["task_id"] == view["task_id"]
+    again = start(ACTOR, c, "key-0000002")
+    assert (again["task_id"], again["report_version"]) == (view["task_id"], 1)
     assert service.retrieve.await_count == 1
+    assert report_count(service.url, case_id) == 1  # 같은 판단으로 보고서를 다시 만들지 않는다
     assert api_error(lambda: start(ACTOR, {**c, "version": 4}, "key-0000001")) \
         == (422, "idempotency_key_reused")
 
@@ -142,6 +159,7 @@ def test_unknown_answer_resumes_the_same_run_to_deferred(service):
     case_id = new_case(service.url)
     view = start(ACTOR, unconfirmed(case_id, "movement_B"), "key-0000003")
     assert (view["status"], view["stage"]) == ("waiting_for_confirmation", "ask_or_resume")
+    assert (view["report_version"], report_count(service.url, case_id)) == (None, 0)
     [q] = rows(service.url, "select id, field_key, options from public.judgment_questions"
                " where run_id = %s", view["task_id"])
     assert str(q["id"]) == question_id(view["task_id"], "movement_B")
@@ -149,6 +167,8 @@ def test_unknown_answer_resumes_the_same_run_to_deferred(service):
     out = answer(case_id, str(q["id"]), None)
     assert (out["task_id"], out["status"], out["next_action"]) \
         == (view["task_id"], "completed", None)
+    # 보류도 판정이라 보고서를 만든다(수치는 비운 채로)
+    assert (out["report_version"], out["report_error"]) == (1, None)
     [run] = rows(service.url, "select status, judgment_status, result from public.judgment_runs"
                  " where id = %s", view["task_id"])
     assert (run["status"], run["judgment_status"]) == ("completed", "deferred")
@@ -228,6 +248,7 @@ def test_missing_dependency_fails_the_run_and_allows_a_new_one(service):
     [run] = rows(service.url, "select status, error, completed_at from public.judgment_runs"
                  " where id = %s", view["task_id"])
     assert run["status"] == "failed" and run["completed_at"] is not None
+    assert (view["report_version"], report_count(service.url, case_id)) == (None, 0)
     assert run["error"]["code"] == "dependency_not_ready" and run["error"]["retryable"] is False
     # 같은 키는 같은 실패 응답, 연결 뒤 새 키는 새 실행
     assert start(ACTOR, card(case_id=case_id), "key-0000010") == view
@@ -293,3 +314,32 @@ def test_http_routes_store_and_serialize(service, monkeypatch):
         assert res.json()["error"]["code"] == "question_closed"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_report_failure_keeps_judgment_and_retries_on_same_input(service, monkeypatch):
+    case_id = new_case(service.url)
+    c = card(case_id=case_id)
+    failing = AsyncMock(side_effect=ApiException(
+        503, "reports_db_not_ready", "보고서 테이블이 아직 없습니다.", True))
+    monkeypatch.setattr(reports, "submit_judgment", failing)
+    view = start(ACTOR, c, "key-0000020")
+    # 판단은 완료로 저장하고 보고서 실패만 알린다
+    assert (view["status"], view["report_version"]) == ("completed", None)
+    assert view["report_error"]["code"] == "reports_db_not_ready"
+    [run] = rows(service.url, "select status, judgment_status from public.judgment_runs"
+                 " where id = %s", view["task_id"])
+    assert (run["status"], run["judgment_status"]) == ("completed", "draft_ready")
+    monkeypatch.undo()
+    # 같은 입력을 새 키로 다시 보내면 판단은 다시 하지 않고 보고서만 만든다
+    again = start(ACTOR, c, "key-0000021")
+    assert (again["task_id"], again["report_version"], again["report_error"]) \
+        == (view["task_id"], 1, None)
+    assert service.retrieve.await_count == 1 and report_count(service.url, case_id) == 1
+
+
+def test_unexpected_report_error_is_reported_without_details(service, monkeypatch):
+    case_id = new_case(service.url)
+    monkeypatch.setattr(reports, "submit_judgment", AsyncMock(side_effect=KeyError("secret")))
+    view = start(ACTOR, card(case_id=case_id), "key-0000022")
+    assert view["status"] == "completed"
+    assert view["report_error"] == judgments.REPORT_FAILED

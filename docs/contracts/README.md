@@ -84,13 +84,17 @@ MVP 그래프는 수정요소를 자동 적용하지 않으므로 `modifiers`는
 
 | 요청 | 응답 본문 |
 | --- | --- |
-| 판단 접수(202) | `TaskView` — `task_id`·`case_id`·`stage`·`status`(`completed`·`waiting_for_confirmation`·`failed`)·`input_version`(카드 버전) |
-| 질문 응답(200) | `TaskView` + `pending_question_ids`·`next_action`·`field_values` |
+| 판단 접수(202) | `TaskView` — `task_id`·`case_id`·`stage`·`status`(`completed`·`waiting_for_confirmation`·`failed`)·`input_version`(카드 버전) + `report_version`·`report_error` |
+| 질문 응답(200) | 판단 접수 응답 + `pending_question_ids`·`next_action`·`field_values` |
 
 `next_action`은 `answer_remaining`(남은 질문에 답한다), `update_fact_card`(값 답변을 카드에 반영·재확정한 뒤 새 카드 버전으로
 판단을 다시 요청한다. `field_values`가 칸별 답), `null`(모두 '모름'이라 같은 실행을 재개해 끝냈다) 중 하나다.
 
 - 같은 `Idempotency-Key`·같은 요청이면 저장한 응답을 돌려준다. 같은 입력(카드·인정기준·규칙 버전)은 다시 판단하지 않고 기존 실행을 돌려준다.
+- 판정이 나면(세 상태 모두) 옥석현 `submit_judgment`로 보고서를 만든다. `report_version`은 이 판단으로 만든 보고서의 최신 버전이고,
+  질문 대기·실행 실패면 `null`이다. 같은 판단 버전의 보고서가 있으면 다시 만들지 않는다.
+- 보고서를 못 만들어도 판단은 `completed`로 남고 `report_error`(보고서 쪽 오류 코드 또는 `report_failed`)로 알린다.
+  같은 입력으로 판단 접수를 다시 보내면(새 키) 판단은 다시 하지 않고 보고서 만들기만 다시 시도한다.
 - 확인 대기 중인 실행은 새 카드 버전의 판단 접수가 대체하고(`superseded_at`), 새 실행이 `resumed_from_run_id`로 잇는다.
 - 실행 실패는 `status=failed`와 `judgment_runs.error`로 남는다. `dependency_not_ready`(검색 색인·검토 모델 미연결),
   `judgment_failed`(재시도 가능), `run_interrupted`(10분 넘게 멈춘 실행을 정리)다.
