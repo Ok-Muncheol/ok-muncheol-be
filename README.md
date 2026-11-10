@@ -125,17 +125,21 @@ SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과
 
 ## 기술 구성
 
-| 구성 | 설계 기술 | 역할 |
-| --- | --- | --- |
-| API | Python · FastAPI · Vercel Functions | 사건·사실 카드·판단 실행·보고서·권한 |
-| 비전 워커 | Modal GPU · YOLO · OpenCV, SAM2 선택 | 탐지·추적·특징·근거 프레임 |
-| 판단 | LangGraph, VLM·LLM API | 구조화 사실 추출·고정 판단 그래프·반박 검토 |
-| 검색·색인 | LangChain · Kiwi · pgvector · pg_trgm | 코퍼스별 전처리·구조화 검색·한국어 BM25 |
-| 데이터·파일·인증 | Supabase Postgres · Storage · Auth · RLS | 사건·근거·비공개 영상·담당자 접근 통제 |
-| 진행·관측 | Supabase Realtime · LangSmith · Vercel Observability | 작업 변경 알림·단계별 비용·처리 시간 |
+| 구성 | 기술 | 역할 | 지금 상태 (2026-11-10) |
+| --- | --- | --- | --- |
+| API | Python 3.12 · FastAPI · Vercel Functions · PyJWT | 사건·사실 카드·판단 실행·보고서·권한 | 운영 배포. 토큰은 Supabase JWKS(ES256)로 검증 |
+| 비전 워커 | Modal · YOLO11s · OpenCV Farneback · VideoMAE · scikit-learn | 차량 탐지·추적, 촬영 차량 움직임(광류), 영상 분류(미세조정), PCA·로지스틱 회귀 작은 분류기 | 실험 단계. 저장소 평가 코드(`evals/vision/`)에는 YOLO11n·광류만 있고 `workers/vision/`은 자리표시자. V-JEPA는 실험 중, SAM2는 효과가 입증되면 선택 |
+| 사실 추출 | OpenAI VLM | 키프레임·궤적 특징으로 사실 카드 초안 작성 | 평가 기준 `gpt-5.4-mini`([평가 보고서](docs/vision-fact-card-eval-report.md) 1절). 개선 실험에 쓰는 `gpt-4o`는 OpenAI가 스냅샷 종료를 2027-01-14로 공지 |
+| 판단 | LangGraph · Postgres 체크포인터(psycopg) · OpenAI LLM | 고정 판단 그래프·구분 질문 재개·반박 검토 | 구현. LLM 모델은 `OPENAI_MODEL`(`.env.example`은 `gpt-5`) |
+| 검색·색인 | pdfplumber · OpenAI 임베딩(`text-embedding-3-small`) · Kiwi BM25 · pgvector | 코퍼스별 파싱·청킹·임베딩, 구조화 검색·한국어 BM25 | 검색은 메모리 색인(`InMemoryIndex`)으로 돈다. pgvector는 `VectorIndex` 교체 지점으로 남아 있다. LangChain은 LangGraph 설정 타입(`langchain_core`)만 쓴다 |
+| 데이터·파일·인증 | Supabase Postgres · Storage · Auth · RLS | 사건·근거·비공개 영상·담당자 접근 통제 | 사건 접근·판단·보고서 마이그레이션 3개(`supabase/migrations/`) |
+| 진행·관측 | Supabase Realtime · LangSmith · Vercel Observability | 작업 변경 알림·단계별 비용·처리 시간 | Realtime은 `judgment_runs`·`judgment_questions`를 발행한다. LangSmith는 아직 연결하지 않았다 |
+| CI·배포 | GitHub Actions · Vercel Git 연동 | 머지 전 검사, `main` 배포 | Actions는 `check`(lint·check·test)와 `gitleaks`만 돌린다. 배포는 Vercel이 `main` push를 받아 한다 |
 
 영상은 FE가 발급받은 서명 URL로 Storage에 직접 올리고 API에는 파일 경로·메타데이터를 전달한다.
-YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는다. 서비스와 로컬 비전 평가는 같은 패키지·가중치 버전을 쓴다.
+비전 모델 가중치와 실행 환경(torch 등)은 API 함수에 넣지 않는다. Vercel Python 번들은 500MB까지인데 torch만 수백 MB다.
+GPU가 필요한지는 서비스에 넣을 모델로 정한다. 지금 평가 코드의 YOLO·광류는 M4 Pro CPU에서 건당 약 1.9초다(평가 보고서 6·7절).
+서비스와 로컬 비전 평가는 같은 패키지·가중치 버전을 쓴다.
 
 **배포는 Vercel 프로젝트 `ok-muncheol-be`에 연결되어 있다(2026-11-06).** `main` push마다 Python 런타임이
 `app/main.py`의 모듈 수준 `app`을 진입점으로 배포하고, 의존성은 `requirements.txt`(`.` → `pyproject.toml`)로 설치한다.
