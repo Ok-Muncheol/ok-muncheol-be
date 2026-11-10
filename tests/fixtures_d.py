@@ -25,8 +25,8 @@ def card(insured: str = "P1") -> FactCard:
         "fields": {
             "accident_type": _field("car_to_car"),
             "location_type": _field("signalized_intersection"),
-            "signal_state_A": _field("green", model_value="yellow"),
-            "signal_state_B": _field("red"),
+            "signal_A": _field("green", model_value="yellow"),
+            "signal_B": _field("red"),
             "movement_A": _field("straight"),
             "movement_B": _field("straight"),
         },
