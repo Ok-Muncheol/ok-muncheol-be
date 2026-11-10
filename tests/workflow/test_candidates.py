@@ -1,7 +1,56 @@
 """C 검색 결과·레코드 → 도표 후보 변환. 검수 전 레코드는 선택 대상이 아니다."""
 
-from app.workflow.candidates import build_search_query, candidates_from_hits, confirmed_values
+import asyncio
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.retrieval import common
+from app.tools import _evidence
+from app.workflow.candidates import (
+    build_search_query,
+    candidates_from_hits,
+    confirmed_values,
+    retrieve_from_corpus,
+)
+from tests.test_search_tools import SyntheticStore, hit_for
 from tests.workflow.synthetic import DOCUMENT, card, field, hit
+
+
+@pytest.fixture
+def db_index():
+    """C의 합성 DB 색인(SyntheticStore)을 등록한다. 테스트가 끝나면 해제한다."""
+    store = SyntheticStore()
+    _evidence.configure_evidence_store(lambda: store)
+    yield store
+    _evidence.configure_evidence_store(None)
+
+
+def test_default_retriever_reads_chart_records_from_db_index(monkeypatch, db_index):
+    hits = [hit_for(db_index, "fault_standards"), hit_for(db_index, "fault_standards", "fs-guide")]
+    search = AsyncMock(return_value=hits)
+    monkeypatch.setattr(common, "search", search)
+    [cand] = asyncio.run(retrieve_from_corpus(card()))
+    # 수정요소 해설 청크는 부모 레코드가 없어 후보가 되지 않는다
+    assert cand["chart_id"] == "합1-1"
+    assert cand["parent_id"] == "synthetic-fault_standards:합1-1"
+    # 합성 레코드는 검수 상태가 아니므로 선택·계산 대상이 아니다
+    assert cand["calculation_ready"] is False
+    request = search.await_args.args[0]
+    assert request["corpus"] == "fault_standards"
+    assert request["text"] == "신호 교차로 A 녹색 직진 B 적색 좌회전"
+
+
+def test_default_retriever_needs_no_index_when_nothing_found(monkeypatch):
+    monkeypatch.setattr(common, "search", AsyncMock(return_value=[]))
+    assert asyncio.run(retrieve_from_corpus(card())) == []
+
+
+def test_default_retriever_fails_closed_without_db_index(monkeypatch):
+    found = [hit_for(SyntheticStore(), "fault_standards")]
+    monkeypatch.setattr(common, "search", AsyncMock(return_value=found))
+    with pytest.raises(RuntimeError, match="not configured"):
+        asyncio.run(retrieve_from_corpus(card()))
 
 
 def record(chart_id: str, **extra: object) -> dict:

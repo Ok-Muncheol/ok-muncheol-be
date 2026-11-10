@@ -133,7 +133,7 @@ def candidate_from_record(record: dict, hits: list[EvidenceHit]) -> ChartCandida
         "document_id": document["document_id"], "edition": document["edition"],
         "effective_from": document.get("effective_from") or "",
         "effective_to": document.get("effective_to"),
-        "title": record["title"], "page_start": record["page_start"],
+        "title": record.get("title", ""), "page_start": record["page_start"],
         "page_end": record["page_end"],
         "attributes": dict(attributes) if reviewed else {},
         "base_variants": list(variants) if reviewed else [],
@@ -144,10 +144,21 @@ def candidate_from_record(record: dict, hits: list[EvidenceHit]) -> ChartCandida
 
 
 async def retrieve_from_corpus(card: FactCard) -> list[ChartCandidate]:
-    """기본 후보 검색: C의 인정기준 검색툴 → C 레코드. 코퍼스 파일이 없으면 RuntimeError."""
-    from app.tools import _evidence
+    """기본 후보 검색: C의 인정기준 검색툴 → DB 색인의 도표 구조 레코드(`EvidenceStore.get_parent`).
+
+    검색 색인(D `configure_retrieval`)이나 색인 어댑터(C `configure_evidence_store`)가 없으면
+    그 모듈의 오류가 그대로 올라간다. "근거 없음" 보류로 숨기지 않는다.
+    """
+    from app.tools._evidence import evidence_store
     from app.tools.fault_standards import search_fault_standards
 
     hits = await search_fault_standards(build_search_query(card))
-    _, records, _, _ = _evidence._load("fault_standards")
+    if not hits:
+        return []
+    store = evidence_store()
+    records: dict[str, dict] = {}
+    for parent_id in dict.fromkeys(hit["chunk"]["parent_id"] for hit in hits):
+        record = await store.get_parent("fault_standards", parent_id)
+        if record is not None:  # 공통 수정요소 해설 청크는 부모 레코드가 없다
+            records[parent_id] = record
     return candidates_from_hits(hits, records)
