@@ -1,0 +1,153 @@
+"""B: 도표 후보 계약과 C 검색 결과 → 후보 변환. 검수한 구조 레코드만 선택 대상이 된다.
+
+후보의 `attributes`·`base_variants[].conditions`·`modifiers[].conditions`는
+`app/schemas/chart_scope.py`의 칸 이름과 허용값(영문 enum)을 쓴다. C의 도표 레코드(`charts.jsonl`)는
+아직 한국어 원문 낱말만 가지므로(`filter_status == "unreviewed_candidates_only"`), 레코드에
+`scope_attributes`·`scope_variants`·`scope_modifiers`가 검수 상태로 더해질 때까지
+`calculation_ready`는 False이고 선택되지 않는다.
+"""
+
+from typing import Literal, NotRequired, TypedDict
+
+from app.schemas.chart_scope import FIELD_OPTIONS
+from app.schemas.facts import FactCard
+from app.schemas.retrieval import EvidenceHit, SearchQuery
+
+
+class ChartVariant(TypedDict):
+    variant: str | None
+    base_A: int
+    base_B: int
+    # 이 변형이 적용되는 카드 칸 값. 비어 있으면 도표의 유일한 기본 비율이다
+    conditions: dict[str, str]
+
+
+class ChartModifier(TypedDict):
+    modifier_id: str
+    party: Literal["A", "B"]
+    name: str
+    # chart_scope.Modifier 코드. None이면 자동 적용 대상이 아니다(해석·담당자 입력 필요)
+    code: str | None
+    delta: int | None
+    # 적용 조건(카드 칸 값). None이면 조건을 코드로 판정할 수 없어 적용하지 않는다
+    conditions: dict[str, str] | None
+
+
+class ChartCandidate(TypedDict):
+    chart_id: str
+    parent_id: str
+    document_id: str
+    edition: str
+    effective_from: str
+    effective_to: str | None
+    title: str
+    page_start: int
+    page_end: int
+    attributes: dict[str, str]
+    base_variants: list[ChartVariant]
+    modifiers: list[ChartModifier]
+    calculation_ready: bool
+    hits: list[EvidenceHit]
+    score: float
+    reasons: NotRequired[list[str]]
+
+
+_KOREAN_VALUES = {
+    "signalized_intersection": "신호 교차로", "unsignalized_intersection": "신호 없는 교차로",
+    "roundabout": "회전교차로", "same_width": "동일폭", "major_minor": "대로 소로",
+    "stop_sign": "일시정지", "straight": "직진", "left_turn": "좌회전", "right_turn": "우회전",
+    "u_turn": "유턴", "green": "녹색", "yellow": "황색", "red": "적색",
+    "green_left_arrow": "녹색화살표", "no_signal": "신호 없음", "first": "선진입",
+    "second": "후진입", "simultaneous": "동시 진입",
+}
+
+
+def confirmed_values(card: FactCard) -> dict[str, str]:
+    """담당자가 확인한 도표 선택 칸만 문자열로 돌려준다. 미확인·범위 밖 칸은 뺀다."""
+    values: dict[str, str] = {}
+    for key in FIELD_OPTIONS:
+        field = card["fields"].get(key)
+        if field is None or field["verification_status"] != "human_confirmed":
+            continue
+        value = field["value"]
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        if value is None:
+            continue
+        values[key] = str(value)
+    return values
+
+
+def build_search_query(card: FactCard, top_k: int = 10) -> SearchQuery:
+    """확인한 카드 값으로 인정기준 검색 문장을 만든다. 속성 필터는 검수 전이라 쓰지 않는다."""
+    values = confirmed_values(card)
+    words = [_KOREAN_VALUES.get(values[k], values[k]) for k in ("location_type", "road_priority")
+             if k in values]
+    for side in ("A", "B"):
+        parts = [_KOREAN_VALUES.get(values[k], values[k])
+                 for k in (f"signal_{side}", f"movement_{side}") if k in values]
+        if parts:
+            words.append(f"{side} {' '.join(parts)}")
+    if "entry_order" in values:
+        words.append(_KOREAN_VALUES[values["entry_order"]])
+    return {
+        "text": " ".join(words) or "차대차 교차로 사고",
+        "accident_date": card["accident_date"], "filters": {}, "top_k": top_k,
+    }
+
+
+def candidates_from_hits(hits: list[EvidenceHit], records: dict[str, dict]) -> list[ChartCandidate]:
+    """검색 결과를 도표 단위 후보로 묶는다. records는 parent_id → 도표 레코드다.
+
+    수정요소 해설 청크(도표 레코드 없음)는 건너뛴다. 같은 도표의 여러 청크는 한 후보로 합치고
+    점수는 최고 점수를 쓴다. 검수 속성이 없는 레코드는 calculation_ready=False로 들어간다.
+    """
+    grouped: dict[str, ChartCandidate] = {}
+    for hit in hits:
+        record = records.get(hit["chunk"]["parent_id"])
+        if record is None:
+            continue
+        chart_id = record["chart_id"]
+        if chart_id in grouped:
+            grouped[chart_id]["hits"].append(hit)
+            grouped[chart_id]["score"] = max(grouped[chart_id]["score"], hit["score"])
+            continue
+        grouped[chart_id] = candidate_from_record(record, [hit])
+    return sorted(grouped.values(), key=lambda c: -c["score"])
+
+
+def candidate_from_record(record: dict, hits: list[EvidenceHit]) -> ChartCandidate:
+    document = record["document"]
+    attributes = record.get("scope_attributes") or {}
+    variants = record.get("scope_variants")
+    modifiers = record.get("scope_modifiers")
+    reviewed = (
+        record.get("review_status") == "reviewed"
+        and bool(record.get("calculation_ready"))
+        and isinstance(attributes, dict) and bool(attributes)
+        and isinstance(variants, list) and bool(variants)
+    )
+    reasons = [] if reviewed else ["검수 전 도표 레코드: 선택·계산에 쓰지 않음"]
+    return {
+        "chart_id": record["chart_id"], "parent_id": record["parent_id"],
+        "document_id": document["document_id"], "edition": document["edition"],
+        "effective_from": document.get("effective_from") or "",
+        "effective_to": document.get("effective_to"),
+        "title": record["title"], "page_start": record["page_start"],
+        "page_end": record["page_end"],
+        "attributes": dict(attributes) if reviewed else {},
+        "base_variants": list(variants) if reviewed else [],
+        "modifiers": list(modifiers or []) if reviewed else [],
+        "calculation_ready": reviewed,
+        "hits": list(hits), "score": max(h["score"] for h in hits), "reasons": reasons,
+    }
+
+
+async def retrieve_from_corpus(card: FactCard) -> list[ChartCandidate]:
+    """기본 후보 검색: C의 인정기준 검색툴 → C 레코드. 코퍼스 파일이 없으면 RuntimeError."""
+    from app.tools import _evidence
+    from app.tools.fault_standards import search_fault_standards
+
+    hits = await search_fault_standards(build_search_query(card))
+    _, records, _, _ = _evidence._load("fault_standards")
+    return candidates_from_hits(hits, records)

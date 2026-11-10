@@ -55,4 +55,17 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 
 담당 서비스는 `app/api/errors.py`의 `forbidden()`·`not_found()`·`version_conflict()`·`unprocessable()`을 던진다.
 
+## 구분 질문과 재개
+
+판단 그래프(`app/workflow/graph.py`)는 도표를 가르는 칸이 `human_confirmed`가 아니면 `ConfirmationQuestion`을 내고 멈춘다.
+`question_id`는 실행 ID와 칸 이름으로 정해지는 UUID라 같은 실행에서 다시 물어도 같다(`judgment_questions.id`).
+
+| 응답 | 처리 |
+| --- | --- |
+| 값 응답(`unknown=false`) | 정지원의 카드 수정/확정 경로로 새 카드 버전을 만들고 새 판단 실행을 시작한다. 같은 실행을 잇지 않는다 |
+| 모른다(`unknown=true`, `value=null`) | 같은 실행을 재개한다. 범위 필수 칸이면 `deferred`(확인 불가), 아니면 그 칸 없이 진행한다 |
+
+반박 검토는 `wrong_chart`일 때만 차순위 도표로 1회 재실행하고, `missing_fact`·`contradiction`은 바로 `needs_confirmation`이다.
+반박 검토 LLM 응답은 JSON 스키마(`holds`·`kind`·`preferred_chart_id`·`reasons`)로 고정하며 모양이 어긋나면 실행 실패로 올린다.
+
 MVP 도표 범위(사고 유형·카드 칸·수정요소·보류 사유)는 [mvp-chart-scope.md](mvp-chart-scope.md)를 따른다.

@@ -10,7 +10,7 @@
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
 
 현재는 **담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
-함수의 `NotImplementedError`·TODO는 담당자가 채운다. API는 인증(Supabase 토큰 검증)·`ApiError` 오류 응답·담당별 경로까지 연결했고, 서비스 본문이 비어 있는 경로는 501을 돌려준다. 모델 연동·DB 마이그레이션은 아직 없다.
+함수의 `NotImplementedError`·TODO는 담당자가 채운다. API는 인증(Supabase 토큰 검증)·`ApiError` 오류 응답·담당별 경로까지 연결했고, 서비스 본문이 비어 있는 경로는 501을 돌려준다. 판단 그래프와 검증 3겹은 구현됐고 판단 접수 API·DB 연결은 후속이다. 공용 DB에는 사건·판단 테이블 마이그레이션이 적용돼 있다.
 CI와 ship 하네스는 있다([브랜치·PR 규칙](#브랜치pr-규칙)).
 공통 타입은 표준 라이브러리 TypedDict 초안으로, 런타임 요청 검증·Pydantic·OpenAPI는 후속 작업이다.
 
@@ -112,7 +112,9 @@ flowchart TD
 `…`는 `/cases/{id}`의 줄임이다. 판단 그래프 상자의 영문 이름, `require_confirmed_card`, 판정 상태(둥근 상자)를 만드는
 `build_judgment_result`가 `app/workflow/graph.py` `STAGES`의 9단계다. 검증 3겹(근거·반박·계산)은 `app/validation/`,
 보고서 조립은 `app/reports/`에 있다.
-경로와 단계는 코드에 연결돼 있지만 범위 게이트(`scope_gate`) 외 단계 본문은 대부분 아직 `NotImplementedError`다.
+판단 그래프 9단계와 검증 3겹은 구현돼 있고(`tests/workflow/`·`tests/validation/`), 판단 접수 API와 DB·체크포인트 저장은
+후속 작업이다. 도표 선택은 검수한 구조 레코드(`calculation_ready`)만 쓰므로, 김지은의 도표 레코드에 `chart_scope` enum으로
+정규화한 속성이 검수 상태로 더해지기 전에는 "검수한 도표 근거 없음"으로 보류한다(`app/workflow/candidates.py`).
 
 SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과를 검증한 뒤 선택적으로 추가한다.
 마스크 접촉으로 실제 충돌을 확정하거나 픽셀 변위로 실제 속도·과속을 판정하지 않는다.
