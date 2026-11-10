@@ -19,11 +19,12 @@ from app.calculation.exclusions import (
 from app.calculation.rules import DEFAULT_RULES, RuleSet
 from app.reports.render import to_json
 from app.retrieval.common import configure_retrieval, fetch_by_parent
+from app.retrieval.evidence_store import LocalCorpusEvidenceStore
 from app.retrieval.hybrid import RetrievalOptions
-from app.retrieval.loader import handoff_terms_edition, load_index
+from app.retrieval.loader import build_index, read_corpus
 from app.tools import _evidence
 from tests import fixtures_d as fx
-from tests.evidence_d import LocalFileEvidenceStore, has_corpus, skip_validation
+from tests.evidence_d import has_corpus, skip_validation
 
 ARTICLE_23 = "samsung-personal-auto-2026-11-11:general_article:23:p67"
 NO_FLAGS = {"무면허": False, "음주": False, "고의": False}
@@ -422,16 +423,17 @@ class ApiFlowTest(SkipValidation):
         self.assertEqual({c["decided_by"] for c in self.exclusions(report)}, {"handler"})
 
 
-@unittest.skipUnless(has_corpus("policy_terms"), "data/private/ 약관 코퍼스 파일이 없다")
+@unittest.skipUnless(has_corpus(), "data/private/corpus-db-import/db_import 파일이 없다")
 class RealDataTest(unittest.TestCase):
     """실제 약관 색인과 실제 validate_hits로 판정기 입력을 확인한다. API 호출 없음."""
 
     @classmethod
     def setUpClass(cls):
-        with cls.assertLogs(cls(), "app.retrieval.index", "WARNING"):
-            cls.index = load_index(["policy_terms"])
-        # 실제 검증(C validate_hits)은 EvidenceStore가 있어야 돈다. DB 대신 로컬 산출물로 채운다.
-        store = LocalFileEvidenceStore(["policy_terms"])
+        corpus = read_corpus()
+        cls.index = build_index(corpus, ["policy_terms"])
+        cls.edition = corpus.terms_edition()
+        # 실제 검증(C validate_hits)은 EvidenceStore가 있어야 돈다. DB 대신 같은 행의 로컬 어댑터.
+        store = LocalCorpusEvidenceStore(corpus)
         _evidence.configure_evidence_store(lambda: store)
 
     @classmethod
@@ -439,7 +441,7 @@ class RealDataTest(unittest.TestCase):
         _evidence.configure_evidence_store(None)
 
     def setUp(self):
-        configure_retrieval(index=self.index, default_terms_edition=handoff_terms_edition())
+        configure_retrieval(index=self.index, default_terms_edition=self.edition)
 
     def tearDown(self):
         configure_retrieval(

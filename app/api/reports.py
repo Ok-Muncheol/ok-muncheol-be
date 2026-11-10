@@ -53,7 +53,8 @@ from app.reports.repository import (
 )
 from app.retrieval.common import configure_retrieval, fetch_by_parent
 from app.retrieval.embedding import OpenAIEmbedder
-from app.retrieval.loader import handoff_terms_edition, load_index
+from app.retrieval.evidence_store import register_local_evidence_store
+from app.retrieval.loader import build_index, read_corpus
 from app.schemas.facts import FactCard
 from app.schemas.judgment import JudgmentResult
 from app.schemas.reports import (
@@ -179,15 +180,20 @@ def configure(**kw: object) -> ReportServices:
 def configure_with_knowledge_base() -> ReportServices:
     """지식베이스 연결을 한 번에 켠다. 통합(app/main.py)에서는 시작할 때 이 함수만 호출하면 된다.
 
-    실제 색인 적재 + OpenAIEmbedder(C 도구 검색용) + fetch_clauses + llm_judge.
-    키·모델·패키지가 없으면 RetrievalNotConfigured를 내고 아무것도 바꾸지 않는다. 호출하지 않으면
-    면책은 담당자 입력으로 판정한다. 색인을 메모리에 올리므로 시작 시간과 메모리를 쓴다.
+    실제 색인 적재(db_import 파일) + OpenAIEmbedder(C 도구 검색용) + fetch_clauses + llm_judge.
+    APP_ENV=local이고 Vercel이 아니면 같은 행으로 C의 EvidenceStore 로컬 어댑터도 등록한다
+    (운영에서는 등록하지 않으므로 검증은 fail-closed 그대로).
+    키·모델·패키지·코퍼스 파일이 없으면 RetrievalNotConfigured를 내고 아무것도 바꾸지 않는다.
+    호출하지 않으면 면책은 담당자 입력으로 판정한다. 색인을 메모리에 올리므로
+    시작 시간과 메모리를 쓴다.
     """
     embedder = OpenAIEmbedder.from_env()  # 설정을 먼저 확인하고 오래 걸리는 적재는 나중에
     judge = llm_judge(openai_judge_llm())
-    index = load_index()
-    edition = handoff_terms_edition()
+    corpus = read_corpus()
+    index = build_index(corpus)
+    edition = corpus.terms_edition()
     configure_retrieval(index=index, embedder=embedder, default_terms_edition=edition)
+    register_local_evidence_store(corpus)
     return configure(fetch_clauses=fetch_by_parent, judge=judge)
 
 

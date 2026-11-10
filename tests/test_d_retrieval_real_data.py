@@ -1,26 +1,23 @@
-"""D: C의 실제 색인 산출물을 읽어 벡터 검색 경로를 확인한다. 외부 API를 부르지 않는다.
+"""D: C의 코퍼스 적재 파일(db_import)로 검색 경로와 로컬 EvidenceStore를 확인한다. 외부 API 없음.
 
 질의 임베더가 아직 없으므로 청크 벡터 하나를 질의로 넣어 자기 자신이 1등으로 나오는지 본다.
 검색 품질 평가가 아니다(품질은 C 평가셋과 실제 질의 임베더가 있어야 잰다).
 """
 
 import asyncio
-import json
-import shutil
-import tempfile
 import unittest
 from collections import Counter
-from pathlib import Path
 
 from app.retrieval.common import configure_retrieval, fetch_by_parent, search
-from app.retrieval.hybrid import CORPORA, RetrievalOptions, retrieve
-from app.retrieval.loader import handoff_terms_edition, load_index, read_handoff
+from app.retrieval.evidence_store import LocalCorpusEvidenceStore
+from app.retrieval.hybrid import RetrievalOptions, retrieve
+from app.retrieval.loader import DOCUMENT_FIELDS, build_index, corpus_terms_edition, read_corpus
 from app.tools import _evidence
 from app.tools._evidence import validate_hits
 from app.tools.dispute_cases import search_dispute_cases
 from app.tools.fault_standards import search_fault_standards
 from app.tools.policy_terms import search_policy_terms
-from tests.evidence_d import LocalFileEvidenceStore, has_corpus
+from tests.evidence_d import has_corpus
 
 CORPUS_COUNTS = {"fault_standards": 923, "dispute_cases": 1130, "policy_terms": 544}
 EDITION = "2026.11.11"
@@ -37,19 +34,20 @@ def request(corpus, filters=None, top_k=3):
     }
 
 
-@unittest.skipUnless(has_corpus(), "data/private/ 코퍼스 파일이 없다")
+@unittest.skipUnless(has_corpus(), "data/private/corpus-db-import/db_import 파일이 없다")
 class RealIndexTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.corpus = read_corpus()
         with cls.assertLogs(cls(), "app.retrieval.index", "WARNING") as logs:
-            cls.index = load_index()
+            cls.index = build_index(cls.corpus)
         cls.warnings = [r.getMessage() for r in logs.records]
         cls.rows = {}
         for row in cls.index._rows.values():
             cls.rows.setdefault(row["chunk"]["document"]["corpus"], []).append(row)
-        # 실제 검증(C validate_hits)은 EvidenceStore가 있어야 돈다. DB 대신 로컬 산출물로 채운다.
-        store = LocalFileEvidenceStore()
-        _evidence.configure_evidence_store(lambda: store)
+        # 실제 검증(C validate_hits)은 EvidenceStore가 있어야 돈다. DB 대신 같은 행의 로컬 어댑터.
+        cls.store = LocalCorpusEvidenceStore(cls.corpus)
+        _evidence.configure_evidence_store(lambda: cls.store)
 
     @classmethod
     def tearDownClass(cls):
@@ -80,7 +78,8 @@ class RealIndexTest(unittest.TestCase):
         )
 
     def test_unknown_periods_warn_once_per_document(self):
-        self.assertEqual(len(self.warnings), 3)
+        # 도표·결정례는 적용 기간 모름. 약관은 corpus_documents에 2026-11-11이 있다
+        self.assertEqual(len(self.warnings), 2)
 
     def test_chunk_vector_finds_itself_first(self):
         for corpus, rows in self.rows.items():
@@ -254,15 +253,54 @@ class RealIndexTest(unittest.TestCase):
         hits = self.search_with_vector("dispute_cases", row, {"chart_id_candidates": chart})
         self.assertEqual(hits[0]["chunk"], row["chunk"])  # 후보 목록 필터도 계속 동작
 
-    def test_default_edition_read_from_handoff(self):
-        self.assertEqual(handoff_terms_edition(), EDITION)
+    def test_default_edition_read_from_corpus_documents(self):
+        self.assertEqual(self.corpus.terms_edition(), EDITION)
+        self.assertEqual(corpus_terms_edition(), EDITION)
 
-    def test_new_document_fields_are_preserved(self):
+    def test_document_is_the_same_join_as_evidence_store(self):
         for corpus, rows in self.rows.items():
             with self.subTest(corpus=corpus):
-                document = self.search_with_vector(corpus, rows[0])[0]["chunk"]["document"]
-                self.assertEqual(document["effective_period_status"], "unknown")
-                self.assertTrue(document["source_name"])
+                chunk = self.search_with_vector(corpus, rows[0])[0]["chunk"]
+                self.assertEqual(tuple(chunk["document"]), DOCUMENT_FIELDS)
+                self.assertTrue(chunk["document"]["source_uri"].startswith("corpus-sources/"))
+                stored = asyncio.run(self.store.get_chunk(corpus, chunk["chunk_id"]))
+                self.assertEqual(stored, chunk)
+                self.assertIsNot(stored, chunk)  # 검색 결과를 고쳐도 검증 기준은 그대로
+
+    def test_schedule_3_accident_window_through_tool(self):
+        """별표3 과실상계는 사고일로 두 항목이 나뉜다. 사고일 범위 밖 항목은 검색에서 빠진다."""
+        rows = [
+            r
+            for r in self.rows["policy_terms"]
+            if r["chunk"]["metadata"].get("schedule") == "별표3"
+            and (
+                r["chunk"]["metadata"].get("accident_date_from")
+                or r["chunk"]["metadata"].get("accident_date_to")
+            )
+        ]
+        self.assertEqual(len(rows), 2)
+        old = next(r for r in rows if r["chunk"]["metadata"].get("accident_date_to"))
+        new = next(r for r in rows if r["chunk"]["metadata"].get("accident_date_from"))
+        for row, accident_date, expected in (
+            (new, "2026-10-20", new),
+            (old, "2026-10-20", new),  # 옛 항목 벡터로 찾아도 범위 밖이라 빠진다
+            (old, "2022-06-01", old),
+            (new, "2022-06-01", old),
+        ):
+            with self.subTest(chunk=row["chunk"]["chunk_id"], accident_date=accident_date):
+                self.connect_with(row)
+                query = {
+                    "text": "과실상계",
+                    "accident_date": accident_date,
+                    "filters": {"schedule": "별표3"},
+                    "top_k": 10,
+                }
+                hits = asyncio.run(search_policy_terms(query))  # validate_hits까지 거친다
+                ids = [h["chunk"]["chunk_id"] for h in hits]
+                self.assertIn(expected["chunk"]["chunk_id"], ids)
+                other = old if expected is new else new
+                self.assertNotIn(other["chunk"]["chunk_id"], ids)
+                self.assertEqual({h["chunk"]["metadata"]["schedule"] for h in hits}, {"별표3"})
 
     def test_primary_clause_filter_on_real_terms(self):
         rows = self.rows["policy_terms"]
@@ -302,114 +340,12 @@ class RealIndexTest(unittest.TestCase):
             index=self.index,
             embedder=StoredVectorEmbedder(),
             options=VECTOR,
-            default_terms_edition=handoff_terms_edition(),
+            default_terms_edition=corpus_terms_edition(),
         )
         query = {"text": "x", "accident_date": "", "filters": {}, "top_k": 3}
         hits = asyncio.run(search_policy_terms(query))  # C의 도구 경유, terms_edition 없음
         self.assertEqual(hits[0]["chunk"], row["chunk"])
         self.assertEqual({h["chunk"]["document"]["edition"] for h in hits}, {EDITION})
-
-
-class LoaderTest(unittest.TestCase):
-    """합성 산출물로 어긋난 파일을 거르는지 확인한다."""
-
-    def setUp(self):
-        self.root = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.root)
-        self.chunk = {
-            "chunk_id": "c1",
-            "parent_id": "p1",
-            "document": {
-                "document_id": "d1",
-                "corpus": "policy_terms",
-                "source_uri": "synthetic://d1",
-                "edition": "판-1",
-                "effective_from": "2024-01-01",
-                "effective_to": None,
-                "content_hash": "h",
-                "parser_version": "p",
-            },
-            "page_start": 1,
-            "page_end": 1,
-            "text": "합성",
-            "metadata": {},
-        }
-        self.write()
-
-    def write(self, *, chunks=None, vectors=None, count=1, editions=("판-1",)):
-        base = self.root / "data/private"
-        base.mkdir(parents=True, exist_ok=True)
-        chunks = [self.chunk] if chunks is None else chunks
-        vectors = (
-            [
-                {
-                    "chunk": self.chunk,
-                    "embedding": [1.0, 0.0],
-                    "embedding_model": "m",
-                    "embedding_dimensions": 2,
-                    "embedding_version": "v",
-                }
-            ]
-            if vectors is None
-            else vectors
-        )
-        (base / "chunks.jsonl").write_text(
-            "\n".join(json.dumps(c) for c in chunks), encoding="utf-8"
-        )
-        (base / "embeddings.jsonl").write_text(
-            "\n".join(json.dumps(v) for v in vectors), encoding="utf-8"
-        )
-        handoff = {
-            "corpora": [
-                {
-                    "corpus": "policy_terms",
-                    "chunks": count,
-                    "vectors": count,
-                    "documents": [{"edition": e} for e in editions],
-                    "files": [
-                        {"role": "searchable chunks", "path": "data/private/chunks.jsonl"},
-                        {
-                            "role": "precomputed document vectors",
-                            "path": "data/private/embeddings.jsonl",
-                        },
-                    ],
-                }
-            ]
-        }
-        (base / "handoff.json").write_text(json.dumps(handoff), encoding="utf-8")
-
-    def test_loads_and_reads_edition(self):
-        self.assertEqual(read_handoff(self.root)["corpora"][0]["corpus"], "policy_terms")
-        self.assertEqual(load_index(root=self.root).spec.dimensions, 2)
-        self.assertEqual(handoff_terms_edition(self.root), "판-1")
-
-    def test_keyword_corpora_passed_to_index(self):
-        index = load_index(root=self.root, keyword_corpora=[])
-        self.assertEqual(index.keyword_corpora, frozenset())
-        self.assertEqual(load_index(root=self.root).keyword_corpora, set(CORPORA))
-
-    def test_corpus_selection(self):
-        self.assertIsNone(load_index(["fault_standards"], root=self.root).spec)
-
-    def test_count_mismatch_rejected(self):
-        self.write(count=2)
-        with self.assertRaisesRegex(ValueError, "개수"):
-            load_index(root=self.root)
-
-    def test_changed_chunk_rejected(self):
-        self.write(chunks=[{**self.chunk, "text": "바뀐 본문"}])
-        with self.assertRaisesRegex(ValueError, "바뀌었습니다"):
-            load_index(root=self.root)
-
-    def test_chunk_id_mismatch_rejected(self):
-        self.write(chunks=[{**self.chunk, "chunk_id": "other"}])
-        with self.assertRaisesRegex(ValueError, "chunk_id"):
-            load_index(root=self.root)
-
-    def test_several_editions_rejected(self):
-        self.write(editions=("판-1", "판-2"))
-        with self.assertRaisesRegex(ValueError, "하나로"):
-            handoff_terms_edition(self.root)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ D(옥석현) — 흐름: 판단 → 바로 산정 → 서류 추가 시 자동 �
 - `tests/test_d_flow.py` — 확인 완료 1회·최신 버전만·확인 후 서류 추가 시 새 버전·재확인
 - `tests/test_d_assumptions.py` — 계약·자기부담금·면책 기본 가정, 청구서 없음 사유, `case_facts` 검사
 - `tests/test_d_estimate_pdf.py` — 서식 견적서 PDF 자동 추출(pdfplumber 없으면 일부 건너뜀)
+- `tests/test_d_corpus_loader.py` — db_import 로더·로컬 EvidenceStore 어댑터(tmp 가짜 행). 실제 코퍼스 테스트는 `data/private/corpus-db-import/db_import`가 없으면 건너뜀
 
 | 담당 | 우선 검증 |
 | --- | --- |

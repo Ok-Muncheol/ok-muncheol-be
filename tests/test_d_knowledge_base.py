@@ -1,5 +1,6 @@
 """D: 운영 연결 함수와 LLM 호출부. 네트워크 없이 가짜 클라이언트만 쓴다. 아래 키는 가짜 값이다."""
 
+import asyncio
 import importlib.util
 import os
 import shutil
@@ -18,6 +19,8 @@ from app.retrieval.common import configure_retrieval, fetch_by_parent
 from app.retrieval.embedding import FakeEmbedder, RetrievalNotConfigured
 from app.retrieval.hybrid import RetrievalOptions
 from app.retrieval.index import InMemoryIndex
+from app.retrieval.loader import CorpusRows
+from app.tools import _evidence
 
 FAKE_KEY = "sk-FAKE-for-tests-0123456789"
 needs_dotenv = unittest.skipUnless(importlib.util.find_spec("dotenv"), "python-dotenv 없음")
@@ -127,15 +130,50 @@ class ConfigureWithKnowledgeBaseTest(unittest.TestCase):
         configure_retrieval(
             index=None, embedder=None, options=RetrievalOptions(), default_terms_edition=None
         )
+        _evidence.configure_evidence_store(None)
 
     def patches(self, **over):
+        corpus = CorpusRows(
+            documents={"d1": {"corpus": "policy_terms", "edition": "판-1"}},
+            chunks=[],
+            records=[],
+            pages=[],
+        )
         values = {
-            "load_index": lambda: InMemoryIndex(),
-            "handoff_terms_edition": lambda: "판-1",
+            "read_corpus": lambda: corpus,
+            "build_index": lambda corpus: InMemoryIndex(),
             "openai_judge_llm": lambda: lambda prompt: "{}",
         }
         values.update(over)
         return patch.multiple(api, **values)
+
+    def connect(self, env):
+        with self.patches(), patch.dict(os.environ, env, clear=True):
+            with patch.object(api.OpenAIEmbedder, "from_env", FakeEmbedder):
+                return api.configure_with_knowledge_base()
+
+    def test_local_registers_evidence_store(self):
+        self.connect({"APP_ENV": "local"})
+        self.assertIsNone(asyncio.run(_evidence.evidence_store().get_chunk("policy_terms", "c")))
+
+    def test_production_and_vercel_do_not_register_evidence_store(self):
+        for env in ({}, {"APP_ENV": "production"}, {"APP_ENV": "local", "VERCEL": "1"}):
+            with self.subTest(env=env):
+                self.assertIs(self.connect(env).fetch_clauses, fetch_by_parent)
+                with self.assertRaisesRegex(RuntimeError, "not configured"):
+                    _evidence.evidence_store()
+
+    def test_missing_corpus_files_change_nothing(self):
+        def missing():
+            raise RetrievalNotConfigured("D: 코퍼스 적재 파일이 없습니다")
+
+        with self.patches(read_corpus=missing), patch.dict(os.environ, {"APP_ENV": "local"}):
+            with patch.object(api.OpenAIEmbedder, "from_env", FakeEmbedder):
+                with self.assertRaises(RetrievalNotConfigured):
+                    api.configure_with_knowledge_base()
+        self.assertIsNone(api.services.fetch_clauses)
+        with self.assertRaisesRegex(RuntimeError, "not configured"):
+            _evidence.evidence_store()
 
     def test_sets_everything_at_once(self):
         embedder = FakeEmbedder()
@@ -162,7 +200,7 @@ class ConfigureWithKnowledgeBaseTest(unittest.TestCase):
         def missing():
             raise RetrievalNotConfigured("모델 없음")
 
-        with self.patches(load_index=must_not_load, openai_judge_llm=missing):
+        with self.patches(read_corpus=must_not_load, openai_judge_llm=missing):
             with patch.object(api.OpenAIEmbedder, "from_env", FakeEmbedder):
                 with self.assertRaises(RetrievalNotConfigured):
                     api.configure_with_knowledge_base()
