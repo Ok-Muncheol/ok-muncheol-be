@@ -44,6 +44,16 @@ def configure_evidence_store(factory: Callable[[], EvidenceStore] | None) -> Non
     _store_factory = factory
 
 
+def evidence_store() -> EvidenceStore:
+    """등록된 색인 어댑터. 판단 그래프(B)가 검색 결과의 도표 구조 레코드를 읽을 때도 쓴다.
+
+    등록 전이면 validate_hits와 같은 RuntimeError(fail-closed).
+    """
+    if _store_factory is None:
+        raise RuntimeError("DB evidence store is not configured")
+    return _store_factory()
+
+
 def crosswalk_key(link: dict) -> str:
     """결정례 도표 대조표(`chart_mapping`) 행의 record_id. 적재 스크립트와 같은 규칙을 쓴다."""
     return f"{link['legacy_chart_id']}|{link['chart_id']}|{link['source_pdf_page']}"
