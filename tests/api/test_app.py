@@ -56,10 +56,10 @@ def test_health_is_open(client):
 
 
 def test_openapi_matches_fe_api_client():
-    # FE src/lib/api/client.ts ApiClient 메서드 14개
-    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 13
+    # FE src/lib/api/client.ts ApiClient 메서드 16개
+    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 15
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 14
+    assert ops == 16
 
 
 def test_missing_token_is_401_api_error(client):
@@ -294,3 +294,25 @@ def test_answer_passes_actor_case_and_body(client, monkeypatch):
     res = client.post("/cases/case-1/questions/q-1/answer", json=body, headers=token())
     assert res.status_code == 200
     assert seen == {"actor": "user-1", "case": "case-1", "question": "q-1", "unknown": True}
+
+
+def test_every_route_calls_an_existing_service_function():
+    """라우트가 부르는 담당 서비스 함수가 실제로 있어야 한다.
+
+    서비스 함수 이름이 바뀌고 라우트가 따라가지 못하면 그 경로만 500이 된다
+    (#55 → #69 사이 approve 등).
+    """
+    import ast
+
+    from app.api import cases, reports
+
+    modules = {"cases": cases, "facts": facts, "judgments": judgments, "reports": reports}
+    tree = ast.parse((ROOT / "app/api/routes.py").read_text(encoding="utf-8"))
+    called = {
+        (node.value.id, node.attr) for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+        and node.value.id in modules
+    }
+    missing = sorted(f"{module}.{name}" for module, name in called
+                     if not callable(getattr(modules[module], name, None)))
+    assert len(called) >= 15 and not missing, missing

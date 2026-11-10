@@ -39,9 +39,11 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/questions/{question_id}/answer` | B | 본문은 `QuestionAnswer`. 본문 `question_id`가 경로와 다르면 422 `question_mismatch` |
 | POST | `/cases/{id}/qa` | B | `{text}`, 1차 확장 |
 | GET | `/cases/{id}/reports/{version}` | D | |
-| POST | `/cases/{id}/reports/{version}/approve` | D | |
-| POST | `/cases/{id}/reports/{version}/calculation` | D | 1차 확장 |
-| POST | `/cases/{id}/reports/{version}/claim-export` | D | 1차 확장 |
+| POST | `/cases/{id}/reports/{version}/confirm` | D | 본문 `{counterparty?}`, 응답 `ConfirmResult`. 최신 아님 409, 추가 확인·보류 422 `confirm_blocked` |
+| GET | `/cases/{id}/reports/{version}/claim` | D | 응답 `ClaimResult`. 청구서가 없으면 404 |
+| POST | `/cases/{id}/documents` | D | `{documents, case_facts?}` → 재산정한 `ReviewReport` 또는 null. 1차 확장 |
+| POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}`. Storage 내려받기 연결 전에는 501. 1차 확장 |
+| PATCH | `/cases/{id}/agreed-fault` | D | `{agreed_counterparty_fault?, fault_change_reason, clear?}` → 새 `ReviewReport`. 1차 확장 |
 
 | 상태 | `code` | 뜻 |
 | --- | --- | --- |
@@ -50,7 +52,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 404 | `not_found` | 사건·질문이 없음 |
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
 | 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
-| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused` 같은 처리 불가 상태 |
+| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_agreed_fault` 같은 처리 불가 상태 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
 | 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패 |
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |

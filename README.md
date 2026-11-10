@@ -106,7 +106,7 @@ flowchart TD
     O --> R1
 
     R1 & R2 & R3 --> S["보고서 1~7항목<br/>템플릿 조립<br/>LLM 호출 없음<br/>GET …/reports/{version}"]
-    S --> T["담당자 검토<br/>승인·이력<br/>POST …/reports/<br/>{version}/approve"]
+    S --> T["담당자 확인 완료<br/>확인 이력·구상 청구서<br/>POST …/reports/<br/>{version}/confirm"]
 ```
 
 `…`는 `/cases/{id}`의 줄임이다. 판단 그래프 상자의 영문 이름, `require_confirmed_card`, 판정 상태(둥근 상자)를 만드는
@@ -139,7 +139,7 @@ YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는�
 
 **배포는 Vercel 프로젝트 `ok-muncheol-be`에 연결되어 있다(2026-11-06).** `main` push마다 Python 런타임이
 `app/main.py`의 모듈 수준 `app`을 진입점으로 배포하고, 의존성은 `requirements.txt`(`.` → `pyproject.toml`)로 설치한다.
-경로 14개가 배포되지만 서비스 본문이 빈 경로는 501 `not_implemented`를 돌려준다. 인증 환경 변수가 없으면 보호 경로는 503으로 닫힌다.
+경로 16개가 배포되지만 서비스 본문이 빈 경로는 501 `not_implemented`를 돌려준다. 인증 환경 변수가 없으면 보호 경로는 503으로 닫힌다.
 판단 경로는 서버 DB 주소 `DATABASE_URL`(Supabase Session pooler)이 없으면 503 `db_not_configured`, 반박 검토 키 `OPENAI_API_KEY`가
 없으면 실행이 `dependency_not_ready`로 실패한다.
 FE는 별도 Vercel 프로젝트 `ok-muncheol-fe`로 배포한다. 운영 주소는 FE `https://ok-muncheol-fe.vercel.app`,
@@ -253,7 +253,11 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 | `POST /cases/{id}/questions/{question_id}/answer` | 도표 구분 질문 응답·카드 이력 반영 |
 | `POST /cases/{id}/judgments` | 확정 카드 버전으로 판단 작업 접수·재개 |
 | `GET /cases/{id}/reports/{version}` | 버전별 보고서·근거·판정 조회 |
-| `POST /cases/{id}/reports/{version}/approve` | 담당자 검토·승인 이력 저장 |
+| `POST /cases/{id}/reports/{version}/confirm` | 담당자 확인 완료 1회·확인 이력 저장, 조건이 맞으면 구상 청구서 생성 |
+| `GET /cases/{id}/reports/{version}/claim` | 그 보고서 버전으로 만든 구상 청구서 조회 |
+| `POST /cases/{id}/documents` | 계약·견적·증빙 서류와 면책 체크 추가 → 자동 재산정 |
+| `POST /cases/{id}/estimates` | Storage에 올린 견적서 PDF 경로 전달 → 자동 추출·재산정 |
+| `PATCH /cases/{id}/agreed-fault` | 협의 과실 입력·해제 → 구상 금액 재계산 |
 
 합의할 공통 계약은 사건 ID, 카드/보고서 버전, 작업 ID·단계·진행 상태, 판정 상태, 확인 질문,
 근거 ID·타임스탬프, 오류 코드·재시도 가능 여부다. 오래된 카드에 대한 덮어쓰기와 중복 실행을 막는다.
