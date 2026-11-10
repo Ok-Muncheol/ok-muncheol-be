@@ -8,6 +8,9 @@
   판정·질문·검증 로그는 FE가 RLS를 거쳐 테이블에서 읽는다.
 - Idempotency-Key: 같은 키·같은 요청이면 저장한 응답을, 같은 키로 다른 요청이면 422를 돌려준다.
 - 같은 입력(카드·인정기준·규칙 버전)은 다시 판단하지 않고 기존 실행을 돌려준다.
+- 판정이 나면(세 상태 모두) D `reports.submit_judgment`로 보고서를 만든다. 같은 판단 버전의 보고서가
+  있으면 다시 만들지 않는다. 보고서를 못 만들어도 판단은 완료이고 응답의 `report_error`로 알린다.
+  같은 입력으로 판단 접수를 다시 보내면(새 키) 보고서 만들기만 다시 시도한다.
 """
 
 import contextlib
@@ -25,6 +28,7 @@ from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 
 from app import db
+from app.api import reports
 from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.schemas.common import ApiError
 from app.schemas.facts import FactCard
@@ -90,6 +94,46 @@ def _task_view(run: runs.Row, *, status: str | None = None, stage: str | None = 
     }
 
 
+def _judgment_view(
+    run: runs.Row, *, status: str | None = None, stage: str | None = None,
+    report_version: int | None = None, report_error: ApiError | None = None,
+) -> dict:
+    """판단 응답: TaskView + 이 판단으로 만든 보고서 버전(없으면 null)과 보고서 생성 오류."""
+    return {**_task_view(run, status=status, stage=stage),
+            "report_version": report_version, "report_error": report_error}
+
+
+REPORT_FAILED: ApiError = {
+    "code": "report_failed",
+    "message": "판단은 끝났지만 보고서를 만들지 못했습니다. 판단을 다시 요청하면 다시 시도합니다.",
+    "retryable": True,
+}
+
+
+async def _submit_report(
+    conn: AsyncConnection, actor_id: str, card: FactCard, result: dict
+) -> tuple[int | None, ApiError | None]:
+    """판정 결과로 보고서를 만든다(D submit_judgment). (보고서 버전, 오류).
+
+    같은 판단 버전의 보고서가 이미 있으면 다시 만들지 않는다(submit_judgment는 부를 때마다 새 버전).
+    """
+    versions = result["versions"]
+    existing = await runs.report_version_for(
+        conn, versions["case_id"], versions["judgment_version"]
+    )
+    if existing is not None:
+        return existing, None
+    try:
+        report = await reports.submit_judgment(actor_id, card, result)  # type: ignore[arg-type]
+    except ApiException as exc:
+        logger.warning("report for case %s failed: %s", versions["case_id"], exc.error["code"])
+        return None, exc.error
+    except Exception:
+        logger.exception("report for case %s failed", versions["case_id"])
+        return None, REPORT_FAILED
+    return report["versions"]["report_version"], None
+
+
 def _request_hash(payload: dict[str, object]) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -111,13 +155,19 @@ def _run_error(exc: BaseException) -> ApiError:
     }
 
 
-async def _execute(conn: AsyncConnection, run: runs.Row, graph_input: object) -> dict:
-    """그래프를 처음 실행하거나(초기 상태) 재개(Command)하고 결과를 저장한다."""
+async def _execute(
+    conn: AsyncConnection, run: runs.Row, graph_input: object, actor_id: str
+) -> dict:
+    """그래프를 처음 실행하거나(초기 상태) 재개(Command)하고 결과를 저장한다.
+
+    판정이 나면 보고서를 만든다.
+    """
     run_id, case_id = str(run["id"]), str(run["case_id"])
     graph = build_graph(services.deps, AsyncPostgresSaver(conn))
     config = thread_config(run_id)
     try:
-        outcome = run_outcome(await graph.ainvoke(graph_input, config))
+        values = await graph.ainvoke(graph_input, config)
+        outcome = run_outcome(values)
     except Exception as exc:
         logger.exception("judgment run %s failed", run_id)
         stage = run["stage"]
@@ -125,19 +175,21 @@ async def _execute(conn: AsyncConnection, run: runs.Row, graph_input: object) ->
             snapshot = await graph.aget_state(config)
             stage = snapshot.next[0] if snapshot.next else stage
         await runs.save_failed(conn, run_id, stage, _run_error(exc))
-        return _task_view(run, status="failed", stage=stage)
+        return _judgment_view(run, status="failed", stage=stage)
     if outcome["status"] == "waiting_for_confirmation":
         await runs.save_waiting(
             conn, run_id, case_id, outcome["questions"], outcome["rebuttal_retry_count"]
         )
-    else:
-        result = outcome["result"]
-        assert result is not None
-        await runs.save_completed(
-            conn, run_id, case_id, result, check_attempts(result["checks"]),
-            outcome["rebuttal_retry_count"],
-        )
-    return _task_view(run, status=outcome["status"], stage=outcome["stage"])
+        return _judgment_view(run, status=outcome["status"], stage=outcome["stage"])
+    result = outcome["result"]
+    assert result is not None
+    await runs.save_completed(
+        conn, run_id, case_id, result, check_attempts(result["checks"]),
+        outcome["rebuttal_retry_count"],
+    )
+    version, error = await _submit_report(conn, actor_id, values["card"], result)
+    return _judgment_view(run, status=outcome["status"], stage=outcome["stage"],
+                          report_version=version, report_error=error)
 
 
 async def start_judgment(
@@ -201,13 +253,17 @@ async def _start(conn: AsyncConnection, actor_id: str, case_id: str, card: FactC
         raise ApiException(
             409, "judgment_conflict", "같은 사건의 판단 요청이 겹쳤습니다. 다시 시도하세요.", True
         ) from exc
+    card = {**card, "case_id": case_id}  # type: ignore[typeddict-item]
     if not created:
-        return _task_view(run)
+        if run["status"] != "completed" or run["result"] is None:
+            return _judgment_view(run)
+        # 같은 입력의 완료된 판단: 보고서가 없으면(이전 생성 실패) 다시 만든다
+        version, error = await _submit_report(conn, actor_id, card, run["result"])
+        return _judgment_view(run, report_version=version, report_error=error)
     state = initial_state(
-        {**card, "case_id": case_id}, services.criteria_version, services.rule_version,
-        run["judgment_version"],
+        card, services.criteria_version, services.rule_version, run["judgment_version"],
     )
-    return await _execute(conn, run, state)
+    return await _execute(conn, run, state, actor_id)
 
 
 async def answer_question(
@@ -236,7 +292,7 @@ async def answer_question(
         _check_answer(question, answer)
         if not await runs.insert_answer(conn, question, answer, actor_id):
             raise ApiException(409, "already_answered", "이미 답한 질문입니다.")
-        return await _after_answer(conn, str(question["run_id"]))
+        return await _after_answer(conn, str(question["run_id"]), actor_id)
 
 
 def _check_answer(question: runs.Row, answer: QuestionAnswer) -> None:
@@ -252,13 +308,14 @@ def _check_answer(question: runs.Row, answer: QuestionAnswer) -> None:
         raise unprocessable("invalid_answer", "질문의 선택지에 없는 값입니다.")
 
 
-async def _after_answer(conn: AsyncConnection, run_id: str) -> dict[str, object]:
+async def _after_answer(conn: AsyncConnection, run_id: str, actor_id: str) -> dict[str, object]:
     rows = await runs.run_questions(conn, run_id)
     run = await runs.get_run(conn, run_id)
     assert run is not None
     pending = [str(r["id"]) for r in rows if not r["answered"]]
     view: dict[str, object] = {
-        **_task_view(run), "pending_question_ids": pending, "next_action": None, "field_values": {},
+        **_judgment_view(run), "pending_question_ids": pending, "next_action": None,
+        "field_values": {},
     }
     if pending:
         return {**view, "next_action": "answer_remaining"}
@@ -273,7 +330,7 @@ async def _after_answer(conn: AsyncConnection, run_id: str) -> dict[str, object]
          "value": None, "unknown": True}
         for r in rows
     ]
-    return {**view, **await _execute(conn, claimed, Command(resume=payload))}
+    return {**view, **await _execute(conn, claimed, Command(resume=payload), actor_id)}
 
 
 async def ask_question(actor_id: str, case_id: str, text: str) -> dict[str, object]:
