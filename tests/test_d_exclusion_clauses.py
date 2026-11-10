@@ -21,6 +21,7 @@ from app.reports.render import to_json
 from app.retrieval.common import configure_retrieval, fetch_by_parent
 from app.retrieval.hybrid import RetrievalOptions
 from app.retrieval.loader import ROOT, handoff_terms_edition, load_index
+from app.tools._evidence import FOLDERS
 from tests import fixtures_d as fx
 
 ARTICLE_23 = "samsung-personal-auto-2026-11-11:general_article:23:p67"
@@ -413,7 +414,13 @@ class ApiFlowTest(SkipValidation):
         self.assertEqual({c["decided_by"] for c in self.exclusions(report)}, {"handler"})
 
 
-@unittest.skipUnless((ROOT / "data/private/handoff.json").exists(), "C 산출물 없음")
+# 코퍼스 원문은 저장소에 두지 않는다(#46). handoff.json은 추적되므로 약관 청크 파일로 판단한다.
+HAS_TERMS = (
+    ROOT / "data/private" / FOLDERS["policy_terms"] / "processed" / "chunks.jsonl"
+).is_file()
+
+
+@unittest.skipUnless(HAS_TERMS, "data/private/ 약관 코퍼스 파일이 없다")
 class RealDataTest(unittest.TestCase):
     """실제 약관 색인과 실제 validate_hits로 판정기 입력을 확인한다. API 호출 없음."""
 

@@ -15,12 +15,16 @@ from pathlib import Path
 from app.retrieval.common import configure_retrieval, fetch_by_parent, search
 from app.retrieval.hybrid import CORPORA, RetrievalOptions, retrieve
 from app.retrieval.loader import ROOT, handoff_terms_edition, load_index, read_handoff
-from app.tools._evidence import validate_hits
+from app.tools._evidence import FOLDERS, validate_hits
 from app.tools.dispute_cases import search_dispute_cases
 from app.tools.fault_standards import search_fault_standards
 from app.tools.policy_terms import search_policy_terms
 
-HANDOFF = ROOT / "data/private/handoff.json"
+# 코퍼스 원문은 저장소에 두지 않는다(#46). handoff.json은 추적되므로 세 코퍼스 청크 파일로 판단한다.
+HAS_CORPUS = all(
+    (ROOT / "data/private" / name / "processed" / "chunks.jsonl").is_file()
+    for name in FOLDERS.values()
+)
 CORPUS_COUNTS = {"fault_standards": 923, "dispute_cases": 1130, "policy_terms": 495}
 EDITION = "2026.11.11"
 VECTOR = RetrievalOptions(mode="vector")
@@ -36,7 +40,7 @@ def request(corpus, filters=None, top_k=3):
     }
 
 
-@unittest.skipUnless(HANDOFF.exists(), "C 산출물(data/private)이 없음")
+@unittest.skipUnless(HAS_CORPUS, "data/private/ 코퍼스 파일이 없다")
 class RealIndexTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
