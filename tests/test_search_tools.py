@@ -80,6 +80,22 @@ class SyntheticStore:
             "side_note_parent_ids": [note["parent_id"]],
         }
         self._add("policy_terms", clause, {"clause_id": "제1조", "coverage": "own_damage"}, page=1)
+        schedule_item = {
+            "parent_id": f"{pt['document_id']}:payment_standard:별표3:1:from-2023-01-01",
+            "document": pt,
+            "page_start": 2,
+            "page_end": 2,
+            "record_type": "payment_standard_item",
+            "schedule": "별표3",
+        }
+        self.parents[("policy_terms", schedule_item["parent_id"])] = schedule_item
+        self.chunks[("policy_terms", "pt-schedule")] = self._chunk(
+            "pt-schedule",
+            schedule_item["parent_id"],
+            pt,
+            {"clause_type": "payment_standard", "accident_date_from": "2023-01-01"},
+            page=2,
+        )
 
     @staticmethod
     def _chunk(chunk_id, parent_id, document, metadata, page):
@@ -248,6 +264,30 @@ def test_rejects_case_link_missing_from_crosswalk(monkeypatch, store):
     monkeypatch.setattr(common, "search", AsyncMock(return_value=[hit_for(store, "dispute_cases")]))
     with pytest.raises(ValueError, match="crosswalk"):
         asyncio.run(search_dispute_cases(query()))
+
+
+def test_schedule_filter_and_accident_window(monkeypatch, store):
+    hit = hit_for(store, "policy_terms", "pt-schedule")
+    monkeypatch.setattr(common, "search", AsyncMock(return_value=[hit]))
+    q = query({"schedule": "별표3"})
+    q["accident_date"] = "2024-03-01"
+    assert asyncio.run(search_policy_terms(q)) == [hit]
+    # 2023-01-01 이후 사고용 별표 항목은 2022년 사고 검색 결과에서 도구가 뺀다
+    clause = hit_for(store, "policy_terms")
+    monkeypatch.setattr(common, "search", AsyncMock(return_value=[hit, clause]))
+    q["accident_date"] = "2022-06-01"
+    q["filters"] = {}
+    q["top_k"] = 2
+    assert asyncio.run(search_policy_terms(q)) == [clause]
+
+
+def test_validate_hits_rejects_item_outside_accident_window(store):
+    # 공통 검색 등 다른 경로로 들어와도 검증이 막는다(안전장치)
+    request = {**query(), "corpus": "policy_terms", "accident_date": "2022-06-01"}
+    with pytest.raises(ValueError, match="accident date range"):
+        asyncio.run(
+            _evidence.validate_hits(request, [hit_for(store, "policy_terms", "pt-schedule")])
+        )
 
 
 def test_rejects_hits_without_db_store(monkeypatch):

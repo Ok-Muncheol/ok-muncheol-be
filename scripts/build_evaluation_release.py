@@ -22,7 +22,46 @@ from embed_corpora import LOCATIONS, read  # noqa: E402 -- standalone CLI adds r
 
 VERSION = "source-eval-release-v1"
 MODEL = "gpt-5"
-TARGET_COUNTS = {"fault_standards": 100, "dispute_cases": 100, "policy_terms": 80}
+TARGET_COUNTS = {"fault_standards": 100, "dispute_cases": 100, "policy_terms": 88}
+# policy_terms 88문항 = 조항·특약 80 + 보험금 지급기준 별표 항목 8.
+# 별표 문항은 조항 80을 채운 뒤 더한다.
+SCHEDULE_QUESTIONS = 8
+SCHEDULE_MIN_CHARS = 80
+
+
+def accident_scope(record):
+    """별표 항목의 적용 사고일 범위 문구. 범위가 없으면 None."""
+    start, end = record.get("accident_date_from"), record.get("accident_date_to")
+    if start:
+        return f"{start} 이후 사고에만 적용"
+    if end:
+        return f"{end} 이전 사고에만 적용"
+    return None
+
+
+def stated_accident_date(question):
+    """질문 문장에 적힌 사고 날짜(연·월·일 모두) → YYYY-MM-DD. 없으면 빈 문자열."""
+    match = re.search(r"(\d{4})\s*[년.-]\s*(\d{1,2})\s*[월.-]\s*(\d{1,2})\s*일?", question)
+    if not match:
+        return ""
+    return f"{int(match[1]):04d}-{int(match[2]):02d}-{int(match[3]):02d}"
+
+
+def within_scope(record, day):
+    start, end = record.get("accident_date_from"), record.get("accident_date_to")
+    return bool(day) and (not start or day >= start) and (not end or day <= end)
+
+
+def load_records(base, version, corpus, stem):
+    """평가 정답 후보 레코드. 약관은 조항·특약에 별표 항목(payment_standard_item)을 더한다."""
+    records = read(base / version / f"{stem}.jsonl")
+    if corpus == "policy_terms":
+        records += [
+            r
+            for r in read(base / version / "appendices.jsonl")
+            if r.get("record_type") == "payment_standard_item"
+        ]
+    return records
 
 
 def norm(value):
@@ -175,7 +214,7 @@ async def main():
             if args.corpus != "all" and corpus != args.corpus:
                 continue
             base = ROOT / "data/private" / folder
-            records = read(base / version / f"{stem}.jsonl")
+            records = load_records(base, version, corpus, stem)
             target_count = TARGET_COUNTS[corpus]
             evaluation_path = base / "evaluation.jsonl"
             existing = read(evaluation_path) if evaluation_path.exists() else []
@@ -215,15 +254,35 @@ async def main():
             used = {e["primary_parent_id"] for e in existing}
             available = [r for r in records if r["parent_id"] not in used]
             if corpus == "policy_terms":
-                # 추가분은 담보·일반 조항·특약 번호군을 순회해 유형을 분산한다.
-                def group(r):
-                    return (
-                        "coverage:" + r["coverage_context"]
-                        if r.get("coverage_context")
-                        else "general"
-                        if r["clause_type"] == "general_article"
-                        else "rider-group:" + str(int(r["rider_number"].split("-")[0]) // 10)  # noqa: E501 -- source text or prompt kept intact
-                    )
+                schedule_ids = {
+                    r["parent_id"]
+                    for r in records
+                    if r.get("record_type") == "payment_standard_item"
+                }
+                clause_questions = sum(e["primary_parent_id"] not in schedule_ids for e in existing)
+                if clause_questions >= target_count - SCHEDULE_QUESTIONS:
+                    # 별표 문항: 너무 짧은 개요 항목을 빼고 별표1~5를 순회한다.
+                    available = [
+                        r
+                        for r in available
+                        if r["parent_id"] in schedule_ids
+                        and len(norm(r["text"])) >= SCHEDULE_MIN_CHARS
+                    ]
+
+                    def group(r):
+                        return r["schedule"]
+                else:
+                    available = [r for r in available if r["parent_id"] not in schedule_ids]
+
+                    # 추가분은 담보·일반 조항·특약 번호군을 순회해 유형을 분산한다.
+                    def group(r):
+                        return (
+                            "coverage:" + r["coverage_context"]
+                            if r.get("coverage_context")
+                            else "general"
+                            if r["clause_type"] == "general_article"
+                            else "rider-group:" + str(int(r["rider_number"].split("-")[0]) // 10)  # noqa: E501 -- source text or prompt kept intact
+                        )
 
             selected = choose(available, group, target_count - len(existing))
             lookup = {r["parent_id"]: r for r in records}
@@ -255,6 +314,13 @@ async def main():
                             {"parent_id": p, "source": texts[p]}  # noqa: B023 -- all batch tasks are awaited before the next corpus iteration
                             for p in candidates[r["parent_id"]][1:]  # noqa: B023 -- all batch tasks are awaited before the next corpus iteration
                         ],
+                        # 같은 항목이 적용 사고일로 나뉜 별표(별표3 과실상계)는
+                        # 질문에 그 기간의 사고 날짜를 넣게 한다.
+                        **(
+                            {"accident_date_scope": accident_scope(r)}
+                            if accident_scope(r)
+                            else {}
+                        ),
                     }
                     for r in batch
                 ]
@@ -289,7 +355,8 @@ async def main():
                         "사고는 신호·좌우·동작·도로조건을 보존하고 결과를 묻지 말고 관련 근거를 요청하라. 약관은 담보·면책·예외·참조를 원문에 있을 때만 질문하라. "  # noqa: E501 -- source text or prompt kept intact
                         "원문에 없는 날짜·속도·당사자·조건을 추가하지 마라. 비슷한 source와 구별되는 조건을 넣되 없으면 만들지 마라. "  # noqa: E501 -- source text or prompt kept intact
                         "evidence_quote_index에는 evidence_options에서 근거 항목의 인덱스(0부터)를 선택하라. 원문을 바꿔 쓰지 않는다. "  # noqa: E501 -- source text or prompt kept intact
-                        "source_id당 질문 하나씩만 반환한다. 질문 유형은 내용에 맞게 다양화하라.",
+                        "source_id당 질문 하나씩만 반환한다. 질문 유형은 내용에 맞게 다양화하라. "
+                        "source에 accident_date_scope가 있으면 질문에 그 기간 안의 사고 날짜를 「YYYY년 M월 D일」로 반드시 넣어라.",  # noqa: E501 -- source text or prompt kept intact
                         {
                             "sources": [
                                 {**m, "evidence_options": quote_options(m["source"])}
@@ -316,6 +383,18 @@ async def main():
                     }
                     if len(quoted) != len(by_id):
                         last_problem = "evidence_quote는 source의 실제 연속 문자열이어야 한다"
+                    dated = {
+                        p: g
+                        for p, g in quoted.items()
+                        if not accident_scope(lookup[p])  # noqa: B023 -- awaited before next corpus
+                        or within_scope(lookup[p], stated_accident_date(g["question"]))  # noqa: B023 -- awaited before next corpus
+                    }
+                    if len(dated) != len(quoted):
+                        last_problem = (
+                            "accident_date_scope 기간 안의 사고 날짜(YYYY년 M월 D일)를 "
+                            "질문에 넣어라"
+                        )
+                    quoted = dated
                     if not quoted:
                         continue
                     by_id = quoted
@@ -394,6 +473,18 @@ async def main():
                             continue
                         r = lookup[p]  # noqa: B023 -- all batch tasks are awaited before the next corpus iteration
                         doc = r["document"]
+                        accident_date = (
+                            stated_accident_date(g["question"]) if accident_scope(r) else ""
+                        )
+                        date_fields = (
+                            {
+                                "accident_date_status": "stated_in_question",
+                                "accident_date_source": "question_text",
+                                "date_evaluation_scope": "schedule_item_accident_window",
+                            }
+                            if accident_date
+                            else {}
+                        )
                         accepted.append(
                             {
                                 "example_id": corpus  # noqa: B023 -- all batch tasks are awaited before the next corpus iteration
@@ -402,7 +493,7 @@ async def main():
                                 "request": {
                                     "corpus": corpus,  # noqa: B023 -- all batch tasks are awaited before the next corpus iteration
                                     "text": g["question"],
-                                    "accident_date": "",
+                                    "accident_date": accident_date,
                                     "filters": {"document_id": doc["document_id"]},
                                     "top_k": 10,
                                 },
@@ -437,6 +528,7 @@ async def main():
                                 },
                                 "evaluation_scope": "fixed_document_retrieval_not_contract_applicability",  # noqa: E501 -- source text or prompt kept intact
                                 "dataset_version": VERSION,
+                                **date_fields,
                                 "notes": "GPT-5가 실제 원문으로 생성하고 별도 호출에서 검수한 검색 질문. 실사용자 로그/전문가 확정 정답 아님. 전체 코퍼스에 대한 정답 완전성 미보장.",  # noqa: E501 -- source text or prompt kept intact
                             }
                         )

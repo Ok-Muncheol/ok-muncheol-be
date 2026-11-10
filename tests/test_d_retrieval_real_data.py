@@ -22,7 +22,7 @@ from app.tools.fault_standards import search_fault_standards
 from app.tools.policy_terms import search_policy_terms
 from tests.evidence_d import LocalFileEvidenceStore, has_corpus
 
-CORPUS_COUNTS = {"fault_standards": 923, "dispute_cases": 1130, "policy_terms": 495}
+CORPUS_COUNTS = {"fault_standards": 923, "dispute_cases": 1130, "policy_terms": 544}
 EDITION = "2026.11.11"
 VECTOR = RetrievalOptions(mode="vector")
 
@@ -267,7 +267,10 @@ class RealIndexTest(unittest.TestCase):
     def test_primary_clause_filter_on_real_terms(self):
         rows = self.rows["policy_terms"]
         roles = Counter(r["chunk"]["metadata"]["retrieval_role"] for r in rows)
-        self.assertEqual(roles, {"primary_clause": 332, "auxiliary_reference": 163})
+        self.assertEqual(
+            roles,
+            {"primary_clause": 332, "auxiliary_reference": 177, "primary_payment_standard": 35},
+        )
         auxiliary = next(
             r for r in rows if r["chunk"]["metadata"]["retrieval_role"] == "auxiliary_reference"
         )

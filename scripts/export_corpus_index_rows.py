@@ -134,6 +134,12 @@ def build(corpus: str, manifest_docs: dict) -> dict[str, list[dict]]:
                 "body": {"links": rows},
             })
     else:
+        # 별표4·5 계산용 수치. 청크가 아니라 구조 레코드로만 적재한다.
+        values = read(processed / "schedule_values.jsonl")
+        known = {p["document"]["document_id"] for p in parents.values()}
+        if any(row["document"]["document_id"] not in known for row in values):
+            raise ValueError("Schedule value references an unknown document")
+        records += [record_row(corpus, "schedule_value", r["record_id"], r, False) for r in values]
         for row in parents.values():
             if "clause_id" not in row:
                 continue
