@@ -26,3 +26,6 @@ dist/
 .agents/skills/source-command-*/
 # 로컬 IDE MCP 연결 (개인 환경 전용)
 .mcp.json
+
+# D 시연 출력 (scripts/demo_d.py)
+demo_out/
