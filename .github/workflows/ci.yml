@@ -14,6 +14,20 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # 버려도 되는 Postgres. 마이그레이션 동작 검사(tests/migrations/)와 판단 저장 검사(tests/api/test_judgment_service.py)가
+    # 매번 임시 데이터베이스를 만들고 지운다. Supabase 주소는 쓰지 않는다
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,8 +40,10 @@ jobs:
       # 문법·import·타입 참조·JSON·계약 견본 동기화 (scripts/check_scaffold.py)
       - run: make check
       # tests/ 전체: API(tests/api/)·검색·코퍼스(tests/test_*.py)·비전 평가(tests/evals/)·ship 스크립트(tests/automation/)
-      # ·마이그레이션 파일 규칙(tests/migrations/, DB 동작 검사는 MIGRATION_TEST_DATABASE_URL이 없어 건너뜀)
+      # ·마이그레이션(tests/migrations/). DB 검사는 위 Postgres 서비스로 돈다(psql은 러너에 기본 설치)
       - run: make test
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
 
   # 커밋 이력에 API 키 등 시크릿이 섞이지 않았는지 검사한다
   gitleaks:

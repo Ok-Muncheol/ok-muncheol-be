@@ -13,13 +13,16 @@ from app.schemas.chart_scope import (
     REASON_PENDING_DECISION,
 )
 from app.workflow.graph import (
+    CRITERIA_VERSION,
     MAX_REBUTTAL_RETRIES,
     STAGES,
     Dependencies,
     UnconfirmedCardError,
     build_graph,
+    check_attempts,
     initial_state,
     question_id,
+    run_outcome,
     thread_config,
 )
 from tests.workflow.synthetic import candidate, candidates, card, field, verdict
@@ -235,3 +238,44 @@ def test_variant_condition_field_is_asked_before_selection():
     out = asyncio.run(graph.ainvoke(initial_state(c, "c", "r"), thread_config("run-variant-2")))
     assert (out["result"]["fault_A"], out["result"]["fault_B"]) == (60, 40)
     assert out["result"]["calculation_log"][0] == "기본 과실 A 60 : B 40"
+
+
+def test_check_attempts_advance_only_after_wrong_chart():
+    def check(layer, passed=True, kind=None):
+        return {"layer": layer, "passed": passed, "reasons": [] if passed else ["r"],
+                "rebuttal_kind": kind}
+
+    retried = [check("evidence"), check("rebuttal", False, "wrong_chart"),
+               check("evidence"), check("rebuttal"), check("numerical")]
+    assert check_attempts(retried) == [0, 0, 1, 1, 1]
+    stopped = [check("evidence"), check("rebuttal", False, "missing_fact")]
+    assert check_attempts(stopped) == [0, 0]
+    assert check_attempts([]) == []
+
+
+def test_run_outcome_distinguishes_questions_from_results():
+    _, out, _ = run(card())
+    done = run_outcome(out)
+    assert (done["status"], done["stage"], done["questions"]) == (
+        "completed", "build_judgment_result", [])
+    assert done["result"] == out["result"]
+    c = card()
+    c["fields"]["movement_B"] = field("left_turn", confirmed=False)
+    graph = build_graph(Dependencies(retrieve=AsyncMock(return_value=candidates()),
+                                     reviewer=AsyncMock(return_value=verdict())))
+    waiting = run_outcome(asyncio.run(graph.ainvoke(initial_state(c, "c", "r"),
+                                                    thread_config("run-outcome"))))
+    assert (waiting["status"], waiting["stage"], waiting["result"]) == (
+        "waiting_for_confirmation", "ask_or_resume", None)
+    assert [q["field_key"] for q in waiting["questions"]] == ["movement_B"]
+    with pytest.raises(RuntimeError):
+        run_outcome({"stage": "check_evidence"})
+
+
+def test_criteria_version_matches_fault_standards_manifest():
+    import json
+    from pathlib import Path
+
+    manifest = Path(__file__).resolve().parents[2] / "data/corpora/fault_standards/manifest.json"
+    editions = {d["edition"] for d in json.loads(manifest.read_text(encoding="utf-8"))["documents"]}
+    assert CRITERIA_VERSION == f"fault_standards:{editions.pop()}" and not editions

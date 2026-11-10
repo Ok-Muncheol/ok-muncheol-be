@@ -5,7 +5,13 @@ import json
 
 import pytest
 
-from app.validation.rebuttal import openai_reviewer, parse_verdict, review_payload, review_rebuttal
+from app.validation.rebuttal import (
+    ReviewerNotConfigured,
+    openai_reviewer,
+    parse_verdict,
+    review_payload,
+    review_rebuttal,
+)
 from tests.workflow.synthetic import candidates, card, verdict
 
 
@@ -65,5 +71,7 @@ def test_review_returns_check_and_preferred():
 
 def test_default_reviewer_refuses_without_api_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+    # NotImplementedError 계열이라 판단 실행은 dependency_not_ready로 기록된다
+    with pytest.raises(ReviewerNotConfigured, match="OPENAI_API_KEY"):
         asyncio.run(openai_reviewer("s", "u"))
+    assert issubclass(ReviewerNotConfigured, NotImplementedError)

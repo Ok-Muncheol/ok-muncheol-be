@@ -9,6 +9,9 @@ dependencies = [
     # 판단 그래프(app/workflow/graph.py)·반박 검토(app/validation/rebuttal.py)
     "langgraph>=1.2,<2",
     "openai>=1,<4",
+    # 판단 실행 저장·체크포인트(app/db.py·app/workflow/runs.py). Supabase Session pooler로 붙는다
+    "langgraph-checkpoint-postgres>=3,<4",
+    "psycopg[binary]>=3.2,<4",
 ]
 
 # 비전·PDF·임베딩 의존성은 API 런타임과 분리한다.

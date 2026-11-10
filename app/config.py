@@ -21,6 +21,8 @@ class Settings:
     jwt_audience: str
     cors_allow_origins: tuple[str, ...]
     dev_actor_id: str | None
+    # 서버 전용 Postgres 주소(Supabase Session pooler). 없으면 DB를 쓰는 경로는 503(app/db.py)
+    database_url: str | None = None
 
     @property
     def jwks_url(self) -> str | None:
@@ -51,4 +53,5 @@ def get_settings() -> Settings:
         jwt_audience=env.get("SUPABASE_JWT_AUDIENCE", "authenticated"),
         cors_allow_origins=_split(env.get("CORS_ALLOW_ORIGINS", "")),
         dev_actor_id=env.get("DEV_ACTOR_ID") or None,
+        database_url=env.get("DATABASE_URL") or None,
     )
