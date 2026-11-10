@@ -113,7 +113,9 @@ python -m evals.vision.evaluate --gt data/private/aihub/vision_gt.jsonl \
 ### 후속 실험 2026-11-07: 궤적 특징(광류·YOLO) 결합
 
 `evals/vision/trajectory.py`가 150프레임 전체에서 촬영 차량 회전각(광류)과 상대 차량 궤적(YOLO11n + ByteTrack)을
-뽑아 텍스트로 프롬프트에 붙인다(`--trajectory-cache`). 영상 1건당 약 5초(M4 Pro), 결과는 JSON 캐시.
+뽑아 텍스트로 프롬프트에 붙인다(`--trajectory-cache`). 영상 1건당 약 1.9초(M4 Pro CPU, 광류 0.62 + YOLO 1.29),
+결과는 JSON 캐시. YOLO는 device를 넘기지 않아 ultralytics 기본값인 CPU로 돈다(2026-11-10 재측정, 처음 적은
+"약 5초"보다 짧다. 백엔드별 비교는 `docs/vision-fact-card-eval-report.md` 7절).
 같은 100건, 장소 입력 + 24프레임 공통.
 
 | 설정 | movement_A | movement_B | signal_A | signal_B | road_priority | micro 평균 | 진행 A/B 둘 다 맞음 |
