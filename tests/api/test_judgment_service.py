@@ -6,6 +6,7 @@ CI는 Postgres 서비스를 띄운다. 검색·반박 검토는 가짜로 바꾸
 """
 
 import asyncio
+import json
 import shutil
 import uuid
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ import pytest
 from psycopg.rows import dict_row
 
 from app import db
+from app.agents import qa as qa_agent
 from app.api import judgments, reports
 from app.api.errors import ApiException
 from app.reports.repository import InMemoryReportRepository, PostgresReportRepository
@@ -75,7 +77,7 @@ def service(database_url):
     # 판정 뒤 만드는 보고서(D submit_judgment)도 같은 테스트 DB에 저장한다
     reports.configure(repo=PostgresReportRepository(connect=lambda: db.connect(database_url)))
     yield fake
-    judgments.configure(deps=Dependencies(), connect=db.connect)
+    judgments.configure(deps=Dependencies(), connect=db.connect, qa=qa_agent.QaDependencies())
     reports.configure(repo=InMemoryReportRepository())
 
 
@@ -390,3 +392,117 @@ def test_unexpected_report_error_is_reported_without_details(service, monkeypatc
     view = start(ACTOR, card(case_id=case_id), "key-0000022")
     assert view["status"] == "completed"
     assert view["report_error"] == judgments.REPORT_FAILED
+
+
+# ── 근거 질의응답(ask_question) ───────────────────────────────────────────
+def scripted_llm(*replies: dict):
+    queue = list(replies)
+    seen: list[list[dict]] = []
+
+    async def llm(messages, tools, tool_choice):
+        seen.append([dict(m) for m in messages])
+        return queue.pop(0)
+
+    llm.seen = seen  # type: ignore[attr-defined]
+    return llm
+
+
+def tool_call(name: str, args: dict, id_: str) -> dict:
+    return {"id": id_, "name": name, "arguments": json.dumps(args)}
+
+
+def stored_counts(url: str, case_id: str) -> tuple[int, int, int]:
+    runs_n = rows(url, "select count(*) as n from public.judgment_runs where case_id = %s",
+                  case_id)[0]["n"]
+    checkpoints_n = rows(url, "select count(*) as n from langgraph.checkpoints")[0]["n"]
+    return runs_n, report_count(url, case_id), checkpoints_n
+
+
+def ask(actor: str, case_id: str, text: str = "왜 이렇게 판단했나요?") -> dict:
+    return asyncio.run(judgments.ask_question(actor, case_id, text))
+
+
+def test_qa_reads_the_official_judgment_and_simulates_without_saving(service):
+    case_id = new_case(service.url)
+    assert start(ACTOR, card(case_id=case_id), "key-0000091")["status"] == "completed"
+    before = stored_counts(service.url, case_id)
+    llm = scripted_llm(
+        {"content": None, "tool_calls": [
+            tool_call("get_judgment_log", {}, "c1"),
+            tool_call("simulate", {"changes": {"movement_B": "straight"}}, "c2")]},
+        {"content": "공식은 A 20 : B 80입니다 [E1]. 가정하면 A 50 : B 50입니다 [E2].",
+         "tool_calls": []},
+    )
+    judgments.configure(qa=qa_agent.QaDependencies(llm=llm))
+    out = ask(ACTOR, case_id, "B가 직진이었다면 어떻게 되나요?")
+    assert (out["case_id"], out["judgment_version"]) == (case_id, 1)
+    [hypo] = out["hypotheticals"]
+    assert (hypo["status"], hypo["judgment_status"], hypo["chart_id"]) \
+        == ("completed", "draft_ready", "S-2")
+    assert (hypo["fault_A"], hypo["fault_B"], hypo["changes"]) \
+        == (50, 50, {"movement_B": "straight"})
+    assert [c["parent_id"] for c in out["citations"]] \
+        == ["synthetic-standards:S-1", "synthetic-standards:S-2"]
+    assert out["fact_change_hint"] == qa_agent.FACT_CHANGE_HINT
+    assert out["tool_calls"] == [{"name": "get_judgment_log", "ok": True},
+                                 {"name": "simulate", "ok": True}]
+    # 판단 로그는 공식 판정과 체크포인트에 남은 카드의 확인한 사실을 싣는다
+    log = json.loads(next(m["content"] for m in llm.seen[-1] if m["role"] == "tool"))
+    assert (log["chart_id"], log["fault_A"], log["fault_B"]) == ("S-1", 20, 80)
+    assert log["confirmed_facts"]["movement_B"] == "left_turn"
+    # 가정 실행은 실행·보고서·체크포인트를 만들지 않고 공식 판정을 바꾸지 않는다
+    assert stored_counts(service.url, case_id) == before
+    [run] = rows(service.url, "select chart_id, fault_a, fault_b from public.judgment_runs"
+                 " where case_id = %s", case_id)
+    assert (run["chart_id"], run["fault_a"], run["fault_b"]) == ("S-1", 20, 80)
+
+
+def test_qa_needs_a_finished_judgment_the_assignee_and_a_model(service, monkeypatch):
+    case_id = new_case(service.url)
+    assert api_error(lambda: ask(ACTOR, case_id)) == (409, "judgment_required")
+    assert api_error(lambda: ask(OTHER, case_id)) == (403, "forbidden")
+    assert api_error(lambda: ask(ACTOR, str(uuid.uuid4()))) == (404, "not_found")
+    assert api_error(lambda: ask(ACTOR, "not-a-uuid")) == (404, "not_found")
+    waiting = start(ACTOR, unconfirmed(case_id, "movement_B"), "key-0000092")
+    assert waiting["status"] == "waiting_for_confirmation"
+    assert api_error(lambda: ask(ACTOR, case_id)) == (409, "judgment_required")
+
+    done = new_case(service.url)
+    start(ACTOR, card(case_id=done), "key-0000093")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    judgments.configure(qa=qa_agent.QaDependencies())  # 기본 OpenAI 모델, 키 없음
+    assert api_error(lambda: ask(ACTOR, done)) == (503, "dependency_not_ready")
+
+    async def broken(messages, tools, tool_choice):
+        raise RuntimeError("upstream down")
+
+    judgments.configure(qa=qa_agent.QaDependencies(llm=broken))
+    assert api_error(lambda: ask(ACTOR, done)) == (502, "qa_failed")
+
+
+def test_qa_http_route_serializes_the_answer(service):
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings, get_settings
+    from app.main import app
+
+    case_id = new_case(service.url)
+    start(ACTOR, card(case_id=case_id), "key-0000094")
+    judgments.configure(qa=qa_agent.QaDependencies(llm=scripted_llm(
+        {"content": None, "tool_calls": [tool_call("get_judgment_log", {}, "c1")]},
+        {"content": "공식 판정은 A 20 : B 80입니다 [E1].", "tool_calls": []},
+    )))
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        app_env="local", on_vercel=False, supabase_url=None, supabase_jwt_secret=None,
+        jwt_audience="authenticated", cors_allow_origins=(), dev_actor_id=ACTOR)
+    try:
+        client = TestClient(app)
+        res = client.post(f"/cases/{case_id}/qa", json={"text": "왜 B가 80인가요?"})
+        assert res.status_code == 200, res.text
+        got = res.json()
+        assert got["answer"] == "공식 판정은 A 20 : B 80입니다 [E1]."
+        assert got["citations"][0]["ref"] == "E1"
+        assert (got["hypotheticals"], got["fact_change_hint"]) == ([], None)
+        assert client.post(f"/cases/{case_id}/qa", json={"text": ""}).status_code == 422
+    finally:
+        app.dependency_overrides.clear()

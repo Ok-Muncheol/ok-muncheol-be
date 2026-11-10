@@ -138,7 +138,8 @@ async def answer_question(
 
 @router.post("/cases/{case_id}/qa", tags=["B judgments"])
 async def ask_question(actor_id: ActorId, case_id: str, body: AskRequest) -> dict[str, object]:
-    return await judgments.ask_question(actor_id, case_id, body.text)
+    """근거 질의응답·what-if(QaAnswer). 최신 판정 기준이고 공식 판단·보고서는 바꾸지 않는다."""
+    return await judgments.ask_question(actor_id, case_id, body.text)  # type: ignore[return-value]
 
 
 # ── D: 보고서·확인 완료·서류·구상(docs/d-claims-reports.md 「HTTP 경로」) ────────

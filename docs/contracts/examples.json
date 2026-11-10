@@ -253,5 +253,50 @@
       }
     ],
     "updated_at": "2026-11-05T09:10:00+09:00"
+  },
+  "qa_answer": {
+    "case_id": "synthetic-case",
+    "judgment_version": 1,
+    "answer": "합성 견본: 공식 판정은 보류입니다 [E1]. 가정 결과도 같은 이유로 보류입니다.",
+    "citations": [
+      {
+        "ref": "E1",
+        "chunk_id": "synthetic-chunk",
+        "parent_id": "synthetic-parent",
+        "corpus": "fault_standards",
+        "edition": "synthetic",
+        "page_start": 1,
+        "page_end": 1,
+        "excerpt": "합성 발췌"
+      }
+    ],
+    "hypotheticals": [
+      {
+        "changes": {
+          "movement_B": "straight"
+        },
+        "status": "completed",
+        "judgment_status": "deferred",
+        "chart_id": null,
+        "fault_A": null,
+        "fault_B": null,
+        "reasons": [
+          "검수한 도표 근거 없음"
+        ],
+        "open_fields": [],
+        "error": null
+      }
+    ],
+    "tool_calls": [
+      {
+        "name": "get_judgment_log",
+        "ok": true
+      },
+      {
+        "name": "simulate",
+        "ok": true
+      }
+    ],
+    "fact_change_hint": "가정 결과는 공식 판단·보고서에 반영되지 않습니다. 실제 사실이 다르면 사실 카드를 고쳐 다시 확정한 뒤 판단을 다시 요청하세요."
   }
 }

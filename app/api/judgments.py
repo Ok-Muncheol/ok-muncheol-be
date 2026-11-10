@@ -12,6 +12,9 @@
 - 판정이 나면(세 상태 모두) D `reports.submit_judgment`로 보고서를 만든다. 같은 판단 버전의 보고서가
   있으면 다시 만들지 않는다. 보고서를 못 만들어도 판단은 완료이고 응답의 `report_error`로 알린다.
   같은 입력으로 판단 접수를 다시 보내면(새 키) 보고서 만들기만 다시 시도한다.
+- 질의응답(ask_question)은 최신 판정과 그 판단에 쓴 카드(체크포인트)를 읽기만 한다.
+  가정 실행(simulate)은 같은 그래프를 메모리 체크포인터로 돌려 아무것도 저장하지 않는다
+  (app/agents/qa.py).
 """
 
 import contextlib
@@ -21,6 +24,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from copy import deepcopy
 from dataclasses import dataclass, field
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -29,12 +33,22 @@ from psycopg import AsyncConnection
 from psycopg.errors import UniqueViolation
 
 from app import db
+from app.agents import qa as qa_agent
 from app.api import reports
 from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.schemas.common import ApiError
-from app.schemas.facts import FactCard
-from app.schemas.judgment import AnswerView, JudgmentRunView, QuestionAnswer, QuestionView
+from app.schemas.facts import FactCard, FactField
+from app.schemas.judgment import (
+    AnswerView,
+    JudgmentRunView,
+    QaAnswer,
+    QaHypothesis,
+    QuestionAnswer,
+    QuestionView,
+)
+from app.schemas.retrieval import EvidenceHit
 from app.workflow import runs
+from app.workflow.candidates import confirmed_values
 from app.workflow.graph import (
     CRITERIA_VERSION,
     RULE_VERSION,
@@ -61,6 +75,7 @@ class JudgmentServices:
     connect: Connector = db.connect
     criteria_version: str = CRITERIA_VERSION
     rule_version: str = RULE_VERSION
+    qa: qa_agent.QaDependencies = field(default_factory=qa_agent.QaDependencies)
 
 
 services = JudgmentServices()
@@ -378,5 +393,110 @@ def _question_view(row: runs.Row) -> QuestionView:
     }
 
 
-async def ask_question(actor_id: str, case_id: str, text: str) -> dict[str, object]:
-    raise NotImplementedError("B: 1차 확장 근거 질의응답 API")
+async def ask_question(actor_id: str, case_id: str, text: str) -> QaAnswer:
+    """근거 질의응답·what-if(1차 확장). 최신 판단이 판정을 낸 사건만 받는다.
+
+    DB에서는 최신 판정과 그 판단에 쓴 카드(체크포인트)를 읽기만 하고
+    모델을 부르기 전에 연결을 놓는다.
+    공식 판단·보고서·확인 완료 상태는 바꾸지 않는다. 담당이 아니면 403, 사건이 없으면 404,
+    판정이 난 판단이 없으면 409 `judgment_required`, 모델 키가 없으면 503 `dependency_not_ready`,
+    모델 호출·응답 오류는 502 `qa_failed`(다시 질문 가능).
+    """
+    case_id = _uuid(case_id, "사건")
+    async with services.connect() as conn:
+        await _require_assignee(conn, actor_id, case_id)
+        run = await runs.latest_run(conn, case_id)
+        if run is None or run["status"] != "completed" or run["result"] is None:
+            raise ApiException(
+                409, "judgment_required",
+                "판정이 난 판단이 있어야 질의응답을 할 수 있습니다. 판단을 먼저 끝내세요.", False,
+            )
+        card = await _run_card(conn, str(run["id"]))
+    context = qa_agent.QaContext(
+        case_id=case_id, judgment_version=run["judgment_version"],
+        accident_date=str(card["accident_date"]) if card else "", result=run["result"],
+        confirmed_facts=confirmed_values(card) if card else {},
+        simulate=_simulator(card) if card else None,
+    )
+    try:
+        return await qa_agent.answer_question(text, context, services.qa)
+    except qa_agent.QaNotConfigured as exc:
+        raise ApiException(
+            503, "dependency_not_ready", "질의응답 모델 연결이 아직 준비되지 않았습니다.", False
+        ) from exc
+    except ApiException:
+        raise
+    except Exception as exc:
+        logger.exception("qa for case %s failed", case_id)
+        raise ApiException(
+            502, "qa_failed", "질의응답 중 오류가 났습니다. 잠시 후 다시 질문하세요.", True
+        ) from exc
+
+
+async def _run_card(conn: AsyncConnection, run_id: str) -> FactCard | None:
+    """공식 판단에 쓴 카드(그래프 체크포인트 상태). 못 읽으면 None — 가정 실행만 끈다."""
+    graph = build_graph(services.deps, AsyncPostgresSaver(conn))
+    try:
+        snapshot = await graph.aget_state(thread_config(run_id))
+    except Exception:
+        logger.exception("checkpoint read for run %s failed", run_id)
+        return None
+    card = (snapshot.values or {}).get("card")
+    return card if isinstance(card, dict) else None  # type: ignore[return-value]
+
+
+def _simulator(card: FactCard) -> qa_agent.Simulator:
+    async def simulate(changes: dict[str, str]) -> tuple[QaHypothesis, list[EvidenceHit]]:
+        return await _simulate(card, changes)
+
+    return simulate
+
+
+def _assumed(base: FactField | None, key: str, value: str) -> FactField:
+    """가정 값을 담당자 확인 값처럼 넣는다(그래프는 human_confirmed 칸만 본다). 저장하지 않는다."""
+    field_: FactField = base or {
+        "value": None, "model_value": None, "source": "manual", "model_confidence": None,
+        "verification_status": "unverified", "evidence_frame_ids": [], "source_document_ids": [],
+    }
+    typed: str | bool = value == "true" if key == "night" else value
+    return {**field_, "value": typed, "verification_status": "human_confirmed"}
+
+
+async def _simulate(
+    card: FactCard, changes: dict[str, str]
+) -> tuple[QaHypothesis, list[EvidenceHit]]:
+    """가정 실행: 카드 사본의 칸을 바꿔 공식과 같은 그래프를 메모리 체크포인터로 돌린다.
+
+    판단 버전·실행 행·체크포인트·보고서를 만들지 않는다.
+    질문으로 멈추면 그 칸을 open_fields로 돌려준다.
+    """
+    hypo = deepcopy(card)
+    for key, value in changes.items():
+        hypo["fields"][key] = _assumed(hypo["fields"].get(key), key, value)
+    view: QaHypothesis = {
+        "changes": dict(changes), "status": "failed", "judgment_status": None, "chart_id": None,
+        "fault_A": None, "fault_B": None, "reasons": [], "open_fields": [], "error": None,
+    }
+    graph = build_graph(services.deps)  # 메모리 체크포인터: 아무것도 저장하지 않는다
+    state = initial_state(hypo, services.criteria_version, services.rule_version, None)
+    try:
+        outcome = run_outcome(
+            await graph.ainvoke(state, thread_config(f"qa-simulate-{uuid.uuid4()}"))
+        )
+    except Exception as exc:
+        if not isinstance(exc, NotImplementedError):
+            logger.exception("qa simulate for case %s failed", card.get("case_id"))
+        return {**view, "error": _run_error(exc)}, []
+    if outcome["status"] == "waiting_for_confirmation":
+        return {
+            **view, "status": "waiting_for_confirmation",
+            "open_fields": [q["field_key"] for q in outcome["questions"]],
+            "reasons": ["가정한 사실로도 확인할 칸이 남아 판정 전에 멈췄다"],
+        }, []
+    result = outcome["result"]
+    assert result is not None
+    return {
+        **view, "status": "completed", "judgment_status": result["status"],
+        "chart_id": result["chart_id"], "fault_A": result["fault_A"], "fault_B": result["fault_B"],
+        "reasons": list(result["reasons"]),
+    }, list(result["evidence"])

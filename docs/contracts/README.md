@@ -38,7 +38,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/judgments` | B | `{card_version}`, `Idempotency-Key` 필수, 202. 버전 불일치 409, 미확정 422 |
 | GET | `/cases/{id}/judgment` | B | 최신 판단 실행 `JudgmentRunView`, 판단 전이면 `null`. 새로고침·재접속 복원 |
 | POST | `/cases/{id}/questions/{question_id}/answer` | B | 본문은 `QuestionAnswer`. 본문 `question_id`가 경로와 다르면 422 `question_mismatch` |
-| POST | `/cases/{id}/qa` | B | `{text}`, 1차 확장 |
+| POST | `/cases/{id}/qa` | B | `{text}`(1~2000자) → `QaAnswer`. 판정이 난 판단이 없으면 409 `judgment_required`. 1차 확장 |
 | GET | `/cases/{id}/reports/{version}` | D | |
 | POST | `/cases/{id}/reports/{version}/confirm` | D | 본문 `{counterparty?}`, 응답 `ConfirmResult`. 최신 아님 409, 추가 확인·보류 422 `confirm_blocked` |
 | GET | `/cases/{id}/reports/{version}/claim` | D | 응답 `ClaimResult`. 청구서가 없으면 404 |
@@ -109,3 +109,23 @@ MVP 그래프는 수정요소를 자동 적용하지 않으므로 `modifiers`는
   `judgment_failed`(재시도 가능), `run_interrupted`(10분 넘게 멈춘 실행을 정리)다.
 
 MVP 도표 범위(사고 유형·카드 칸·수정요소·보류 사유)는 [mvp-chart-scope.md](mvp-chart-scope.md)를 따른다.
+
+## 근거 질의응답(what-if)
+
+`POST /cases/{id}/qa`는 최신 판단 실행이 판정을 냈을 때만 받는다(확인 대기·실패·판단 전이면 409 `judgment_required`).
+질문마다 모델이 도구를 최대 5번 고른다(`app/agents/qa.py`, 아키텍처 v7 「질의응답 에이전트」).
+
+| 도구 | 하는 일 |
+| --- | --- |
+| `get_judgment_log` | 공식 판정(`judgment_runs.result`)과 그 판단에 쓴 카드(체크포인트)의 확인한 사실 |
+| `search_dispute_cases` | ② 분쟁심의 결정례 검색(김지은 검색툴, 사건의 사고 일자) |
+| `search_policy_terms` | ③ 약관·보상 지침 검색 |
+| `simulate` | 카드 칸 1~4개를 가정 값(`chart_scope.FIELD_OPTIONS`)으로 바꿔 같은 판단 그래프를 메모리에서 다시 실행 |
+
+- 응답 `QaAnswer`는 `answer`·`citations`(답에 쓴 `[E1]` 표시마다 청크·코퍼스·적용판·페이지·발췌)·`hypotheticals`(`QaHypothesis` — 가정한 칸,
+  `status` `completed`·`waiting_for_confirmation`(`open_fields`)·`failed`(`error`), 가정 판정·도표·과실)·`tool_calls`·`fact_change_hint`다. 견본은 `qa_answer`다.
+- 가정 실행은 실행 행·체크포인트·보고서를 만들지 않고 공식 판정을 바꾸지 않는다. 가정 실행을 했으면 `fact_change_hint`가
+  공식 반영 경로(사실 카드 수정·확정 → 판단 다시 요청)를 알린다.
+- 수치는 판단 로그(공식)와 가정 실행 결과에서만 인용한다. 도구가 돌려준 적 없는 `[E…]` 표시는 답에서 지운다.
+- 검색 색인이 없으면 그 도구만 실패로 돌려주고 답은 낸다. 모델 키가 없으면 503 `dependency_not_ready`, 모델 호출 오류는 502 `qa_failed`(다시 질문 가능)다.
+- 질문·답은 저장하지 않는다(대화 기록 없음, 질문마다 새로 답한다).

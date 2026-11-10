@@ -1,9 +1,10 @@
 """전원: 비식별 합성 계약 견본의 단일 원천. 실제 사고·도표·금액을 담지 않는다."""
 
+from app.agents.qa import FACT_CHANGE_HINT
 from app.schemas.chart_scope import FIELD_OPTIONS, REASON_NO_REVIEWED_CHART
 from app.schemas.common import ApiError, TaskView, VersionRef
 from app.schemas.facts import FactCard, FactField
-from app.schemas.judgment import ConfirmationQuestion, JudgmentResult, JudgmentRunView
+from app.schemas.judgment import ConfirmationQuestion, JudgmentResult, JudgmentRunView, QaAnswer
 from app.schemas.reports import ReviewReport
 
 
@@ -76,11 +77,29 @@ def contract_examples() -> dict[str, object]:
         "report_version": None, "questions": [{**question, "answer": None}],
         "updated_at": "2026-11-05T09:10:00+09:00",
     }
+    # 근거 질의응답(POST /cases/{id}/qa): 판단 로그를 읽고 B 진행 방향을 가정 실행한 답.
+    # 가정 결과는 hypotheticals에만 있고 공식 판정(judgment_deferred)은 그대로다
+    qa_answer: QaAnswer = {
+        "case_id": card["case_id"], "judgment_version": 1,
+        "answer": "합성 견본: 공식 판정은 보류입니다 [E1]. 가정 결과도 같은 이유로 보류입니다.",
+        "citations": [{
+            "ref": "E1", "chunk_id": "synthetic-chunk", "parent_id": "synthetic-parent",
+            "corpus": "fault_standards", "edition": "synthetic", "page_start": 1, "page_end": 1,
+            "excerpt": "합성 발췌",
+        }],
+        "hypotheticals": [{
+            "changes": {"movement_B": "straight"}, "status": "completed",
+            "judgment_status": "deferred", "chart_id": None, "fault_A": None, "fault_B": None,
+            "reasons": [REASON_NO_REVIEWED_CHART], "open_fields": [], "error": None,
+        }],
+        "tool_calls": [{"name": "get_judgment_log", "ok": True}, {"name": "simulate", "ok": True}],
+        "fact_change_hint": FACT_CHANGE_HINT,
+    }
     return {
         "synthetic": True, "contract_version": "draft-1",
         "note": "필드 모양만 보여 주는 합성 양식. 실행 가능한 시나리오·검수 정답이 아님.",
         "fact_card_draft": draft, "fact_card_confirmed": card,
         "question": question, "judgment_deferred": judgment,
         "report_deferred": report, "task_failed": task, "version_conflict": conflict,
-        "judgment_run_waiting": run_waiting,
+        "judgment_run_waiting": run_waiting, "qa_answer": qa_answer,
     }
