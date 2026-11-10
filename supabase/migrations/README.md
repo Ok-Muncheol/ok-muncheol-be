@@ -8,6 +8,7 @@
 | --- | --- | --- |
 | `20261109163900_case_access_base.sql` | 구준휘(통합) | `cases` 최소 골격, `private.can_access_case()`, `private.set_updated_at()` |
 | `20261109163901_judgment_runs.sql` | 구준휘 | 판단 실행·구분 질문/응답·검증 로그·요청 멱등성, `langgraph` 스키마 |
+| `20261111090000_review_reports.sql` | 옥석현 | 검토 보고서 버전·서류·면책/협의 입력·구상 청구서(`review_reports`·`case_documents`·`report_case_inputs`·`claim_packages`), 시퀀스 권한 회수 |
 
 ## 공통 원칙
 

@@ -52,9 +52,9 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 404 | `not_found` | 사건·질문이 없음 |
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
 | 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
-| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_agreed_fault` 같은 처리 불가 상태 |
+| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_documents`·`invalid_agreed_fault` 같은 처리 불가 상태 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
-| 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패 |
+| 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable`·`reports_db_not_ready` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패·보고서 테이블 미적용 |
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |
 
 담당 서비스는 `app/api/errors.py`의 `forbidden()`·`not_found()`·`version_conflict()`·`unprocessable()`을 던진다.
