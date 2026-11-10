@@ -223,8 +223,10 @@ def build_standards(blocks: list[ParsedBlock]) -> dict[str, object]:
             )
             if v in title
         ]
-        properties["signal_state_A"] = None
-        properties["signal_state_B"] = None
+        # 사실 카드 칸 이름(signal_A/B, app/schemas/chart_scope.py)과 같게 둔다.
+        # 원문에서 값을 뽑지 않아 null이다.
+        properties["signal_A"] = None
+        properties["signal_B"] = None
         for field, values in properties.items():
             if not isinstance(values, list):
                 continue

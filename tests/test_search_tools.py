@@ -172,7 +172,7 @@ def test_unreviewed_chart_attributes_cannot_be_hard_filters(monkeypatch):
     search = AsyncMock(return_value=[])
     monkeypatch.setattr(common, "search", search)
     with pytest.raises(ValueError, match="Unsupported"):
-        asyncio.run(search_fault_standards(query({"signal_state_A": "red"}, top_k=10)))
+        asyncio.run(search_fault_standards(query({"signal_A": "red"}, top_k=10)))
     search.assert_not_awaited()
 
 
