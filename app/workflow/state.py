@@ -4,7 +4,13 @@ from typing import Literal, NotRequired, TypedDict
 
 from app.schemas.common import JudgmentStatus
 from app.schemas.facts import FactCard
-from app.schemas.judgment import ConfirmationQuestion, JudgmentResult, ValidationCheck
+from app.schemas.judgment import (
+    ChartAlternative,
+    ConfirmationQuestion,
+    JudgmentResult,
+    ModifierDecision,
+    ValidationCheck,
+)
 from app.schemas.retrieval import EvidenceHit
 from app.workflow.candidates import ChartCandidate, ChartModifier, ChartVariant
 
@@ -28,6 +34,9 @@ class ChartSelection(TypedDict):
     # 차순위 후보(순위순). 반박이 도표 오선택이면 첫 번째로 재실행한다
     alternatives: list[str]
     reasons: list[str]
+    # 보고서용: 수정요소 판정(5번)과 고르지 않은 후보·이유(3번)
+    modifier_decisions: list[ModifierDecision]
+    alternative_reasons: list[ChartAlternative]
 
 
 class Outcome(TypedDict):

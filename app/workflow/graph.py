@@ -40,8 +40,10 @@ from app.schemas.chart_scope import (
 )
 from app.schemas.facts import FactCard
 from app.schemas.judgment import (
+    ChartAlternative,
     ConfirmationQuestion,
     JudgmentResult,
+    ModifierDecision,
     QuestionAnswer,
     ValidationCheck,
 )
@@ -220,28 +222,31 @@ def open_fields(state: JudgmentState) -> list[str]:
     return result
 
 
-def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[str]]:
-    """확인한 칸과 모순 없는 검수 후보를 일치 칸 수·검색 점수로 정렬한다. (순위, 제외 이유)."""
+def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, str]]]:
+    """확인한 칸과 모순 없는 검수 후보를 일치 칸 수·검색 점수로 정렬한다.
+
+    (순위, [(도표, 제외 이유)]).
+    """
     card = state["card"]
     values = confirmed_values(card)
     unknown = set(state.get("unknown_fields", []))
     required = set(_required_fields(card))
     ranked: list[tuple[int, float, ChartCandidate]] = []
-    skipped: list[str] = []
+    skipped: list[tuple[str, str]] = []
     for candidate in _eligible(state):
         keys = set(candidate["attributes"])
         for variant in candidate["base_variants"]:
             keys |= set(variant["conditions"])
         if not required <= keys:
-            skipped.append(f"{candidate['chart_id']}: 구분 칸 {sorted(required - keys)} 미정의")
+            skipped.append((candidate["chart_id"], f"구분 칸 {sorted(required - keys)} 미정의"))
             continue
         mismatch = [k for k, v in candidate["attributes"].items() if k in values and values[k] != v]
         if mismatch:
-            skipped.append(f"{candidate['chart_id']}: 카드와 불일치 {mismatch}")
+            skipped.append((candidate["chart_id"], f"카드와 불일치 {mismatch}"))
             continue
         unverifiable = [k for k in candidate["attributes"] if k not in values and k in unknown]
         if unverifiable:
-            skipped.append(f"{candidate['chart_id']}: 확인 불가 칸 {unverifiable}")
+            skipped.append((candidate["chart_id"], f"확인 불가 칸 {unverifiable}"))
             continue
         matched = sum(1 for k in candidate["attributes"] if k in values)
         ranked.append((matched, candidate["score"], candidate))
@@ -291,6 +296,68 @@ def _apply_modifiers(
         else:
             unresolved.append((modifier, "적용 조건 불일치"))
     return applied, unresolved
+
+
+def modifier_decisions(
+    candidate: ChartCandidate, applied: list[AppliedModifier],
+    unresolved: list[tuple[object, str]],
+) -> list[ModifierDecision]:
+    """보고서 5번. 도표 레코드 순서대로, 가감치가 있는 요소만 담는다.
+
+    가감치가 없는(비적용) 요소는 이 도표의 대상이 아니다.
+    """
+    applied_ids = {a["modifier_id"] for a in applied}
+    why_by_id = {m["modifier_id"]: why for m, why in unresolved}  # type: ignore[index]
+    decisions: list[ModifierDecision] = []
+    for modifier in candidate["modifiers"]:
+        if modifier["delta"] is None:
+            continue
+        fields = [*MODIFIER_REQUIRED_CONFIRMED_FIELDS.get(modifier["code"], ()),  # type: ignore[call-overload]
+                  *(modifier["conditions"] or {})]
+        if modifier["modifier_id"] in applied_ids:
+            decision, why = "적용", "적용 조건 충족"
+        else:
+            why = why_by_id.get(modifier["modifier_id"], "판정하지 않음")
+            decision = "미적용" if why == "적용 조건 불일치" else "불명"
+        decisions.append({
+            "modifier_id": modifier["modifier_id"], "name": modifier["name"],
+            "applies_to": modifier["party"], "delta": modifier["delta"],
+            "decision": decision, "evidence_fields": list(dict.fromkeys(fields)),  # type: ignore[typeddict-item]
+            "reason": why,
+        })
+    return decisions
+
+
+def alternative_reasons(
+    state: JudgmentState, best: ChartCandidate, others: list[ChartCandidate],
+    skipped: list[tuple[str, str]], values: dict[str, str],
+) -> list[ChartAlternative]:
+    """보고서 3번 차순위 후보.
+
+    반박으로 뺀 도표 → 차순위 → 카드와 맞지 않는 후보 → 검수 전 레코드 순이다.
+    """
+    out: list[ChartAlternative] = []
+    rebutted = [ch for ch in state["checks"] if ch["layer"] == "rebuttal" and not ch["passed"]
+                and ch.get("rebuttal_kind") == "wrong_chart"]
+    for chart_id, check in zip(state.get("excluded_chart_ids", []), rebutted, strict=False):
+        reason = "; ".join(check["reasons"]) or "도표 오선택"
+        out.append({"chart_id": chart_id, "reason": f"반박 검토로 제외 — {reason}"})
+    best_matched = sum(1 for k in best["attributes"] if k in values)
+    for candidate in others:
+        matched = sum(1 for k in candidate["attributes"] if k in values)
+        if matched < best_matched:
+            why = f"확인한 칸 {matched}개 일치(선택 도표 {best_matched}개)"
+        elif matched == best_matched:
+            why = "확인한 칸 일치 수가 같고 검색 순위가 낮음"
+        else:
+            why = "반박 검토가 고른 도표를 우선함"
+        out.append({"chart_id": candidate["chart_id"], "reason": f"차순위 — {why}"})
+    out += [{"chart_id": chart_id, "reason": f"제외 — {why}"} for chart_id, why in skipped]
+    out += [
+        {"chart_id": c["chart_id"], "reason": "제외 — 검수 전 도표 레코드"}
+        for c in state.get("candidates", []) if not c["calculation_ready"]
+    ]
+    return out
 
 
 def _outcome(status: str, reasons: list[str]) -> Outcome:
@@ -364,7 +431,8 @@ def build_graph(
             return update
         ranked, skipped = _rank(state)
         if not ranked:
-            update["outcome"] = _outcome("deferred", [REASON_NO_REVIEWED_CHART, *skipped])
+            excluded = [f"{chart_id}: {why}" for chart_id, why in skipped]
+            update["outcome"] = _outcome("deferred", [REASON_NO_REVIEWED_CHART, *excluded])
             return update
         best = ranked[0]
         variant, missing = _pick_variant(best, values)
@@ -383,8 +451,9 @@ def build_graph(
             "alternatives": [c["chart_id"] for c in ranked[1:]],
             "reasons": [
                 f"{best['chart_id']} 선택: 확인한 칸 {len(matched)}개 일치 ({', '.join(matched)})",
-                *(f"제외 {line}" for line in skipped),
             ],
+            "modifier_decisions": modifier_decisions(best, applied, unresolved),
+            "alternative_reasons": alternative_reasons(state, best, ranked[1:], skipped, values),
         }
         update["selection"] = selection
         update["selected_chart_id"] = best["chart_id"]
@@ -475,6 +544,11 @@ def build_graph(
             "fault_A": fault[0] if fault else None, "fault_B": fault[1] if fault else None,
             "calculation_log": list(log), "evidence": chart_hits if keep_chart else [],
             "checks": list(state["checks"]), "questions": questions, "reasons": list(reasons),
+            "base_fault_A": selection["variant"]["base_A"] if keep_chart and selection else None,
+            "modifiers": list(selection["modifier_decisions"]) if keep_chart and selection else [],
+            "alternatives": (
+                list(selection["alternative_reasons"]) if keep_chart and selection else []
+            ),
         }
 
     def _after(next_node: str):

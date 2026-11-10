@@ -77,6 +77,9 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 판단은 요청 안에서 끝까지 실행하고(`app/api/judgments.py`) 실행·질문·응답·검증 로그를 `judgment_runs` 계열 테이블에,
 그래프 체크포인트를 `langgraph` 스키마에 저장한다. FE는 응답의 `task_id`(= `judgment_runs.id`)로 실행 행·질문을 RLS로 읽고
 Realtime으로 변화를 받는다. 판정 결과(`JudgmentResult`)는 `judgment_runs.result`에 있다.
+보고서 3·4·5번용 필드도 판단 그래프가 채운다. `base_fault_A`(선택한 기본 과실 A), `modifiers`(선택한 도표의 수정요소마다
+`decision` 적용·미적용·불명과 `reason`·`evidence_fields`, 가감치가 있는 요소만), `alternatives`(고르지 않은 도표와 이유)다.
+도표를 고르지 못한 보류면 `null`·빈 목록이다.
 
 | 요청 | 응답 본문 |
 | --- | --- |

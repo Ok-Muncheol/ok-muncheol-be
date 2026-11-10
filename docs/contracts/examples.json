@@ -162,7 +162,10 @@
     "questions": [],
     "reasons": [
       "합성 계약 양식: 검색/판단 미실행, 수치 미제공"
-    ]
+    ],
+    "base_fault_A": null,
+    "modifiers": [],
+    "alternatives": []
   },
   "report_deferred": {
     "versions": {
@@ -197,7 +200,10 @@
       "questions": [],
       "reasons": [
         "합성 계약 양식: 검색/판단 미실행, 수치 미제공"
-      ]
+      ],
+      "base_fault_A": null,
+      "modifiers": [],
+      "alternatives": []
     },
     "sections": [],
     "calculation": null,
