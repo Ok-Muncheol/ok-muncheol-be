@@ -162,7 +162,7 @@ class ReportTest(unittest.TestCase):
             s for s in assemble_review(fx.judgment(), card=fx.card())["sections"] if s["no"] == 2
         )
         edited = {f["칸"]: f["담당자 수정"] for f in two["body"]["사실 카드"]}
-        self.assertTrue(edited["signal_state_A"])
+        self.assertTrue(edited["signal_A"])
 
     def test_version_mismatch_rejected(self):
         with self.assertRaises(ReportInputMismatch):
