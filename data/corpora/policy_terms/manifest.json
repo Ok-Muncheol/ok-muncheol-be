@@ -1,0 +1,54 @@
+{
+  "corpus": "policy_terms",
+  "status": "pending_storage_and_rights_review",
+  "documents": [
+    {
+      "document_id": "samsung-personal-auto-2026-11-11",
+      "source_uri": "corpus-sources/policy_terms/samsung-personal-auto-2026-11-11.pdf",
+      "source_name": "삼성화재약관.pdf",
+      "storage_object": {
+        "bucket": "corpus-sources",
+        "path": "policy_terms/samsung-personal-auto-2026-11-11.pdf",
+        "relation": "original",
+        "sha256": "ca7f8fd3beb10b1eaba4d0acc54e930c8fd9ae15ee0b578b7796c6e1eec722d4",
+        "bytes": 5834339,
+        "note": "원본 그대로 업로드. 저장본 해시 = content_hash"
+      },
+      "edition": "2026.11.11",
+      "edition_source": "표지 '개인용 자동차보험 약관 2026.11.11 개정'(1쪽)",
+      "effective_from": "2026-11-11",
+      "effective_to": null,
+      "effective_period_status": "assumed_from_revision_date",
+      "effective_period_note": "표지 개정일을 시행일로 둔 값이다. 삼성화재 공시실 판매기간으로 확인되면 status를 confirmed로 바꾼다. 약관 적용판은 사고 일자가 아니라 계약 자료로 정한다.",
+      "content_hash": "ca7f8fd3beb10b1eaba4d0acc54e930c8fd9ae15ee0b578b7796c6e1eec722d4",
+      "parser_version": "pdfplumber-0.11.10:v2-visible-dedup",
+      "usage_review": {
+        "status": "permission_required",
+        "rights_holder": "삼성화재해상보험",
+        "copyright_notice": null,
+        "portal_condition": "원문(294쪽)과 삼성화재 공시실 약관 페이지에 저작권·재배포 문구 없음.",
+        "public_redistribution": "not_allowed",
+        "private_storage_and_authenticated_display": "pending_rights_holder_confirmation",
+        "finding": "약관은 공시실에서 누구나 내려받을 수 있지만 공개 게시가 재배포 허락은 아니다. 저장소에는 올리지 않고, 사용자에게는 삼성화재 공시실 원문 링크를 함께 안내한다. 서비스 화면에 전문을 보여줄지는 삼성화재에 확인한다.",
+        "evidence_urls": ["https://www.samsungfire.com/m/util/M_U02_04_01_112.html"],
+        "reviewed_at": "2026-11-10"
+      },
+      "reviewed_by": null
+    }
+  ],
+  "embedding_model": "text-embedding-3-small",
+  "embedding_dimensions": 1536,
+  "embedding_version": "text-embedding-3-small:1536:v1",
+  "required_document_fields": [
+    "document_id",
+    "source_uri",
+    "edition",
+    "effective_from",
+    "effective_to",
+    "content_hash",
+    "parser_version",
+    "usage_review",
+    "reviewed_by"
+  ],
+  "notes": "메타데이터만 둔다. 원본 PDF·페이지 텍스트·청크·벡터·평가셋은 커밋하지 않는다(비공개 Storage·data/private·DB)."
+}

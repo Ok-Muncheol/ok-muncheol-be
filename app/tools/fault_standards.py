@@ -13,4 +13,4 @@ async def search_fault_standards(query: SearchQuery) -> list[EvidenceHit]:
     An unknown effective period must not exclude the document by accident date.
     """
     request = prepare_request(query, "fault_standards")
-    return validate_hits(request, await common.search(request))
+    return await validate_hits(request, await common.search(request))

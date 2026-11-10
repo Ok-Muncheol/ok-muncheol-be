@@ -13,4 +13,4 @@ async def search_policy_terms(query: SearchQuery) -> list[EvidenceHit]:
     substitute. A coverage label is retrieval relevance, not proof of enrollment.
     """
     request = prepare_request(query, "policy_terms")
-    return validate_hits(request, await common.search(request))
+    return await validate_hits(request, await common.search(request))
