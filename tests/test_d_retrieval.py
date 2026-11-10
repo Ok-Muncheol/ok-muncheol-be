@@ -20,6 +20,7 @@ from app.retrieval.index import InMemoryIndex
 from app.tools.dispute_cases import search_dispute_cases
 from app.tools.fault_standards import search_fault_standards
 from app.tools.policy_terms import search_policy_terms
+from tests.evidence_d import skip_validation
 
 EMBEDDER = FakeEmbedder()
 VECTOR = RetrievalOptions(mode="vector")
@@ -625,7 +626,7 @@ class ToolIntegrationTest(RetrievalBase):
     def setUp(self):
         super().setUp()
         for tool in ("policy_terms", "fault_standards", "dispute_cases"):
-            patcher = patch(f"app.tools.{tool}.validate_hits", lambda request, hits: hits)
+            patcher = patch(f"app.tools.{tool}.validate_hits", skip_validation)
             patcher.start()
             self.addCleanup(patcher.stop)
 

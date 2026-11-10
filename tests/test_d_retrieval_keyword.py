@@ -33,6 +33,7 @@ from app.retrieval.keyword import (
     default_tokenizer,
 )
 from app.tools.policy_terms import search_policy_terms
+from tests.evidence_d import skip_validation
 
 EMBEDDER = FakeEmbedder()
 VECTOR = RetrievalOptions(mode="vector")
@@ -236,7 +237,7 @@ class KeywordSearchTest(unittest.TestCase):
 
     def test_goes_through_tool(self):
         query = {"text": "음주", "accident_date": "", "filters": {"edition": "판-1"}, "top_k": 3}
-        with patch("app.tools.policy_terms.validate_hits", lambda request, hits: hits):
+        with patch("app.tools.policy_terms.validate_hits", skip_validation):
             hits = asyncio.run(search_policy_terms(query))
         self.assertEqual(self.ids(hits), ["t2", "t1"])
 

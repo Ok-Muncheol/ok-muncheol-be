@@ -14,17 +14,14 @@ from pathlib import Path
 
 from app.retrieval.common import configure_retrieval, fetch_by_parent, search
 from app.retrieval.hybrid import CORPORA, RetrievalOptions, retrieve
-from app.retrieval.loader import ROOT, handoff_terms_edition, load_index, read_handoff
-from app.tools._evidence import FOLDERS, validate_hits
+from app.retrieval.loader import handoff_terms_edition, load_index, read_handoff
+from app.tools import _evidence
+from app.tools._evidence import validate_hits
 from app.tools.dispute_cases import search_dispute_cases
 from app.tools.fault_standards import search_fault_standards
 from app.tools.policy_terms import search_policy_terms
+from tests.evidence_d import LocalFileEvidenceStore, has_corpus
 
-# 코퍼스 원문은 저장소에 두지 않는다(#46). handoff.json은 추적되므로 세 코퍼스 청크 파일로 판단한다.
-HAS_CORPUS = all(
-    (ROOT / "data/private" / name / "processed" / "chunks.jsonl").is_file()
-    for name in FOLDERS.values()
-)
 CORPUS_COUNTS = {"fault_standards": 923, "dispute_cases": 1130, "policy_terms": 495}
 EDITION = "2026.11.11"
 VECTOR = RetrievalOptions(mode="vector")
@@ -40,7 +37,7 @@ def request(corpus, filters=None, top_k=3):
     }
 
 
-@unittest.skipUnless(HAS_CORPUS, "data/private/ 코퍼스 파일이 없다")
+@unittest.skipUnless(has_corpus(), "data/private/ 코퍼스 파일이 없다")
 class RealIndexTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -50,6 +47,13 @@ class RealIndexTest(unittest.TestCase):
         cls.rows = {}
         for row in cls.index._rows.values():
             cls.rows.setdefault(row["chunk"]["document"]["corpus"], []).append(row)
+        # 실제 검증(C validate_hits)은 EvidenceStore가 있어야 돈다. DB 대신 로컬 산출물로 채운다.
+        store = LocalFileEvidenceStore()
+        _evidence.configure_evidence_store(lambda: store)
+
+    @classmethod
+    def tearDownClass(cls):
+        _evidence.configure_evidence_store(None)
 
     def tearDown(self):
         configure_retrieval(
@@ -148,7 +152,7 @@ class RealIndexTest(unittest.TestCase):
                     "top_k": len(rows),
                 }
                 hits = [{"chunk": r["chunk"], "score": 0.5, "retrieval_version": "v"} for r in rows]
-                self.assertEqual(len(validate_hits(request, hits)), len(rows))
+                self.assertEqual(len(asyncio.run(validate_hits(request, hits))), len(rows))
 
     def test_fetch_by_parent_hits_pass_tool_validation(self):
         configure_retrieval(index=self.index, default_terms_edition=EDITION)
@@ -163,7 +167,7 @@ class RealIndexTest(unittest.TestCase):
                     "filters": {"edition": EDITION},
                     "top_k": 3,
                 }
-                self.assertEqual(validate_hits(request, hits), hits)
+                self.assertEqual(asyncio.run(validate_hits(request, hits)), hits)
 
     def test_tools_search_real_index_with_validation(self):
         cases = (

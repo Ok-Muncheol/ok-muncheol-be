@@ -20,9 +20,10 @@ from app.calculation.rules import DEFAULT_RULES, RuleSet
 from app.reports.render import to_json
 from app.retrieval.common import configure_retrieval, fetch_by_parent
 from app.retrieval.hybrid import RetrievalOptions
-from app.retrieval.loader import ROOT, handoff_terms_edition, load_index
-from app.tools._evidence import FOLDERS
+from app.retrieval.loader import handoff_terms_edition, load_index
+from app.tools import _evidence
 from tests import fixtures_d as fx
+from tests.evidence_d import LocalFileEvidenceStore, has_corpus, skip_validation
 
 ARTICLE_23 = "samsung-personal-auto-2026-11-11:general_article:23:p67"
 NO_FLAGS = {"무면허": False, "음주": False, "고의": False}
@@ -76,7 +77,7 @@ class SkipValidation(unittest.TestCase):
     """합성 청크를 쓰는 시험. 원문 대조(validate_hits)는 끈다. 실제 대조는 RealDataTest에 있다."""
 
     def setUp(self):
-        patcher = patch("app.calculation.exclusions.validate_hits", lambda request, hits: hits)
+        patcher = patch("app.calculation.exclusions.validate_hits", skip_validation)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -149,7 +150,7 @@ class ValidationTest(unittest.TestCase):
     def test_validate_hits_gets_matching_request(self):
         seen = []
 
-        def validate(request, hits):
+        async def validate(request, hits):
             seen.append(request)
             return hits
 
@@ -179,8 +180,15 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(by_key["exclusion:음주"]["result"], "fail")
         self.assertEqual(by_key["exclusion:무면허"]["detail"], NEEDS_CLAUSE)
 
+    def test_unregistered_evidence_store_fails_closed(self):
+        """EvidenceStore(DB 어댑터) 등록 전에는 C 검증이 RuntimeError → 조항 미확인(fail-closed)."""
+        _evidence.configure_evidence_store(None)
+        with self.assertLogs("app.calculation.exclusions", "WARNING") as logs:
+            self.assertEqual(self.gather(Spy([hit("p67", ARTICLE_23, 1.0)])), [])
+        self.assertIn("not configured", logs.output[0])
+
     def test_missing_corpus_file_does_not_block(self):
-        def unavailable(request, hits):
+        async def unavailable(request, hits):
             raise RuntimeError("Corpus source file unavailable")
 
         with patch("app.calculation.exclusions.validate_hits", unavailable):
@@ -414,13 +422,7 @@ class ApiFlowTest(SkipValidation):
         self.assertEqual({c["decided_by"] for c in self.exclusions(report)}, {"handler"})
 
 
-# 코퍼스 원문은 저장소에 두지 않는다(#46). handoff.json은 추적되므로 약관 청크 파일로 판단한다.
-HAS_TERMS = (
-    ROOT / "data/private" / FOLDERS["policy_terms"] / "processed" / "chunks.jsonl"
-).is_file()
-
-
-@unittest.skipUnless(HAS_TERMS, "data/private/ 약관 코퍼스 파일이 없다")
+@unittest.skipUnless(has_corpus("policy_terms"), "data/private/ 약관 코퍼스 파일이 없다")
 class RealDataTest(unittest.TestCase):
     """실제 약관 색인과 실제 validate_hits로 판정기 입력을 확인한다. API 호출 없음."""
 
@@ -428,6 +430,13 @@ class RealDataTest(unittest.TestCase):
     def setUpClass(cls):
         with cls.assertLogs(cls(), "app.retrieval.index", "WARNING"):
             cls.index = load_index(["policy_terms"])
+        # 실제 검증(C validate_hits)은 EvidenceStore가 있어야 돈다. DB 대신 로컬 산출물로 채운다.
+        store = LocalFileEvidenceStore(["policy_terms"])
+        _evidence.configure_evidence_store(lambda: store)
+
+    @classmethod
+    def tearDownClass(cls):
+        _evidence.configure_evidence_store(None)
 
     def setUp(self):
         configure_retrieval(index=self.index, default_terms_edition=handoff_terms_edition())

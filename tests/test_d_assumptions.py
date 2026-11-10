@@ -16,6 +16,7 @@ from unittest.mock import patch
 from app.api import reports as api
 from app.calculation.exclusions import llm_judge
 from app.calculation.rules import RuleSet
+from tests import evidence_d
 from tests import fixtures_d as fx
 
 REVIEWED = RuleSet(version="reviewed-test")
@@ -293,7 +294,7 @@ class AssumptionTest(unittest.TestCase):
 
         answer = '{"result": "unknown", "clause_ids": [], "detail": "사실 부족"}'
         api.configure(fetch_clauses=fetch, judge=llm_judge(lambda prompt: answer))
-        patcher = patch("app.calculation.exclusions.validate_hits", lambda request, hits: hits)
+        patcher = patch("app.calculation.exclusions.validate_hits", evidence_d.skip_validation)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.submit()

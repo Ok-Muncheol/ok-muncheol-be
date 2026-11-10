@@ -217,8 +217,8 @@ async def fetch_exclusion_clauses(
         "top_k": max(len(hits), 1),
     }
     try:
-        return validate_hits(request, hits)
-    except (ValueError, RuntimeError) as exc:  # 원문과 어긋남, 코퍼스 파일 없음
+        return await validate_hits(request, hits)
+    except (ValueError, RuntimeError) as exc:  # 원문과 어긋남, 검증 저장소(EvidenceStore) 미등록
         logger.warning("면책 조항 검증 실패 — 조항 미확인으로 처리: %s (%s)", topic, exc)
         return []
 

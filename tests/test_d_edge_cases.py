@@ -20,6 +20,7 @@ from app.claims.package import (
 )
 from app.reports.assembler import assemble_review
 from app.reports.render import package_html, to_json
+from tests import evidence_d
 from tests import fixtures_d as fx
 
 REVIEWED = RuleSet(version="reviewed-test")
@@ -409,7 +410,7 @@ class ApiEdgeFlowTest(unittest.TestCase):
             return [fx._hit("policy_terms", "synthetic-clause", "(합성) 면책 조항")]
 
         api.configure(fetch_clauses=fetch)
-        with patch("app.calculation.exclusions.validate_hits", lambda request, hits: hits):
+        with patch("app.calculation.exclusions.validate_hits", evidence_d.skip_validation):
             checks = self.exclusion_checks(self.calculate(NO_FLAGS))
         self.assertEqual(
             {c["decided_by"] for c in checks.values()}, {"code"}
