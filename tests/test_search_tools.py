@@ -5,10 +5,16 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.retrieval import common
-from app.tools._evidence import _load
+from app.tools._evidence import FOLDERS, ROOT, _load
 from app.tools.dispute_cases import search_dispute_cases
 from app.tools.fault_standards import search_fault_standards
 from app.tools.policy_terms import search_policy_terms
+
+# 코퍼스 원문은 저장소에 두지 않는다. data/private/에 받아 둔 환경에서만 아래 테스트를 돌린다.
+needs_corpus = pytest.mark.skipif(
+    not all((ROOT / name / "processed" / "chunks.jsonl").is_file() for name in FOLDERS.values()),
+    reason="data/private/ 코퍼스 파일이 없다",
+)
 
 
 @pytest.mark.parametrize(
@@ -84,6 +90,7 @@ def test_rejects_invalid_request_before_common_search(monkeypatch):
     search.assert_not_awaited()
 
 
+@needs_corpus
 @pytest.mark.parametrize(
     ("tool", "corpus", "filters"),
     [
@@ -110,6 +117,7 @@ def test_real_corpus_hit_links_to_structured_record_and_pdf(monkeypatch, tool, c
     assert result == [hit]
 
 
+@needs_corpus
 def test_rejects_page_or_text_not_in_index(monkeypatch):
     original = next(iter(_load("fault_standards")[0].values()))
     bad = deepcopy(original)
@@ -122,6 +130,7 @@ def test_rejects_page_or_text_not_in_index(monkeypatch):
         )
 
 
+@needs_corpus
 def test_rejects_result_outside_requested_chart(monkeypatch):
     case = next(iter(_load("dispute_cases")[0].values()))
     hit = {"chunk": case, "score": 0.8, "retrieval_version": "test"}
