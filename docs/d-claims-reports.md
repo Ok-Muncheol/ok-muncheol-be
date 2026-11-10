@@ -64,13 +64,15 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 ## HTTP 경로 (11-10, 구준휘 님과 합의)
 
 `app/api/routes.py`·README API 표·FE ApiClient는 구준휘 님이 맞춘다. D는 아래 서비스 함수(`app/api/reports.py`)만 제공한다.
+다만 견적서 경로(`POST /cases/{id}/estimates`)의 Storage 내려받기는 11/10부터 D가 맡는다(구준휘 님에게서 넘겨받음).
+준비물은 정지원 님 업로드 서명 URL(`POST /cases/{id}/uploads`), Storage 읽기 서버 키(Vercel 등록은 구준휘 님), `pdfplumber`를 pyproject 기본 의존성으로 옮기기(지금은 선택 의존성 `estimate-pdf`)다.
 `…`는 `/cases/{case_id}`.
 
 | 메서드·경로 | 서비스 함수 | 요청 | 응답 |
 | --- | --- | --- | --- |
 | `GET …/reports/{v}` | `get_report(actor_id, case_id, version)` | - | `ReviewReport` |
 | `POST …/reports/{v}/confirm` | `confirm_report(actor_id, case_id, version, counterparty?)` | body: `counterparty`(선택, `CounterpartyInfo`) | `ConfirmResult` |
-| `POST /cases/{id}/estimates` | `upload_estimate(actor_id, case_id, pdf_path, party_id)` | body: `storage_path`, `party_id`. 구준휘 님 경로가 Storage에서 `/tmp`로 내려받아 `pdf_path`로 넘긴다 | `ReviewReport \| null` |
+| `POST /cases/{id}/estimates` | `upload_estimate(actor_id, case_id, pdf_path, party_id)` | body: `storage_path`, `party_id`. D가 경로 본문에서 `storage_path`가 그 사건 폴더인지 확인하고 Storage에서 `/tmp`로 내려받아 `pdf_path`로 넘긴다(연결 전 501) | `ReviewReport \| null` |
 | `POST /cases/{id}/documents` | `add_documents(actor_id, case_id, documents, case_facts?)` | body: `documents`, `case_facts`(선택) | `ReviewReport \| null` |
 | `GET …/reports/{v}/claim` | `get_claim(actor_id, case_id, version)` | - | `ClaimResult` |
 | `PATCH /cases/{id}/agreed-fault` | `set_agreed_fault(actor_id, case_id, agreed_counterparty_fault?, fault_change_reason, clear?)` | body: 같은 이름 | `ReviewReport` |

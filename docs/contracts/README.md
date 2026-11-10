@@ -43,7 +43,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/reports/{version}/confirm` | D | 본문 `{counterparty?}`, 응답 `ConfirmResult`. 최신 아님 409, 추가 확인·보류 422 `confirm_blocked` |
 | GET | `/cases/{id}/reports/{version}/claim` | D | 응답 `ClaimResult`. 청구서가 없으면 404 |
 | POST | `/cases/{id}/documents` | D | `{documents, case_facts?}` → 재산정한 `ReviewReport` 또는 null. 1차 확장 |
-| POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}`. Storage 내려받기 연결 전에는 501. 1차 확장 |
+| POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}`. 경로 본문의 Storage 내려받기도 D(11/10 B에서 이관), 연결 전에는 501. 1차 확장 |
 | PATCH | `/cases/{id}/agreed-fault` | D | `{agreed_counterparty_fault?, fault_change_reason, clear?}` → 새 `ReviewReport`. 1차 확장 |
 
 | 상태 | `code` | 뜻 |

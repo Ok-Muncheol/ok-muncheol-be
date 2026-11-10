@@ -173,8 +173,13 @@ async def add_documents(
 async def upload_estimate(
     actor_id: ActorId, case_id: str, body: EstimateRequest
 ) -> ReviewReport | None:
-    """Storage 경로의 견적서를 /tmp로 내려받아 reports.upload_estimate에 넘긴다(후속)."""
-    raise NotImplementedError("B: 견적서 Storage 내려받기 — 업로드 서명 URL·서버 키 준비 뒤 연결")
+    """D: Storage 경로의 견적서를 /tmp로 내려받아 reports.upload_estimate에 넘긴다(후속).
+
+    11/10 구준휘(B)에게서 옥석현(D)으로 넘겼다. storage_path가 이 사건 폴더인지 확인한다.
+    준비물: 정지원 업로드 서명 URL, Storage 읽기 서버 키(Vercel 등록은 구준휘),
+    pdfplumber 기본 의존성.
+    """
+    raise NotImplementedError("D: 견적서 Storage 내려받기 — 업로드 서명 URL·서버 키 준비 뒤 연결")
 
 
 @router.patch("/cases/{case_id}/agreed-fault", tags=["D reports"])
