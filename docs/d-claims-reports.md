@@ -91,6 +91,27 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | `case_facts` 키·값 오류(서류도 저장 안 함) | `CaseFactsInvalid` | 422 | `invalid_case_facts` |
 | 확정되지 않은 사실 카드 | `CardNotConfirmed` | 422 | `card_not_confirmed` |
 | 협의 과실 입력·해제 오류(이유 없음·0~100 밖·되돌릴 값 없음·산정 결과 없음) | `AgreedFaultInvalid` | 422 | `invalid_agreed_fault` |
+| 같은 보고서·청구서 버전을 다른 요청이 먼저 저장(동시 요청, DB 저장소) | `VersionTaken` | 409 | `version_conflict` |
+| 서류 모양 오류(`document_id` 없음, `kind`가 견적서·자차 계약·증빙 아님 — 아무것도 저장 안 함) | `DocumentsInvalid` | 422 | `invalid_documents` |
+| 보고서 테이블 없음(공용 DB에 마이그레이션 적용 전) | `ReportsDbNotReady` | 503 | `reports_db_not_ready` (retryable) |
+
+## 저장소 (11-11)
+
+`DATABASE_URL`이 있으면 `PostgresReportRepository`(운영, Supabase), 없으면 `InMemoryReportRepository`(테스트·`scripts/demo_d.py`).
+테이블은 `supabase/migrations/20261111090000_review_reports.sql`.
+
+| 테이블 | 내용 |
+| --- | --- |
+| `review_reports` | 보고서 버전(`report`)과 그때 쓴 사실 카드(`fact_card`). `(case_id, judgment_version)` → `judgment_runs` |
+| `case_documents` | 견적서·자차 계약·증빙. 같은 `document_id`는 한 번, `seq`가 넣은 순서 |
+| `report_case_inputs` | 사건당 1행: 면책 체크(`case_facts`)와 협의 과실(`fault_agreement`) |
+| `claim_packages` | 구상 청구서. `(report_id, case_id)` → `review_reports`, 같은 `idempotency_key`는 한 번 |
+
+- 서비스 함수는 요청마다 사건 기록을 DB에서 불러와 고친 뒤 한 트랜잭션으로 저장한다(`repo.get` → 수정 → `repo.save`).
+- 사건은 A가 만든다. DB 저장소는 없는 사건을 만들지 않는다. 접근 검사는 판단 서비스와 같다
+  (uuid 아님·사건 없음 404, `cases.assignee_id`와 다르면 403).
+- 원본 칼럼은 `json`이다(`jsonb`는 키 순서를 바꿔 보고서 본문·청구서 HTML 항목 순서가 달라진다).
+- 브라우저(authenticated)는 담당 사건 행을 읽기만 한다. 쓰기는 BE만.
 
 ## FE 타입 변경
 

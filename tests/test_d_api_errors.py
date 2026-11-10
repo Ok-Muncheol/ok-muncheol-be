@@ -93,7 +93,7 @@ class ErrorMappingTest(ServiceBase):
         self.submit()
         with fx.raises_api(self, 422, "invalid_case_facts", "과속"):
             run(api.add_documents(ACTOR, CASE, [fx.estimate()], {"과속": True}))
-        self.assertEqual(api.services.repo.get(ACTOR, CASE).documents, [])
+        self.assertEqual(fx.record(ACTOR, CASE).documents, [])
 
     def test_unconfirmed_card_is_422(self):
         card = {**fx.card(), "status": "draft"}

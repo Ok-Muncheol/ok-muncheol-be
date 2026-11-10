@@ -128,7 +128,7 @@ class ConfirmFlowTest(unittest.TestCase):
             (None, None, "견적서 필요 — 견적서 추가 후 청구서 생성"),
         )
         self.assertEqual(
-            api.services.repo.get(self.actor, self.case).latest["approval_status"], "approved"
+            fx.record(self.actor, self.case).latest["approval_status"], "approved"
         )
 
     def test_not_ready_judgment_has_no_calculation_or_package(self):
@@ -138,7 +138,7 @@ class ConfirmFlowTest(unittest.TestCase):
                 v1 = self.submit(status)
                 self.assertIsNone(v1["calculation"])
                 self.assertIsNone(self.add([fx.contract(), fx.estimate()], NO_FLAGS))  # 서류만 저장
-                self.assertEqual(len(api.services.repo.get(self.actor, self.case).reports), 1)
+                self.assertEqual(len(fx.record(self.actor, self.case).reports), 1)
                 # 확인 완료를 막는 두 경우 중 하나
                 with fx.raises_api(self, 422, "confirm_blocked"):
                     self.confirm(1)
@@ -162,7 +162,7 @@ class ConfirmFlowTest(unittest.TestCase):
         first = self.confirm(2)
         again = self.confirm(2)
         self.assertIs(again["package"], first["package"])
-        self.assertEqual(len(api.services.repo.get(self.actor, self.case).packages), 1)
+        self.assertEqual(len(fx.record(self.actor, self.case).packages), 1)
         self.assertEqual(
             again["report"]["approved_at"], first["report"]["approved_at"]
         )  # 첫 확인 기록 유지

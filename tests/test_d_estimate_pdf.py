@@ -238,7 +238,7 @@ class UploadEstimateFlowTest(unittest.TestCase):
         self.run_(api.submit_judgment(a, fx.card(), fx.judgment()))
         v2 = self.run_(api.upload_estimate(a, cid, str(SAMPLE_NO_TOTAL), "P1"))
         doc = next(
-            d for d in api.services.repo.get(a, cid).documents if d["kind"] == "repair_estimate"
+            d for d in fx.record(a, cid).documents if d["kind"] == "repair_estimate"
         )
         self.assertEqual((doc["read_by"], doc["amount"]), ("pdf_extract", None))
         self.assertEqual(
@@ -257,7 +257,7 @@ class UploadEstimateFlowTest(unittest.TestCase):
         self.run_(api.submit_judgment(a, fx.card(), fx.judgment("needs_confirmation")))
         self.assertIsNone(self.run_(api.upload_estimate(a, cid, str(SAMPLE_10M), "P1")))
         doc = next(
-            d for d in api.services.repo.get(a, cid).documents if d["kind"] == "repair_estimate"
+            d for d in fx.record(a, cid).documents if d["kind"] == "repair_estimate"
         )
         self.assertEqual(doc["amount"], 10_000_000)
 
@@ -265,7 +265,7 @@ class UploadEstimateFlowTest(unittest.TestCase):
         a, cid = self.actor, self.case
         self.run_(api.submit_judgment(a, fx.card(), fx.judgment()))
         self.run_(api.upload_estimate(a, cid, str(SAMPLE_10M), "P1"))  # 증빙 따로 추가하지 않음
-        ev = [d for d in api.services.repo.get(a, cid).documents if d["kind"] == "evidence"]
+        ev = [d for d in fx.record(a, cid).documents if d["kind"] == "evidence"]
         self.assertEqual(
             [(d["doc_type"], d["storage_path"]) for d in ev], [("repair_estimate", str(SAMPLE_10M))]
         )
@@ -277,7 +277,7 @@ class UploadEstimateFlowTest(unittest.TestCase):
             api.upload_estimate(a, cid, str(SAMPLE_10M), "P1")
         )  # 같은 파일 재업로드 → 증빙 중복 없음
         self.assertEqual(
-            sum(d["kind"] == "evidence" for d in api.services.repo.get(a, cid).documents), 1
+            sum(d["kind"] == "evidence" for d in fx.record(a, cid).documents), 1
         )
 
     def test_upload_requires_case_access(self):

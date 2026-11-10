@@ -170,7 +170,7 @@ class AssumptionTest(unittest.TestCase):
                 self.assertEqual(
                     (out["package"], out["html"], out["claim_blocked_reason"]), (None, None, reason)
                 )
-                self.assertEqual(api.services.repo.get(self.actor, self.case).packages, [])
+                self.assertEqual(fx.record(self.actor, self.case).packages, [])
 
     def test_drunk_reason_says_terms_not_linked(self):
         self.submit()
@@ -245,7 +245,7 @@ class AssumptionTest(unittest.TestCase):
             with self.subTest(bad=bad):
                 with fx.raises_api(self, 422, "invalid_case_facts"):
                     self.add([fx.estimate()], bad)
-        rec = api.services.repo.get(self.actor, self.case)
+        rec = fx.record(self.actor, self.case)
         self.assertEqual(
             (rec.documents, rec.case_facts, len(rec.reports)), ([], {}, 1)
         )  # 잘못된 입력은 아무것도 바꾸지 않음
