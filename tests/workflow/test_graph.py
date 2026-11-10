@@ -279,3 +279,53 @@ def test_criteria_version_matches_fault_standards_manifest():
     manifest = Path(__file__).resolve().parents[2] / "data/corpora/fault_standards/manifest.json"
     editions = {d["edition"] for d in json.loads(manifest.read_text(encoding="utf-8"))["documents"]}
     assert CRITERIA_VERSION == f"fault_standards:{editions.pop()}" and not editions
+
+
+def test_result_carries_report_fields_for_sections_3_to_5():
+    _, out, _ = run(card())
+    result = out["result"]
+    assert result["base_fault_A"] == 20
+    assert [(m["name"], m["applies_to"], m["delta"], m["decision"]) for m in result["modifiers"]] \
+        == [("야간", "A", 5, "미적용"), ("중대한 과실", "B", 20, "불명")]
+    night, gross = result["modifiers"]
+    assert night["evidence_fields"] == ["night"] and night["reason"] == "적용 조건 불일치"
+    assert gross["evidence_fields"] == [] and "코드로 판정할 수 없음" in gross["reason"]
+    assert result["alternatives"] == [
+        {"chart_id": "S-2", "reason": "제외 — 카드와 불일치 ['movement_B']"}]
+    # 선택 근거만 reasons에 남고 제외 이유는 alternatives로 옮겼다
+    assert result["reasons"] == ["S-1 선택: 확인한 칸 6개 일치 (accident_type, location_type, "
+                                 "movement_A, signal_A, signal_B, movement_B)"]
+
+
+def test_applied_modifier_and_not_applicable_ones():
+    c = card()
+    c["fields"]["night"] = field(True)
+    cands = candidates()
+    parent = cands[0]["parent_id"]
+    not_applicable = {"modifier_id": f"{parent}:na", "party": "B", "name": "비적용 요소",
+                      "code": None, "delta": None, "conditions": None}
+    cands[0]["modifiers"].append(not_applicable)
+    _, out, _ = run(c, cands=cands)
+    decisions = {m["name"]: m["decision"] for m in out["result"]["modifiers"]}
+    # 가감치가 없는 요소는 보고서 목록에서 뺀다(보고서가 가감치를 정수로 그린다)
+    assert decisions == {"야간": "적용", "중대한 과실": "불명"}
+
+
+def test_rebutted_chart_is_listed_as_alternative_after_retry():
+    c = card()
+    c["fields"]["movement_B"] = field("straight")
+    cands = candidates()
+    cands[0]["attributes"]["movement_B"] = "straight"
+    verdicts = (verdict(True, "wrong_chart", "S-2", ["B가 직진"]), verdict())
+    _, out, _ = run(c, verdicts=verdicts, cands=cands)
+    result = out["result"]
+    assert result["chart_id"] == "S-2" and result["base_fault_A"] == 50
+    assert result["alternatives"] == [{"chart_id": "S-1", "reason": "반박 검토로 제외 — B가 직진"}]
+
+
+def test_deferred_without_chart_has_empty_report_fields():
+    cands = [candidate("U-1", {"location_type": "signalized_intersection"}, 40,
+                       calculation_ready=False, reasons=["검수 전"])]
+    _, out, _ = run(card(), cands=cands)
+    result = out["result"]
+    assert (result["base_fault_A"], result["modifiers"], result["alternatives"]) == (None, [], [])

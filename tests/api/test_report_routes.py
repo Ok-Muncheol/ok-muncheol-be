@@ -6,7 +6,6 @@
 
 import asyncio
 import json
-from typing import get_type_hints
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,15 +14,10 @@ from app.api import reports
 from app.calculation.rules import RuleSet
 from app.config import Settings, get_settings
 from app.main import app
-from app.schemas.judgment import JudgmentResult
 from tests import fixtures_d as fx
 
 ACTOR, CASE = "handler-1", "synthetic-case"
 NO_FLAGS = {"무면허": False, "음주": False, "고의": False}
-JUDGMENT_FIELDS = set(get_type_hints(JudgmentResult))
-# D 견본이 미리 쓰는 B 계약 제안 필드(app/reports/assembler.py: 보고서 3·4·5번).
-# JudgmentResult에 아직 없어 응답 모델이 내보내지 않는다. 계약을 넓히면 이 목록을 비운다
-PROPOSED_JUDGMENT_FIELDS = {"base_fault_A", "modifiers", "alternatives"}
 
 
 @pytest.fixture
@@ -44,11 +38,8 @@ def as_json(value: object) -> object:
 
 
 def contract_view(report: object) -> dict:
-    """응답 모델은 계약에 선언된 판단 필드만 내보낸다. 나머지는 서비스 결과와 같아야 한다."""
-    data = as_json(report)
-    assert set(data["judgment"]) - JUDGMENT_FIELDS <= PROPOSED_JUDGMENT_FIELDS
-    data["judgment"] = {k: v for k, v in data["judgment"].items() if k in JUDGMENT_FIELDS}
-    return data
+    """응답 모델(TypedDict)을 거쳐도 서비스 결과와 필드·값이 같아야 한다."""
+    return as_json(report)  # type: ignore[return-value]
 
 
 def test_report_flow_through_routes(client):
@@ -56,6 +47,11 @@ def test_report_flow_through_routes(client):
     res = client.get(f"/cases/{CASE}/reports/1")
     assert res.status_code == 200, res.text
     assert res.json() == contract_view(asyncio.run(reports.get_report(ACTOR, CASE, 1)))
+    # 보고서 3·4·5번이 쓰는 판단 필드(JudgmentResult)가 응답에 남는다
+    judgment = res.json()["judgment"]
+    assert judgment["base_fault_A"] == 30
+    assert judgment["modifiers"][0]["decision"] == "미적용"
+    assert judgment["alternatives"][0]["chart_id"] == "synthetic-chart-24"
 
     body = {"documents": [fx.contract(), fx.estimate(), *fx.evidence()], "case_facts": NO_FLAGS}
     res = client.post(f"/cases/{CASE}/documents", json=body)

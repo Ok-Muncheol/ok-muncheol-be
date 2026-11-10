@@ -51,6 +51,7 @@ def contract_examples() -> dict[str, object]:
         "fault_A": None, "fault_B": None, "calculation_log": [], "evidence": [],
         "checks": [{"layer": "evidence", "passed": False, "reasons": [REASON_NO_REVIEWED_CHART]}],
         "questions": [], "reasons": ["합성 계약 양식: 검색/판단 미실행, 수치 미제공"],
+        "base_fault_A": None, "modifiers": [], "alternatives": [],
     }
     report: ReviewReport = {
         "versions": versions, "judgment": judgment, "sections": [],
