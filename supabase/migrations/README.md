@@ -49,6 +49,7 @@ pgvector 차원·pg_trgm·Kiwi 토큰 통계는 김지은·옥석현 계약 후 
 ## 로컬 검사
 
 Docker로 버려도 되는 Postgres를 띄우고 돌린다. 테스트가 임시 데이터베이스를 만들고 지운다. **Supabase 주소를 넣지 않는다.**
+같은 변수로 판단 저장 검사(`tests/api/test_judgment_service.py`)도 돈다. CI는 Postgres 서비스로 늘 돌린다.
 
 ```bash
 docker run --rm -d --name okm-migration-pg -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:54329:5432 postgres:17-alpine
@@ -65,3 +66,8 @@ Realtime publication을 흉내 내고, `tests/migrations/behavior.sql`이 RLS·�
 `main`에 머지된 파일만 공용 Supabase DB에 파일명 순으로 적용한다. 대시보드 SQL Editor 또는
 `psql "$DATABASE_URL" --single-transaction -f <파일>`. 적용은 사람이 하고 ship은 안내만 한다(`automation/pipeline.md` 「DB 마이그레이션 원칙」).
 파괴적 변경은 2단계로 나눈다.
+
+LangGraph 체크포인트 테이블은 마이그레이션 뒤 한 번 `.venv/bin/python scripts/setup_checkpointer.py`로 `langgraph` 스키마에
+만든다(`DATABASE_URL`, 여러 번 실행해도 된다). `langgraph-checkpoint-postgres`를 올리면 다시 실행한다.
+공용 DB 연결은 Session pooler 주소(5432)를 쓴다. 직접 연결 주소는 IPv6 전용이고, Transaction pooler(6543)는 세션 설정
+(`search_path`)이 유지되지 않는다.

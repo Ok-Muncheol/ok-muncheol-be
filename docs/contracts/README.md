@@ -47,10 +47,12 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | --- | --- | --- |
 | 401 | `unauthorized` | 토큰 없음·만료·서명/발급자/audience 불일치 |
 | 403 | `forbidden` | 담당 사건이 아님(서비스 함수가 던짐) |
+| 404 | `not_found` | 사건·질문이 없음 |
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
-| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch` 같은 처리 불가 상태 |
+| 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
+| 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused` 같은 처리 불가 상태 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
-| 503 | `auth_not_configured`·`auth_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패 |
+| 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패 |
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |
 
 담당 서비스는 `app/api/errors.py`의 `forbidden()`·`not_found()`·`version_conflict()`·`unprocessable()`을 던진다.
@@ -67,5 +69,24 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 
 반박 검토는 `wrong_chart`일 때만 차순위 도표로 1회 재실행하고, `missing_fact`·`contradiction`은 바로 `needs_confirmation`이다.
 반박 검토 LLM 응답은 JSON 스키마(`holds`·`kind`·`preferred_chart_id`·`reasons`)로 고정하며 모양이 어긋나면 실행 실패로 올린다.
+
+## 판단 접수·질문 응답
+
+판단은 요청 안에서 끝까지 실행하고(`app/api/judgments.py`) 실행·질문·응답·검증 로그를 `judgment_runs` 계열 테이블에,
+그래프 체크포인트를 `langgraph` 스키마에 저장한다. FE는 응답의 `task_id`(= `judgment_runs.id`)로 실행 행·질문을 RLS로 읽고
+Realtime으로 변화를 받는다. 판정 결과(`JudgmentResult`)는 `judgment_runs.result`에 있다.
+
+| 요청 | 응답 본문 |
+| --- | --- |
+| 판단 접수(202) | `TaskView` — `task_id`·`case_id`·`stage`·`status`(`completed`·`waiting_for_confirmation`·`failed`)·`input_version`(카드 버전) |
+| 질문 응답(200) | `TaskView` + `pending_question_ids`·`next_action`·`field_values` |
+
+`next_action`은 `answer_remaining`(남은 질문에 답한다), `update_fact_card`(값 답변을 카드에 반영·재확정한 뒤 새 카드 버전으로
+판단을 다시 요청한다. `field_values`가 칸별 답), `null`(모두 '모름'이라 같은 실행을 재개해 끝냈다) 중 하나다.
+
+- 같은 `Idempotency-Key`·같은 요청이면 저장한 응답을 돌려준다. 같은 입력(카드·인정기준·규칙 버전)은 다시 판단하지 않고 기존 실행을 돌려준다.
+- 확인 대기 중인 실행은 새 카드 버전의 판단 접수가 대체하고(`superseded_at`), 새 실행이 `resumed_from_run_id`로 잇는다.
+- 실행 실패는 `status=failed`와 `judgment_runs.error`로 남는다. `dependency_not_ready`(검색 색인·검토 모델 미연결),
+  `judgment_failed`(재시도 가능), `run_interrupted`(10분 넘게 멈춘 실행을 정리)다.
 
 MVP 도표 범위(사고 유형·카드 칸·수정요소·보류 사유)는 [mvp-chart-scope.md](mvp-chart-scope.md)를 따른다.

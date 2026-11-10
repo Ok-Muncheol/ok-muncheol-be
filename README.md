@@ -10,7 +10,7 @@
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
 
 현재는 **담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
-함수의 `NotImplementedError`·TODO는 담당자가 채운다. API는 인증(Supabase 토큰 검증)·`ApiError` 오류 응답·담당별 경로까지 연결했고, 서비스 본문이 비어 있는 경로는 501을 돌려준다. 판단 그래프와 검증 3겹은 구현됐고 판단 접수 API·DB 연결은 후속이다. 공용 DB에는 사건·판단 테이블 마이그레이션이 적용돼 있다.
+함수의 `NotImplementedError`·TODO는 담당자가 채운다. API는 인증(Supabase 토큰 검증)·`ApiError` 오류 응답·담당별 경로까지 연결했고, 서비스 본문이 비어 있는 경로는 501을 돌려준다. 판단 그래프·검증 3겹과 판단 접수·질문 응답 API(실행·질문·검증 로그·체크포인트 DB 저장)는 구현됐다. 공용 DB에는 사건·판단 테이블 마이그레이션이 적용돼 있다.
 CI와 ship 하네스는 있다([브랜치·PR 규칙](#브랜치pr-규칙)).
 공통 타입은 표준 라이브러리 TypedDict 초안으로, 런타임 요청 검증·Pydantic·OpenAPI는 후속 작업이다.
 
@@ -112,8 +112,8 @@ flowchart TD
 `…`는 `/cases/{id}`의 줄임이다. 판단 그래프 상자의 영문 이름, `require_confirmed_card`, 판정 상태(둥근 상자)를 만드는
 `build_judgment_result`가 `app/workflow/graph.py` `STAGES`의 9단계다. 검증 3겹(근거·반박·계산)은 `app/validation/`,
 보고서 조립은 `app/reports/`에 있다.
-판단 그래프 9단계와 검증 3겹은 구현돼 있고(`tests/workflow/`·`tests/validation/`), 판단 접수 API와 DB·체크포인트 저장은
-후속 작업이다. 도표 선택은 검수한 구조 레코드(`calculation_ready`)만 쓰므로, 김지은의 도표 레코드에 `chart_scope` enum으로
+판단 그래프 9단계와 검증 3겹(`tests/workflow/`·`tests/validation/`), 판단 접수·질문 응답의 DB·체크포인트 저장
+(`tests/api/test_judgment_service.py`)은 구현돼 있다. 도표 선택은 검수한 구조 레코드(`calculation_ready`)만 쓰므로, 김지은의 도표 레코드에 `chart_scope` enum으로
 정규화한 속성이 검수 상태로 더해지기 전에는 "검수한 도표 근거 없음"으로 보류한다(`app/workflow/candidates.py`).
 
 SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과를 검증한 뒤 선택적으로 추가한다.
@@ -140,6 +140,8 @@ YOLO·SAM2 가중치와 GPU 실행 환경은 API 함수에 포함하지 않는�
 **배포는 Vercel 프로젝트 `ok-muncheol-be`에 연결되어 있다(2026-11-06).** `main` push마다 Python 런타임이
 `app/main.py`의 모듈 수준 `app`을 진입점으로 배포하고, 의존성은 `requirements.txt`(`.` → `pyproject.toml`)로 설치한다.
 경로 14개가 배포되지만 서비스 본문이 빈 경로는 501 `not_implemented`를 돌려준다. 인증 환경 변수가 없으면 보호 경로는 503으로 닫힌다.
+판단 경로는 서버 DB 주소 `DATABASE_URL`(Supabase Session pooler)이 없으면 503 `db_not_configured`, 반박 검토 키 `OPENAI_API_KEY`가
+없으면 실행이 `dependency_not_ready`로 실패한다.
 FE는 별도 Vercel 프로젝트 `ok-muncheol-fe`로 배포한다. 운영 주소는 FE `https://ok-muncheol-fe.vercel.app`,
 BE `https://ok-muncheol-be.vercel.app`이다(2026-11-09 확인). 오리진이 달라 CORS는 `CORS_ALLOW_ORIGINS`에 적은 출처만 허용한다.
 두 레포 모두 PR 브랜치는 배포하지 않고 `main`만 배포한다(`vercel.json`의 `git.deploymentEnabled`). Hobby는 배포를 하루(24시간)
@@ -261,6 +263,8 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 ## 개발 시작과 검증
 
 Python 3.12 이상에서 가상환경을 만들고 검증 도구(ruff·pytest)를 설치한다. 모델 키·DB는 필요 없다.
+DB 검사(마이그레이션·판단 저장)까지 돌리려면 `supabase/migrations/README.md` 「로컬 검사」대로 Docker Postgres를 띄우고
+`MIGRATION_TEST_DATABASE_URL`을 준다.
 
 ```bash
 python3 -m venv .venv
@@ -272,7 +276,8 @@ make test       # pytest — tests/ 전체(API·검색·코퍼스·비전 평가
 make contracts  # app/schemas/examples.py → docs/contracts/examples.json
 ```
 
-CI `check`가 lint → check → test를 같은 순서로 돌린다. 이 검사는 기능·서버·모델·DB 동작을 검증하지 않는다.
+CI `check`가 lint → check → test를 같은 순서로 돌리고, 버려도 되는 Postgres 서비스로 마이그레이션·판단 저장 동작도 검사한다.
+모델·Supabase 실환경은 검증하지 않는다.
 서버 환경 변수 양식은 `.env.example`이다. 로컬에서 토큰 없이 부르려면 `APP_ENV=local`과 `DEV_ACTOR_ID`를 함께 둔다(Vercel 위에서는 꺼진다). LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
 견본 생성/FE 동기화는 [공통 계약](docs/contracts/README.md), 담당별 작업은 [TEAM.md](TEAM.md)를 따른다.
 

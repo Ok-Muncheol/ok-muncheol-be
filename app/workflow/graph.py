@@ -13,7 +13,7 @@
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import get_args
+from typing import Literal, TypedDict, get_args
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -39,7 +39,12 @@ from app.schemas.chart_scope import (
     unconfirmed_fields,
 )
 from app.schemas.facts import FactCard
-from app.schemas.judgment import ConfirmationQuestion, JudgmentResult, QuestionAnswer
+from app.schemas.judgment import (
+    ConfirmationQuestion,
+    JudgmentResult,
+    QuestionAnswer,
+    ValidationCheck,
+)
 from app.validation.evidence import check_evidence
 from app.validation.numerical import calculation_lines, check_numerical
 from app.validation.rebuttal import Reviewer, review_rebuttal
@@ -58,6 +63,11 @@ STAGES = (
     "build_judgment_result",
 )
 MAX_REBUTTAL_RETRIES = 1
+# 실행 입력 버전(judgment_runs). 같은 카드·인정기준·규칙 버전이면 다시 판단하지 않는다.
+# 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
+# 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
+CRITERIA_VERSION = "fault_standards:2023.6"
+RULE_VERSION = "judgment-rules-2026.11.10"
 AUTO_MODIFIER_CODES: tuple[str, ...] = get_args(Modifier)
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
@@ -118,6 +128,50 @@ def initial_state(
 def thread_config(thread_id: str) -> RunnableConfig:
     """체크포인트 스레드 = judgment_runs.id."""
     return {"configurable": {"thread_id": thread_id}}
+
+
+class RunOutcome(TypedDict):
+    """그래프 호출 한 번의 결과. 질문으로 멈췄거나(result 없음) 판정이 났다."""
+
+    status: Literal["waiting_for_confirmation", "completed"]
+    stage: str
+    rebuttal_retry_count: int
+    questions: list[ConfirmationQuestion]
+    result: JudgmentResult | None
+
+
+def run_outcome(values: dict) -> RunOutcome:
+    """`ainvoke` 반환값 → RunOutcome. 질문으로 멈추면 LangGraph가 `__interrupt__`를 붙인다."""
+    retries = int(values.get("rebuttal_retry_count", 0))
+    interrupts = values.get("__interrupt__") or []
+    if interrupts:
+        return {
+            "status": "waiting_for_confirmation", "stage": "ask_or_resume",
+            "rebuttal_retry_count": retries, "questions": interrupts[0].value["questions"],
+            "result": None,
+        }
+    result = values.get("result")
+    if result is None:
+        raise RuntimeError("판단 그래프가 질문도 결과도 없이 끝났다")
+    return {
+        "status": "completed", "stage": "build_judgment_result",
+        "rebuttal_retry_count": retries, "questions": [], "result": result,
+    }
+
+
+def check_attempts(checks: list[ValidationCheck]) -> list[int]:
+    """검증 결과마다 시도 번호(0 첫 도표, 1 차순위 재실행) — validation_checks.attempt.
+
+    도표 오선택 반박이 성립하면 그다음 검증부터 다음 시도다. 재실행 상한이 1이라 1을 넘지 않는다.
+    """
+    attempts: list[int] = []
+    attempt = 0
+    for check in checks:
+        attempts.append(attempt)
+        wrong_chart = check.get("rebuttal_kind") == "wrong_chart"
+        if check["layer"] == "rebuttal" and not check["passed"] and wrong_chart:
+            attempt += 1
+    return attempts
 
 
 def question_id(thread_id: str, field_key: str) -> str:

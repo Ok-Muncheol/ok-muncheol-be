@@ -42,6 +42,13 @@ RESPONSE_SCHEMA = {
 }
 
 
+class ReviewerNotConfigured(NotImplementedError):
+    """반박 검토 모델 키가 없다.
+
+    판단 실행은 dependency_not_ready로 실패한다(추측으로 통과시키지 않음).
+    """
+
+
 class RebuttalVerdict(TypedDict):
     holds: bool
     kind: Literal["wrong_chart", "missing_fact", "contradiction"] | None
@@ -114,7 +121,7 @@ async def openai_reviewer(system: str, user: str) -> str:
     from openai import AsyncOpenAI
 
     if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY가 없어 반박 검토를 실행할 수 없다")
+        raise ReviewerNotConfigured("OPENAI_API_KEY가 없어 반박 검토를 실행할 수 없다")
     model = os.environ.get("OPENAI_MODEL") or "gpt-5"
     async with AsyncOpenAI(timeout=60, max_retries=2) as client:
         response = await client.chat.completions.create(
