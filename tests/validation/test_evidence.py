@@ -1,6 +1,6 @@
 """검증 ①: 선택한 도표·인용·수정요소가 검수 레코드와 원문에 실재하는지."""
 
-from app.validation.evidence import check_evidence
+from app.validation.evidence import PERIOD_UNKNOWN_WARNING, check_evidence
 from tests.workflow.synthetic import candidates
 
 
@@ -25,11 +25,28 @@ def test_each_defect_is_named():
     sel = selection(cands[0], [{"modifier_id": "made-up", "party": "A", "name": "x",
                                 "code": "night", "delta": 5}])
     cands[0]["hits"][0]["chunk"]["page_start"] = cands[0]["hits"][0]["chunk"]["page_end"] = 99
-    cands[0]["effective_from"] = ""
+    cands[0]["effective_to"] = "2025-12-31"
     check = check_evidence(sel, cands, "2026-10-01")
     assert not check["passed"]
     joined = " ".join(check["reasons"])
-    assert "유효기간" in joined and "페이지" in joined and "made-up" in joined
+    assert "유효하지 않다" in joined and "페이지" in joined and "made-up" in joined
+
+
+def test_unknown_start_date_is_a_warning_not_a_failure():
+    cands = candidates()
+    cands[0]["effective_from"] = ""
+    check = check_evidence(selection(cands[0]), cands, "2026-10-01")
+    # 시행일을 지어내지 않는다. 통과시키되 보고서에 보이도록 사유에 경고를 남긴다
+    assert check == {"layer": "evidence", "passed": True,
+                     "reasons": [PERIOD_UNKNOWN_WARNING.format(edition="synthetic-1")]}
+
+
+def test_known_end_date_still_applies_without_start_date():
+    cands = candidates()
+    cands[0]["effective_from"], cands[0]["effective_to"] = "", "2025-12-31"
+    check = check_evidence(selection(cands[0]), cands, "2026-10-01")
+    assert not check["passed"]
+    assert check["reasons"] == ["적용판 synthetic-1은 사고 일자 2026-10-01에 유효하지 않다"]
 
 
 def test_unknown_chart_or_unreviewed_or_tampered_delta_fails():

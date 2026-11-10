@@ -28,8 +28,9 @@ class ChartSelection(TypedDict):
     parent_id: str
     edition: str
     variant: ChartVariant
+    # MVP는 수정요소를 자동 적용하지 않아 그래프에서는 늘 비어 있다(chart_scope 주석)
     applied_modifiers: list[AppliedModifier]
-    # 적용하지 않은 수정요소와 이유(불명·조건 불일치·담당자 입력 전용)
+    # 적용하지 않은 수정요소와 이유(담당자 판단·담당자 입력 전용)
     unresolved_modifiers: list[tuple[ChartModifier, str]]
     # 차순위 후보(순위순). 반박이 도표 오선택이면 첫 번째로 재실행한다
     alternatives: list[str]

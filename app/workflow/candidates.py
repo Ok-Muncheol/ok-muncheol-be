@@ -5,6 +5,12 @@
 아직 한국어 원문 낱말만 가지므로(`filter_status == "unreviewed_candidates_only"`), 레코드에
 `scope_attributes`·`scope_variants`·`scope_modifiers`가 검수 상태로 더해질 때까지
 `calculation_ready`는 False이고 선택되지 않는다.
+값 `*`(`chart_scope.ANY_VALUE`)은 그 도표가 그 칸과 무관하다는 뜻이다.
+
+적용판·유효기간은 레코드 안의 문서 사본(파싱 시점 값)이 아니라 검증을 통과한 검색 결과의
+`chunk.document`에서 읽는다. `validate_hits`가 이 값을 DB 색인(`corpus_documents` 조인)과
+대조하므로, manifest를 고치면 레코드를 다시 만들지 않아도 반영된다.
+레코드 사본은 같은 원문인지 확인하는 데만 쓴다.
 """
 
 from typing import Literal, NotRequired, TypedDict
@@ -18,7 +24,8 @@ class ChartVariant(TypedDict):
     variant: str | None
     base_A: int
     base_B: int
-    # 이 변형이 적용되는 카드 칸 값. 비어 있으면 도표의 유일한 기본 비율이다
+    # 이 변형이 적용되는 카드 칸 값(`*`은 무관). 비어 있으면 도표의 유일한 기본 비율이다.
+    # 값이 여럿인 도표(예: 직진 또는 좌회전)는 값마다 변형을 나눠 같은 비율을 넣는다
     conditions: dict[str, str]
 
 
@@ -26,10 +33,11 @@ class ChartModifier(TypedDict):
     modifier_id: str
     party: Literal["A", "B"]
     name: str
-    # chart_scope.Modifier 코드. None이면 자동 적용 대상이 아니다(해석·담당자 입력 필요)
+    # MVP는 수정요소를 자동 적용하지 않는다. 과속·서행 불이행만 담당자 입력 전용 코드
+    # (chart_scope.EXCLUDED_MODIFIERS·MANUAL_ONLY_MODIFIERS)로 표시하고 나머지는 None이다
     code: str | None
     delta: int | None
-    # 적용 조건(카드 칸 값). None이면 조건을 코드로 판정할 수 없어 적용하지 않는다
+    # 적용 조건(카드 칸 값). 코드로 판정하지 않으므로 보통 None이다
     conditions: dict[str, str] | None
 
 
@@ -102,22 +110,26 @@ def candidates_from_hits(hits: list[EvidenceHit], records: dict[str, dict]) -> l
     수정요소 해설 청크(도표 레코드 없음)는 건너뛴다. 같은 도표의 여러 청크는 한 후보로 합치고
     점수는 최고 점수를 쓴다. 검수 속성이 없는 레코드는 calculation_ready=False로 들어간다.
     """
-    grouped: dict[str, ChartCandidate] = {}
+    grouped: dict[str, list[EvidenceHit]] = {}
     for hit in hits:
-        record = records.get(hit["chunk"]["parent_id"])
-        if record is None:
-            continue
-        chart_id = record["chart_id"]
-        if chart_id in grouped:
-            grouped[chart_id]["hits"].append(hit)
-            grouped[chart_id]["score"] = max(grouped[chart_id]["score"], hit["score"])
-            continue
-        grouped[chart_id] = candidate_from_record(record, [hit])
-    return sorted(grouped.values(), key=lambda c: -c["score"])
+        parent_id = hit["chunk"]["parent_id"]
+        if parent_id in records:
+            grouped.setdefault(parent_id, []).append(hit)
+    candidates = [candidate_from_record(records[pid], chart_hits)
+                  for pid, chart_hits in grouped.items()]
+    return sorted(candidates, key=lambda c: -c["score"])
 
 
 def candidate_from_record(record: dict, hits: list[EvidenceHit]) -> ChartCandidate:
-    document = record["document"]
+    """도표 레코드 하나와 그 도표의 검색 결과로 후보를 만든다. 문서 값은 검색 결과에서 읽는다.
+
+    검색 결과끼리 또는 레코드와 원문 문서가 다르면 색인이 어긋난 것이라 예외를 낸다(fail-closed).
+    """
+    document = hits[0]["chunk"]["document"]
+    if any(hit["chunk"]["document"] != document for hit in hits) or (
+        document["document_id"] != record["document"]["document_id"]
+    ):
+        raise ValueError(f"도표 {record['chart_id']}의 검색 결과와 레코드 원문 문서가 다르다")
     attributes = record.get("scope_attributes") or {}
     variants = record.get("scope_variants")
     modifiers = record.get("scope_modifiers")

@@ -63,9 +63,10 @@ def candidate(chart_id: str, attributes: dict[str, str], base_A: int, score: flo
         "attributes": {"accident_type": "car_to_car", **attributes},
         "base_variants": [{"variant": None, "base_A": base_A, "base_B": 100 - base_A,
                            "conditions": {}}],
+        # 수정요소는 자동 적용하지 않으므로 C 레코드처럼 code·conditions를 비운다
         "modifiers": [
-            {"modifier_id": f"{parent}:night", "party": "A", "name": "야간", "code": "night",
-             "delta": 5, "conditions": {"night": "true"}},
+            {"modifier_id": f"{parent}:night", "party": "A", "name": "야간", "code": None,
+             "delta": 5, "conditions": None},
             {"modifier_id": f"{parent}:gross", "party": "B", "name": "중대한 과실", "code": None,
              "delta": 20, "conditions": None},
         ],

@@ -7,11 +7,13 @@ import pytest
 from langgraph.types import Command
 
 from app.schemas.chart_scope import (
+    ANY_VALUE,
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
     REASON_OUT_OF_SCOPE,
     REASON_PENDING_DECISION,
 )
+from app.validation.evidence import PERIOD_UNKNOWN_WARNING
 from app.workflow.graph import (
     CRITERIA_VERSION,
     MAX_REBUTTAL_RETRIES,
@@ -60,15 +62,15 @@ def test_confirmed_card_reaches_draft_with_code_calculated_fault():
     assert asyncio.run(graph.aget_state(thread_config("run-1"))).next == ()
 
 
-def test_confirmed_night_applies_only_coded_modifier():
+def test_modifiers_are_never_auto_applied():
     c = card()
     c["fields"]["night"] = field(True)
     _, out, _ = run(c)
     result = out["result"]
-    assert (result["fault_A"], result["fault_B"]) == (25, 75)
-    assert "수정요소 적용 A 야간 +5 (synthetic-standards:S-1:night)" in result["calculation_log"]
-    # 중대한 과실(코드 없음)은 자동 적용하지 않는다
-    assert not any("중대한 과실" in line for line in result["calculation_log"])
+    # 야간이 확인돼도 기본 과실만 계산하고, 수정요소는 모두 담당자 판단으로 넘긴다
+    assert (result["fault_A"], result["fault_B"]) == (20, 80)
+    assert not any("수정요소 적용" in line for line in result["calculation_log"])
+    assert {m["decision"] for m in result["modifiers"]} == {"불명"}
 
 
 def test_unconfirmed_field_asks_then_unknown_defers():
@@ -286,10 +288,9 @@ def test_result_carries_report_fields_for_sections_3_to_5():
     result = out["result"]
     assert result["base_fault_A"] == 20
     assert [(m["name"], m["applies_to"], m["delta"], m["decision"]) for m in result["modifiers"]] \
-        == [("야간", "A", 5, "미적용"), ("중대한 과실", "B", 20, "불명")]
-    night, gross = result["modifiers"]
-    assert night["evidence_fields"] == ["night"] and night["reason"] == "적용 조건 불일치"
-    assert gross["evidence_fields"] == [] and "코드로 판정할 수 없음" in gross["reason"]
+        == [("야간", "A", 5, "불명"), ("중대한 과실", "B", 20, "불명")]
+    assert all(m["evidence_fields"] == [] and m["reason"] == "자동 적용하지 않음(담당자 판단)"
+               for m in result["modifiers"])
     assert result["alternatives"] == [
         {"chart_id": "S-2", "reason": "제외 — 카드와 불일치 ['movement_B']"}]
     # 선택 근거만 reasons에 남고 제외 이유는 alternatives로 옮겼다
@@ -297,18 +298,22 @@ def test_result_carries_report_fields_for_sections_3_to_5():
                                  "movement_A, signal_A, signal_B, movement_B)"]
 
 
-def test_applied_modifier_and_not_applicable_ones():
-    c = card()
-    c["fields"]["night"] = field(True)
+def test_not_applicable_modifiers_are_left_out_of_report():
     cands = candidates()
     parent = cands[0]["parent_id"]
     not_applicable = {"modifier_id": f"{parent}:na", "party": "B", "name": "비적용 요소",
                       "code": None, "delta": None, "conditions": None}
-    cands[0]["modifiers"].append(not_applicable)
-    _, out, _ = run(c, cands=cands)
-    decisions = {m["name"]: m["decision"] for m in out["result"]["modifiers"]}
+    speeding = {"modifier_id": f"{parent}:speed", "party": "B", "name": "과속", "code": "speeding",
+                "delta": 10, "conditions": None}
+    cands[0]["modifiers"] += [not_applicable, speeding]
+    _, out, _ = run(card(), cands=cands)
+    decisions = {m["name"]: (m["decision"], m["reason"]) for m in out["result"]["modifiers"]}
     # 가감치가 없는 요소는 보고서 목록에서 뺀다(보고서가 가감치를 정수로 그린다)
-    assert decisions == {"야간": "적용", "중대한 과실": "불명"}
+    assert decisions == {
+        "야간": ("불명", "자동 적용하지 않음(담당자 판단)"),
+        "중대한 과실": ("불명", "자동 적용하지 않음(담당자 판단)"),
+        "과속": ("불명", "자동 적용 제외(담당자 입력 전용)"),
+    }
 
 
 def test_rebutted_chart_is_listed_as_alternative_after_retry():
@@ -329,3 +334,85 @@ def test_deferred_without_chart_has_empty_report_fields():
     _, out, _ = run(card(), cands=cands)
     result = out["result"]
     assert (result["base_fault_A"], result["modifiers"], result["alternatives"]) == (None, [], [])
+
+
+UNSIGNALIZED = {"location_type": "unsignalized_intersection", "road_priority": "stop_sign",
+                "movement_A": "straight", "movement_B": "left_turn"}
+
+
+def unsignalized_card():
+    """신호 없는 교차로, 일시정지, A 직진 대 B 좌회전. 진입 순서는 확인하지 않은 상태다."""
+    c = card()
+    del c["fields"]["signal_A"], c["fields"]["signal_B"]
+    c["fields"]["location_type"] = field("unsignalized_intersection")
+    c["fields"]["road_priority"] = field("stop_sign")
+    return c
+
+
+def test_required_field_marked_any_is_not_asked():
+    """남은 후보가 모두 진입 순서와 무관(`*`)하면 필수 칸이어도 묻지 않고 고른다."""
+    cands = [candidate("N-1", {**UNSIGNALIZED, "entry_order": ANY_VALUE}, 30)]
+    _, out, _ = run(unsignalized_card(), cands=cands)
+    result = out["result"]
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "N-1")
+    assert (result["fault_A"], result["fault_B"]) == (30, 70)
+    assert result["reasons"] == ["N-1 선택: 확인한 칸 5개 일치 (accident_type, location_type, "
+                                 "road_priority, movement_A, movement_B)"]
+
+
+def test_unknown_required_field_keeps_only_charts_that_ignore_it():
+    """진입 순서를 모른다고 답하면 그 칸으로 갈리는 도표는 빠지고 `*`인 도표를 고른다."""
+    by_order = candidate("N-1", UNSIGNALIZED, 20, score=0.9, base_variants=[
+        {"variant": "가", "base_A": 20, "base_B": 80, "conditions": {"entry_order": "first"}},
+        {"variant": "나", "base_A": 60, "base_B": 40, "conditions": {"entry_order": "second"}},
+    ])
+    ignores = candidate("N-2", UNSIGNALIZED, 30, score=0.5, base_variants=[
+        {"variant": None, "base_A": 30, "base_B": 70, "conditions": {"entry_order": ANY_VALUE}},
+    ])
+    graph = build_graph(Dependencies(retrieve=AsyncMock(return_value=[by_order, ignores]),
+                                     reviewer=AsyncMock(return_value=verdict())))
+    cfg = thread_config("run-any")
+    out = asyncio.run(graph.ainvoke(initial_state(unsignalized_card(), "c", "r"), cfg))
+    [question] = out["__interrupt__"][0].value["questions"]
+    assert question["field_key"] == "entry_order"
+    answer = {"question_id": question["question_id"], "expected_card_version": 3,
+              "value": None, "unknown": True}
+    result = asyncio.run(graph.ainvoke(Command(resume=[answer]), cfg))["result"]
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "N-2")
+    assert (result["fault_A"], result["fault_B"]) == (30, 70)
+    assert "entry_order: 확인 불가 — N-2 선택에는 쓰지 않음" in result["reasons"]
+    assert {"chart_id": "N-1", "reason": "제외 — 확인 불가 칸 ['entry_order']"} \
+        in result["alternatives"]
+
+
+def test_chart_without_fitting_variant_gives_way_to_the_next():
+    """1순위라도 카드와 맞는 기본 과실 변형이 없으면 빼고 차순위를 고른다."""
+    base = {"location_type": "signalized_intersection", "movement_A": "straight",
+            "signal_A": "green"}
+    # 값이 여럿인 도표처럼 B 진행 방향을 변형으로 나눴다. 카드의 B 좌회전과 맞는 변형이 없다
+    split = candidate("V-1", {**base, "signal_B": "red"}, 50, score=0.9, base_variants=[
+        {"variant": "가", "base_A": 50, "base_B": 50, "conditions": {"movement_B": "straight"}},
+        {"variant": "나", "base_A": 50, "base_B": 50, "conditions": {"movement_B": "u_turn"}},
+    ])
+    # 변형 조건으로 둔 칸도 일치 칸 수에 들어간다
+    fits = candidate("V-2", {**base, "movement_B": "left_turn"}, 20, score=0.5, base_variants=[
+        {"variant": None, "base_A": 20, "base_B": 80, "conditions": {"signal_B": "red"}},
+    ])
+    _, out, _ = run(card(), cands=[split, fits])
+    result = out["result"]
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "V-2")
+    assert result["reasons"] == ["V-2 선택: 확인한 칸 6개 일치 (accident_type, location_type, "
+                                 "movement_A, signal_A, movement_B, signal_B)"]
+    assert {"chart_id": "V-1", "reason": "제외 — 카드와 맞는 기본 과실 변형 없음 ['movement_B']"} \
+        in result["alternatives"]
+
+
+def test_unknown_edition_start_passes_evidence_with_warning():
+    cands = candidates()
+    cands[0]["effective_from"] = ""
+    _, out, _ = run(card(), cands=cands)
+    result = out["result"]
+    assert result["status"] == "draft_ready"
+    evidence = result["checks"][0]
+    assert (evidence["layer"], evidence["passed"]) == ("evidence", True)
+    assert evidence["reasons"] == [PERIOD_UNKNOWN_WARNING.format(edition="synthetic-1")]

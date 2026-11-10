@@ -101,3 +101,18 @@ def test_reviewed_record_groups_hits_and_keeps_best_score():
     assert cand["calculation_ready"] is True
     assert cand["score"] == 0.9 and len(cand["hits"]) == 2
     assert cand["attributes"] == {"movement_A": "straight"}
+
+
+def test_candidate_reads_edition_and_period_from_validated_hits():
+    """레코드 안 문서 사본이 파싱 시점 값(시행일 빈 값)이어도 검색 결과의 문서 값을 쓴다."""
+    parent = f"{DOCUMENT['document_id']}:X-3"
+    stale = {**DOCUMENT, "edition": "parsed-copy", "effective_from": ""}
+    [cand] = candidates_from_hits([hit(parent, 10, 0.5)], {parent: record("X-3", document=stale)})
+    assert (cand["edition"], cand["effective_from"]) == ("synthetic-1", "2020-01-01")
+
+
+def test_candidate_rejects_hits_from_another_document():
+    parent = f"{DOCUMENT['document_id']}:X-4"
+    other = {**DOCUMENT, "document_id": "other-standards"}
+    with pytest.raises(ValueError, match="원문 문서가 다르다"):
+        candidates_from_hits([hit(parent, 10, 0.5)], {parent: record("X-4", document=other)})
