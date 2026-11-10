@@ -511,7 +511,7 @@ class ApiEdgeFlowTest(unittest.TestCase):
         out = self.confirm(3)
         self.assertEqual((out["package"], out["claim_blocked_reason"]), (None, NOT_RECOVERABLE))
         self.assertEqual(v3["approval_status"], "approved")  # 확인 기록은 남김
-        self.assertEqual(api.services.repo.get(self.actor, self.case).packages, [])
+        self.assertEqual(fx.record(self.actor, self.case).packages, [])
 
     def test_regenerate_package_after_agreement(self):
         self.ready()

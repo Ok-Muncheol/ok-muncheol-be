@@ -45,7 +45,11 @@ from app.reports.repository import (
     CaseRecord,
     InMemoryReportRepository,
     NotCaseOwner,
+    PostgresReportRepository,
     RecordNotFound,
+    ReportsDbNotReady,
+    VersionTaken,
+    default_repository,
 )
 from app.retrieval.common import configure_retrieval, fetch_by_parent
 from app.retrieval.embedding import OpenAIEmbedder
@@ -66,7 +70,9 @@ __all__ = [
     "CaseFactsInvalid",
     "ClaimPackageBlocked",
     "ConfirmBlocked",
+    "DocumentsInvalid",
     "InMemoryReportRepository",
+    "PostgresReportRepository",
     "StaleVersion",
     "add_documents",
     "configure",
@@ -101,13 +107,31 @@ class AgreedFaultInvalid(ValueError):
     """협의 과실 입력·해제 요청을 처리할 수 없음(이유 없음, 범위 밖, 산정 결과 없음 등)."""
 
 
+class DocumentsInvalid(ValueError):
+    """서류 모양이 아님(document_id 없음, kind가 견적서·자차 계약·증빙이 아님)."""
+
+
+DOCUMENT_KINDS = ("repair_estimate", "own_damage_contract", "evidence")
+
+
 # 하위 클래스를 먼저 본다(StaleVersion·ConfirmBlocked 등은 ValueError).
 _API_ERRORS: tuple[tuple[type[Exception], Callable[[Exception], ApiException]], ...] = (
     (StaleVersion, lambda e: version_conflict(str(e))),
+    (VersionTaken, lambda e: version_conflict(str(e))),
     (ConfirmBlocked, lambda e: unprocessable("confirm_blocked", str(e))),
     (CaseFactsInvalid, lambda e: unprocessable("invalid_case_facts", str(e))),
     (CardNotConfirmed, lambda e: unprocessable("card_not_confirmed", str(e))),
     (AgreedFaultInvalid, lambda e: unprocessable("invalid_agreed_fault", str(e))),
+    (DocumentsInvalid, lambda e: unprocessable("invalid_documents", str(e))),
+    (
+        ReportsDbNotReady,
+        lambda e: ApiException(
+            503,
+            "reports_db_not_ready",
+            "보고서 저장소가 아직 준비되지 않았습니다(DB 마이그레이션 적용 전).",
+            True,
+        ),
+    ),
     (NotCaseOwner, lambda e: forbidden(str(e))),
     (RecordNotFound, lambda e: not_found(str(e))),
 )
@@ -133,7 +157,10 @@ def _api_boundary[**P, R](fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitabl
 class ReportServices:
     """바꿔 끼우는 의존성. 진짜 구현이 오면 configure()로 교체한다."""
 
-    repo: InMemoryReportRepository = field(default_factory=InMemoryReportRepository)
+    # DATABASE_URL이 있으면 Postgres, 없으면 메모리(테스트·데모). app/reports/repository.py
+    repo: InMemoryReportRepository | PostgresReportRepository = field(
+        default_factory=default_repository
+    )
     rules: RuleSet = DEFAULT_RULES
     judge: Judge = flag_judge
     # app.retrieval.common.fetch_by_parent. 없으면 면책은 담당자 입력으로 판정
@@ -224,6 +251,19 @@ async def _draft(
     return assemble_review(judgment, calc, recovery=_recovery(rec, base, calc), now=_now(), **kw)  # type: ignore[arg-type]
 
 
+def validate_documents(documents: list[dict[str, object]]) -> None:
+    """서류 목록 검사. 각 서류는 document_id와 kind(견적서·자차 계약·증빙)가 있어야 한다."""
+    if not isinstance(documents, list):
+        raise DocumentsInvalid("documents는 목록이어야 합니다")
+    for i, doc in enumerate(documents):
+        if not isinstance(doc, dict) or not str(doc.get("document_id") or "").strip():
+            raise DocumentsInvalid(f"documents[{i}]에 document_id가 없습니다")
+        if doc.get("kind") not in DOCUMENT_KINDS:
+            raise DocumentsInvalid(
+                f"documents[{i}].kind는 {', '.join(DOCUMENT_KINDS)} 중 하나여야 합니다"
+            )
+
+
 def validate_case_facts(case_facts: dict[str, object]) -> None:
     """면책 체크박스 입력 검사. 키는 무면허·음주·고의만, 값은 True/False/None(미입력)만."""
     extra = [k for k in case_facts if k not in EXCLUSION_FACT_KEYS]
@@ -254,18 +294,19 @@ async def submit_judgment(
     나온다."""
     if card["status"] != "confirmed":
         raise CardNotConfirmed("확정되지 않은 사실 카드입니다")
-    rec = services.repo.open(card["case_id"], actor_id)
+    rec = await services.repo.open(card["case_id"], actor_id)
     if rec.owner_id != actor_id:
         raise NotCaseOwner("담당 사건이 아닙니다")
     rec.card = card
     report = await _draft(rec, judgment, "판단 결과 반영", education_mode)
     rec.reports.append(report)
+    await services.repo.save(rec, actor_id)
     return report
 
 
 @_api_boundary
 async def get_report(actor_id: str, case_id: str, version: int) -> ReviewReport:
-    return services.repo.get(actor_id, case_id).report(version)
+    return (await services.repo.get(actor_id, case_id)).report(version)
 
 
 @_api_boundary
@@ -278,9 +319,10 @@ async def add_documents(
     """서류 추가 → 자동 재산정. 금액·검증 입력이 바뀌면 새 버전(다시 확인 완료 필요), 같으면 최신
     버전 그대로.
     판단·비전은 다시 돌리지 않는다. 추가 확인·보류 사건이면 서류만 저장하고 None."""
-    rec = services.repo.get(actor_id, case_id)
+    rec = await services.repo.get(actor_id, case_id)
+    validate_documents(documents)  # 저장 전에 검사(잘못된 입력이면 아무것도 바꾸지 않음)
     if case_facts:
-        validate_case_facts(case_facts)  # 서류 저장 전에 검사(잘못된 입력이면 아무것도 바꾸지 않음)
+        validate_case_facts(case_facts)
     known = {str(d["document_id"]) for d in rec.documents}
     added = [
         d for d in documents if str(d["document_id"]) not in known
@@ -290,15 +332,16 @@ async def add_documents(
         rec.case_facts.update(case_facts)
     base = rec.latest_ready()
     if base is None:
+        await services.repo.save(rec, actor_id)
         return None
     kinds = ", ".join(sorted({str(d.get("kind")) for d in added})) or "입력 변경"
     draft = await _draft(
         rec, base["judgment"], f"서류 추가({kinds}) — 재산정", bool(base.get("education_mode"))
     )
-    if _same_inputs(base, draft):
-        return base
-    rec.reports.append(draft)
-    return draft
+    if not _same_inputs(base, draft):
+        rec.reports.append(draft)
+    await services.repo.save(rec, actor_id)
+    return rec.latest
 
 
 @_api_boundary
@@ -307,7 +350,7 @@ async def upload_estimate(
 ) -> ReviewReport | None:
     """서식 견적서 PDF 업로드 → 자동 추출(read_by="pdf_extract") → add_documents(자동 재산정).
     pdfplumber가 없으면 EstimateReaderUnavailable(설치 안내)."""
-    services.repo.get(actor_id, case_id)  # 권한·사건 확인을 PDF 읽기보다 먼저
+    await services.repo.get(actor_id, case_id)  # 권한·사건 확인을 PDF 읽기보다 먼저
     doc = read_estimate_pdf(pdf_path, party_id=party_id)
     evidence = {
         "kind": "evidence",
@@ -329,7 +372,7 @@ async def set_agreed_fault(
 ) -> ReviewReport:
     """협의 과실 입력(이유 필수) 또는 clear=True로 판단 과실로 되돌리기(이유 필수).
     9번을 다시 계산한 새 버전을 만든다(다시 확인 완료 필요). 이후 재산정에도 이 값을 이어 쓴다."""
-    rec = services.repo.get(actor_id, case_id)
+    rec = await services.repo.get(actor_id, case_id)
     base = rec.latest_ready()
     if base is None or not base.get("calculation"):
         raise AgreedFaultInvalid("산정 결과가 있는 보고서가 필요합니다")
@@ -357,6 +400,7 @@ async def set_agreed_fault(
         bool(base.get("education_mode")),
     )
     rec.reports.append(report)
+    await services.repo.save(rec, actor_id)
     return report
 
 
@@ -371,7 +415,7 @@ async def confirm_report(
     결과: {report, package, html, claim_blocked_reasons, claim_blocked_reason}.
     claim_blocked_reasons는 해당 사유 전부, claim_blocked_reason은 그 첫 번째 값(없으면 None).
     같은 입력으로 다시 확인하면 같은 패키지를 돌려준다."""
-    rec = services.repo.get(actor_id, case_id)
+    rec = await services.repo.get(actor_id, case_id)
     report = rec.report(version)
     if report is not rec.latest:
         raise StaleVersion("최신 버전만 확인 완료할 수 있습니다")
@@ -391,6 +435,7 @@ async def confirm_report(
             now=now,
         )
     except ClaimPackageBlocked as exc:  # ValueError 하위 클래스라 먼저 잡는다
+        await services.repo.save(rec, actor_id)  # 확인 기록은 남긴다
         return {
             "report": report,
             "package": None,
@@ -403,6 +448,7 @@ async def confirm_report(
     same = next((p for p in rec.packages if p["idempotency_key"] == pkg["idempotency_key"]), None)
     if same is None:
         rec.packages.append(pkg)
+    await services.repo.save(rec, actor_id)
     out = same or pkg
     return {
         "report": report,
@@ -416,7 +462,7 @@ async def confirm_report(
 @_api_boundary
 async def get_claim(actor_id: str, case_id: str, version: int) -> ClaimResult:
     """그 보고서 버전으로 만든 구상 청구서(confirm_report가 만든 것). 버전·청구서가 없으면 404."""
-    rec = services.repo.get(actor_id, case_id)
+    rec = await services.repo.get(actor_id, case_id)
     rec.report(version)  # 버전이 없으면 RecordNotFound
     pkg = next((p for p in reversed(rec.packages) if p["report_version"] == version), None)
     if pkg is None:

@@ -1,5 +1,6 @@
 """D 테스트용 합성 입력. 실제 사고·도표·약관·금액이 아니다(모든 ID에 synthetic/example 표시)."""
 
+import asyncio
 from contextlib import contextmanager
 
 from app.api.errors import ApiException
@@ -220,3 +221,10 @@ def raises_api(test, status: int, code: str | None = None, message: str | None =
         test.assertEqual(error["code"], code)
     if message is not None:
         test.assertIn(message, error["message"])
+
+
+def record(actor_id: str, case_id: str):
+    """D 서비스가 쓰는 저장소에서 사건 기록(CaseRecord)을 불러온다(저장소 메서드는 async)."""
+    from app.api import reports
+
+    return asyncio.run(reports.services.repo.get(actor_id, case_id))
