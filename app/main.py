@@ -11,7 +11,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import reports
+from app import modal_dispatch
+from app.api import analysis, reports
 from app.api.errors import install_error_handlers
 from app.api.routes import router
 from app.config import get_settings
@@ -38,12 +39,18 @@ def connect_knowledge_base() -> bool:
 
 
 def create_app() -> FastAPI:
-    """보호 경로는 전부 `app/api/deps.py`의 토큰 검증을 거친다. `/health`만 인증 없이 열린다.
+    """보호 경로는 전부 `app/api/deps.py`의 토큰 검증을 거친다. `/health`만 인증 없이 열리고,
+    Modal 콜백은 사용자 토큰 대신 작업별 일회용 토큰으로 확인한다(`app/api/routes.py`).
+
+    Modal 설정(`MODAL_ANALYZE_URL` 등)이 다 있으면 영상 분석 접수가 Modal을 부르게 끼운다
+    (`app/modal_dispatch.py`). 없으면 접수는 `analysis_not_configured`로 실패한다.
 
     지식베이스는 LOAD_KNOWLEDGE_BASE가 켜졌을 때만 서버 시작(lifespan)에서 연결한다.
     로컬에서 약 12초·230MB가 들어 기본은 꺼짐이고, 앱을 만들거나 import만 해서는 적재하지 않는다.
     """
     settings = get_settings()
+    if modal_dispatch.is_configured(settings):
+        analysis.configure(dispatch=modal_dispatch.dispatch_to_modal)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

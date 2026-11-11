@@ -365,9 +365,10 @@ def test_every_route_calls_an_existing_service_function():
     """
     import ast
 
-    from app.api import cases, reports
+    from app.api import analysis, cases, reports
 
-    modules = {"cases": cases, "facts": facts, "judgments": judgments, "reports": reports}
+    modules = {"analysis": analysis, "cases": cases, "facts": facts, "judgments": judgments,
+               "reports": reports}
     tree = ast.parse((ROOT / "app/api/routes.py").read_text(encoding="utf-8"))
     called = {
         (node.value.id, node.attr) for node in ast.walk(tree)
