@@ -43,6 +43,19 @@ def card(**overrides: object) -> FactCard:
     return deepcopy(base)
 
 
+def v1_card(**fields: FactField) -> FactCard:
+    """card()와 같은 사고를 카드 v1 칸·값(한국어)으로. 넘긴 칸만 바꾼다."""
+    base: dict[str, FactField] = {
+        "accident_object": field("차대차"), "party_count": field(2),
+        "location_type": field("사거리_신호있음"),
+        "movement_A": field("직진"), "movement_B": field("좌회전"),
+        "signal_A": field("녹색"), "signal_B": field("적색"),
+        "relative_position": field("맞은편"), "time_condition": field("주간"),
+    }
+    base.update(fields)
+    return card(fields=base)
+
+
 def hit(parent_id: str, page: int, score: float) -> EvidenceHit:
     return {
         "chunk": {

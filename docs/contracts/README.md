@@ -90,6 +90,15 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 판단 그래프(`app/workflow/graph.py`)는 도표를 가르는 칸이 `human_confirmed`가 아니면 `ConfirmationQuestion`을 내고 멈춘다.
 `question_id`는 실행 ID와 칸 이름으로 정해지는 UUID라 같은 실행에서 다시 물어도 같다(`judgment_questions.id`).
 
+질문의 `field_key`·`options`는 카드 형식을 따른다. 값 응답이 그 칸 이름·값 그대로 카드 수정으로 가기 때문이다.
+- 카드 v1(한국어 값, 정지원 11/11 안)이면 v1 칸 이름·값으로 묻는다. 예: `accident_object` `["차대차", "차대이륜차", "기타"]`.
+  `불명`은 선택지에 넣지 않고 '모른다' 응답으로 받는다.
+- 이전 형식(영어 값) 카드면 `chart_scope.FIELD_OPTIONS` 그대로다.
+- `question_id`는 형식과 상관없이 도표 선택 칸 이름(`accident_type`)으로 만든다.
+
+카드에서 담당자가 `불명`으로 확인한 칸은 다시 묻지 않고 처음부터 '모른다' 응답처럼 다룬다. 사고 유형·장소가 `불명`이면 검색 전에 보류한다.
+카드 값 → 도표 선택 값 대응은 `app/workflow/card_fields.py`, 규칙은 [mvp-chart-scope.md](mvp-chart-scope.md) 「카드 v1 값 읽기」다.
+
 | 응답 | 처리 |
 | --- | --- |
 | 값 응답(`unknown=false`) | 정지원의 카드 수정/확정 경로로 새 카드 버전을 만들고 새 판단 실행을 시작한다. 같은 실행을 잇지 않는다 |

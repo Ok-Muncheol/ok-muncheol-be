@@ -6,6 +6,7 @@
 `scope_attributes`·`scope_variants`·`scope_modifiers`가 검수 상태로 더해질 때까지
 `calculation_ready`는 False이고 선택되지 않는다.
 값 `*`(`chart_scope.ANY_VALUE`)은 그 도표가 그 칸과 무관하다는 뜻이다.
+카드는 `app/workflow/card_fields.py`로 같은 칸 이름·값으로 바꿔 대조한다(카드 v1 한국어 값 포함).
 
 적용판·유효기간은 레코드 안의 문서 사본(파싱 시점 값)이 아니라 검증을 통과한 검색 결과의
 `chunk.document`에서 읽는다. `validate_hits`가 이 값을 DB 색인(`corpus_documents` 조인)과
@@ -15,9 +16,9 @@
 
 from typing import Literal, NotRequired, TypedDict
 
-from app.schemas.chart_scope import FIELD_OPTIONS
 from app.schemas.facts import FactCard
 from app.schemas.retrieval import EvidenceHit, SearchQuery
+from app.workflow.card_fields import UNKNOWN, chart_fields
 
 
 class ChartVariant(TypedDict):
@@ -71,33 +72,40 @@ _KOREAN_VALUES = {
 
 
 def confirmed_values(card: FactCard) -> dict[str, str]:
-    """담당자가 확인한 도표 선택 칸만 문자열로 돌려준다. 미확인·범위 밖 칸은 뺀다."""
+    """담당자가 확인한 도표 선택 칸만 도표 선택 값(문자열)으로 돌려준다.
+
+    미확인·범위 밖 칸과 `불명`(확인한 모름, `card_fields.confirmed_unknown_fields`)은 뺀다.
+    """
     values: dict[str, str] = {}
-    for key in FIELD_OPTIONS:
-        field = card["fields"].get(key)
-        if field is None or field["verification_status"] != "human_confirmed":
+    for key, field in chart_fields(card["fields"]).items():
+        if field["verification_status"] != "human_confirmed":
             continue
         value = field["value"]
         if isinstance(value, bool):
             value = "true" if value else "false"
-        if value is None:
+        if value is None or value == UNKNOWN:
             continue
         values[key] = str(value)
     return values
 
 
 def build_search_query(card: FactCard, top_k: int = 10) -> SearchQuery:
-    """확인한 카드 값으로 인정기준 검색 문장을 만든다. 속성 필터는 검수 전이라 쓰지 않는다."""
+    """확인한 카드 값으로 인정기준 검색 문장을 만든다. 속성 필터는 검수 전이라 쓰지 않는다.
+
+    검색 낱말이 정해진 도표 선택 값만 넣는다. `해당없음`과 대응 없는 카드 값은 넣지 않는다.
+    """
     values = confirmed_values(card)
-    words = [_KOREAN_VALUES.get(values[k], values[k]) for k in ("location_type", "road_priority")
-             if k in values]
+
+    def word(key: str) -> str | None:
+        return _KOREAN_VALUES.get(values.get(key, ""))
+
+    words = [w for k in ("location_type", "road_priority") if (w := word(k))]
     for side in ("A", "B"):
-        parts = [_KOREAN_VALUES.get(values[k], values[k])
-                 for k in (f"signal_{side}", f"movement_{side}") if k in values]
+        parts = [w for k in (f"signal_{side}", f"movement_{side}") if (w := word(k))]
         if parts:
             words.append(f"{side} {' '.join(parts)}")
-    if "entry_order" in values:
-        words.append(_KOREAN_VALUES[values["entry_order"]])
+    if order := word("entry_order"):
+        words.append(order)
     return {
         "text": " ".join(words) or "차대차 교차로 사고",
         "accident_date": card["accident_date"], "filters": {}, "top_k": top_k,
