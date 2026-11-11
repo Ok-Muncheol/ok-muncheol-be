@@ -460,7 +460,8 @@ TRUST_DETECTION = {"collision_part_B"}
 # (D안: 사진에 상대 차 표시는 움직임 A를 못 고쳐서 버림, 5/10→3/10.) 칸이 믿을 만해지면 여기서 뺀다.
 # 장소: VLM 값을 미리 채워 보여 주되 항상 확인. 도표를 고르는 첫 칸인데 자동 6/10이고, 틀리면 정리 규칙이 딸린 칸까지
 # 표시 없이 틀리게 채운다(개선용 표시 없이 틀린 핵심 13칸 중 8칸, 2026-11-09). 고치면 딸린 칸이 다시 표시된다.
-ALWAYS_REVIEW = {"location_type", "movement_A", "signal_B", "road_priority", "entry_order"}
+# signal_A 추가(2026-11-11 사용자 결정): 신호 판단이 아직 약해(30건 0/4) 신호 교차로에서는 A·B 모두 늘 확인
+ALWAYS_REVIEW = {"location_type", "movement_A", "signal_A", "signal_B", "road_priority", "entry_order"}
 # 항상 표시하되 이 장소에서만:
 # - 신호 B: 신호 교차로에서만 도표에 쓰인다(그 밖에서는 정리 규칙이 '신호없음'으로 둠)
 # - 도로 관계·진입 순서: 신호 없는 교차로에서 도표를 가르는 첫 기준인데 영상으로 판단이 어렵다(개선용 0/3).
@@ -469,7 +470,7 @@ UNSIGNALED_JUNCTIONS = {"사거리_신호없음", "T자형교차로"}
 # 규칙(fields.derive_fields)으로 정해지면 믿고, 못 정하면 VLM 값에 확인 표시를 붙이는 칸
 RULE_OR_REVIEW = {"collision_part_A"}
 MOTION_CLASSES = ("직진", "좌회전", "우회전")  # 움직임 분류기가 아는 값(나머지는 '기타')
-ALWAYS_REVIEW_ONLY_AT = {"signal_B": SIGNAL_PLACES, "road_priority": UNSIGNALED_JUNCTIONS,
+ALWAYS_REVIEW_ONLY_AT = {"signal_A": SIGNAL_PLACES, "signal_B": SIGNAL_PLACES, "road_priority": UNSIGNALED_JUNCTIONS,
                          "entry_order": UNSIGNALED_JUNCTIONS}
 
 
