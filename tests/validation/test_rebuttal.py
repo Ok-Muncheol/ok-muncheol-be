@@ -12,7 +12,7 @@ from app.validation.rebuttal import (
     review_payload,
     review_rebuttal,
 )
-from tests.workflow.synthetic import candidates, card, verdict
+from tests.workflow.synthetic import candidates, card, en_v1_card, field, verdict
 
 
 def test_passing_verdict_has_no_kind():
@@ -94,3 +94,33 @@ def test_default_reviewer_uses_the_llm_call_policy(monkeypatch):
     with pytest.raises(Exception, match="upstream"):
         asyncio.run(openai_reviewer("s", "u"))
     assert len(refused.requests) == 1  # 4xx는 다시 보내지 않는다
+
+
+def chosen(cands):
+    return {"chart_id": "S-1", "parent_id": cands[0]["parent_id"], "edition": "synthetic-1",
+            "variant": cands[0]["base_variants"][0], "applied_modifiers": [],
+            "unresolved_modifiers": [], "alternatives": ["S-2"], "reasons": []}
+
+
+def test_payload_facts_follow_the_chart_for_swapped_cards():
+    """도표 A = 카드 B(촬영 차량)인 카드도 사실을 도표 A/B 기준으로 넣는다. 같은 사고면 같다.
+
+    카드 칸을 그대로 넣으면 신호·진행 방향이 도표 속성과 반대로 보여 '모순'으로 판정될 수 있었다.
+    """
+    cands = candidates()
+    plain = json.loads(review_payload(en_v1_card(), chosen(cands), cands))
+    swapped = json.loads(review_payload(en_v1_card(swapped=True), chosen(cands), cands))
+    assert swapped["confirmed_facts"] == plain["confirmed_facts"]
+    attributes = cands[0]["attributes"]
+    assert {k: swapped["confirmed_facts"][k] for k in ("signal_A", "movement_B")} == \
+        {k: attributes[k] for k in ("signal_A", "movement_B")}
+    assert "party_note" in swapped and "party_note" not in plain
+
+
+def test_payload_lists_confirmed_unknown_fields_apart_from_facts():
+    cands = candidates()
+    c = en_v1_card(movement_B=field(None))  # 담당자가 모름으로 확인했다
+    payload = json.loads(review_payload(c, chosen(cands), cands))
+    assert "movement_B" not in payload["confirmed_facts"]
+    assert payload["unknown_facts"] == ["movement_B"]
+    assert payload["confirmed_facts"]["narrative"] == "합성 서술"

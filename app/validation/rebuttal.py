@@ -12,10 +12,18 @@ from collections.abc import Awaitable, Callable
 from typing import Literal, TypedDict, get_args
 
 from app import llm as llm_policy
+from app.schemas.chart_scope import FIELD_OPTIONS
 from app.schemas.facts import FactCard
 from app.schemas.judgment import RebuttalKind, ValidationCheck
-from app.workflow.candidates import ChartCandidate
+from app.workflow.candidates import ChartCandidate, confirmed_values
+from app.workflow.card_fields import chart_key, confirmed_unknown_fields, is_swapped
 from app.workflow.state import ChartSelection
+
+# 도표 A가 카드 B(촬영 차량)인 카드에서 LLM에 덧붙이는 안내(v1 2절)
+SWAPPED_NOTE = (
+    "이 사건은 도표 A가 카드의 B(촬영 차량)다. confirmed_facts의 도표 선택 칸은 도표 A/B 기준으로 "
+    "바꿔 넣었다. 서술(narrative)의 A/B는 카드 기준이라 도표 A/B와 반대다."
+)
 
 Reviewer = Callable[[str, str], Awaitable[str]]
 """(system, user) → JSON 문자열. 기본은 OpenAI, 테스트는 가짜를 넣는다."""
@@ -62,32 +70,40 @@ class RebuttalVerdict(TypedDict):
 def review_payload(
     card: FactCard, selection: ChartSelection, candidates: list[ChartCandidate]
 ) -> str:
-    """LLM에 주는 사실·선택·후보 요약. 확인한 칸만 사실로 넣는다."""
-    confirmed = {
-        key: field["value"] for key, field in card["fields"].items()
-        if field["verification_status"] == "human_confirmed"
-    }
+    """LLM에 주는 사실·선택·후보 요약. 확인한 칸만 사실로 넣는다.
+
+    도표 선택 칸은 판단이 읽은 값 그대로(`confirmed_values`) 넣는다. 그래서 선택한 도표 속성과
+    같은 기준이 된다. v1 2절 맞바꿈(도표 A = 카드 B)이면 카드 칸을 그대로 넣었을 때 신호·진행 방향이
+    도표와 반대로 보여 '모순'으로 판정될 수 있었다. 한국어 안 카드도 도표 값(영어)으로 들어간다.
+    담당자가 모름으로 확인한 도표 선택 칸은 `unknown_facts`로, 나머지 확인한 칸은 그대로 넣는다.
+    """
+    facts: dict[str, object] = dict(confirmed_values(card))
+    for key, field in card["fields"].items():
+        confirmed = field["verification_status"] == "human_confirmed"
+        if confirmed and chart_key(key) not in FIELD_OPTIONS:
+            facts[key] = field["value"]
     by_id = {c["chart_id"]: c for c in candidates}
     chosen = by_id.get(selection["chart_id"])
     alternatives = [
         {"chart_id": cid, "title": by_id[cid]["title"], "attributes": by_id[cid]["attributes"]}
         for cid in selection["alternatives"] if cid in by_id
     ]
-    return json.dumps(
-        {
-            "confirmed_facts": confirmed,
-            "selected_chart": {
-                "chart_id": selection["chart_id"], "edition": selection["edition"],
-                "title": chosen["title"] if chosen else None,
-                "attributes": chosen["attributes"] if chosen else {},
-                "variant": selection["variant"],
-                "applied_modifiers": selection["applied_modifiers"],
-                "selection_reasons": selection["reasons"],
-            },
-            "alternative_charts": alternatives,
+    payload: dict[str, object] = {
+        "confirmed_facts": facts,
+        "unknown_facts": confirmed_unknown_fields(card),
+        "selected_chart": {
+            "chart_id": selection["chart_id"], "edition": selection["edition"],
+            "title": chosen["title"] if chosen else None,
+            "attributes": chosen["attributes"] if chosen else {},
+            "variant": selection["variant"],
+            "applied_modifiers": selection["applied_modifiers"],
+            "selection_reasons": selection["reasons"],
         },
-        ensure_ascii=False,
-    )
+        "alternative_charts": alternatives,
+    }
+    if is_swapped(card):
+        payload["party_note"] = SWAPPED_NOTE
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def parse_verdict(raw: str, alternatives: list[str]) -> RebuttalVerdict:
