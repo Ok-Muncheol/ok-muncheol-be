@@ -11,6 +11,7 @@
 | `20261111090000_review_reports.sql` | 옥석현 | 검토 보고서 버전·서류·면책/협의 입력·구상 청구서(`review_reports`·`case_documents`·`report_case_inputs`·`claim_packages`), 시퀀스 권한 회수 |
 | `20261111150000_fact_cards.sql` | 정지원 | 사실 카드 버전(`fact_cards`, 한 버전 = 한 행 = 수정 이력), 확정 기록, Realtime. 판단·보고서의 카드 버전 외래키는 통합 뒤 새 파일로 |
 | `20261111160000_case_intake.sql` | 정지원 | `cases`에 `accident_date`·`input_path`(video·manual) 추가. 범위 검사는 접수 API가 한다 |
+| `20261111170000_analysis_tasks.sql` | 정지원 | 영상 분석 작업(`analysis_tasks`): 사건마다 진행 중 하나, 같은 Idempotency-Key 한 번, 콜백 토큰은 SHA-256만, 완료는 `fact_cards` 버전 외래키, Realtime |
 
 ## 공통 원칙
 

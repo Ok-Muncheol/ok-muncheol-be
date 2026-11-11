@@ -1,9 +1,10 @@
-"""A: 사건 접수·조회(POST /cases, GET /cases/{id})와 업로드 서명 URL. /analysis 예정.
+"""A: 사건 접수·조회(POST /cases, GET /cases/{id}), 업로드 서명 URL, 분석 접수(→ analysis.py).
 
 사건 목록(list_cases)은 서비스만 있다. FE ApiClient에 listCases가 생기면 GET /cases 경로를 연다.
 
 사건 요약(CaseSummary)은 FE src/lib/api/types.ts의 모양이다. 단계(stage)는 최신 산출물로 정한다:
-보고서(최신 판단의 것) → report, 판단(최신 카드 버전의 것) → judgment, 카드 → facts, 없으면 intake.
+보고서(최신 판단의 것) → report, 판단(최신 카드 버전의 것) → judgment,
+끝나지 않았거나 실패한 최신 분석 → analysis, 카드 → facts, 없으면 intake.
 카드를 고쳐 새 버전이 생기면 이전 판단은 그 카드의 것이 아니므로 facts로 돌아간다.
 """
 
@@ -46,7 +47,9 @@ select c.id, c.assignee_id, c.accident_date, c.input_path, c.updated_at,
            and not exists (select 1 from public.judgment_answers a where a.question_id = q.id)
        ) as open_questions,
        rr.report_version, rr.judgment_version as report_judgment_version,
-       rr.approval_status, rr.updated_at as report_at
+       rr.approval_status, rr.updated_at as report_at,
+       at.status as analysis_status, at.created_at as analysis_at,
+       at.updated_at as analysis_updated_at
 from public.cases c
 left join lateral (
   select version, updated_at from public.fact_cards
@@ -58,6 +61,9 @@ left join lateral (
 left join lateral (
   select report_version, judgment_version, approval_status, updated_at from public.review_reports
   where case_id = c.id order by report_version desc limit 1) rr on true
+left join lateral (
+  select status, created_at, updated_at from public.analysis_tasks
+  where case_id = c.id order by created_at desc limit 1) at on true
 """
 
 
@@ -81,6 +87,14 @@ class PostgresCaseRepo:
         except errors.ForeignKeyViolation as exc:  # 토큰의 사용자가 auth.users에 없다
             raise forbidden("담당자 계정을 찾을 수 없습니다.") from exc
         return str((await cur.fetchone())["id"])
+
+    async def expire_analysis(self, case_id: str) -> None:
+        """콜백이 15분 넘게 안 온 분석을 실패(analysis_timeout)로 바꾼다."""
+        from psycopg.types.json import Jsonb
+
+        from app.api.analysis import EXPIRE_SQL, TIMEOUT_ERROR
+
+        await self.conn.execute(EXPIRE_SQL, (Jsonb(TIMEOUT_ERROR), case_id))
 
     async def summaries(
         self, *, case_id: str | None = None, assignee_id: str | None = None
@@ -161,15 +175,26 @@ def summarize(row: dict) -> dict[str, object]:
         and row.get("report_version") is not None
         and row.get("report_judgment_version") == run_version
     )
+    # 최신 분석이 끝나지 않았거나 실패했고, 그 뒤에 만든 카드가 없으면 분석 단계다
+    analysis = row.get("analysis_status")
+    card_at, analysis_at = row.get("card_at"), row.get("analysis_at")
+    analysis_now = (
+        analysis in ("queued", "running", "failed")
+        and not run_now
+        and (not card_version or (card_at is not None and analysis_at > card_at))
+    )
     if report_now:
         stage, task_status = "report", None
     elif run_now:
         stage, task_status = "judgment", row.get("run_status")
+    elif analysis_now:
+        stage, task_status = "analysis", analysis
     elif card_version:
         stage, task_status = "facts", None
     else:
         stage, task_status = "intake", None
-    times = [row.get(k) for k in ("updated_at", "card_at", "run_at", "report_at")]
+    keys = ("updated_at", "card_at", "run_at", "report_at", "analysis_updated_at")
+    times = [row.get(k) for k in keys]
     return {
         "case_id": case_id,
         "accident_date": _iso(row.get("accident_date")),
@@ -258,15 +283,19 @@ async def request_upload(
 async def start_analysis(
     actor_id: str, case_id: str, storage_path: str, idempotency_key: str
 ) -> dict[str, object]:
-    """소유권·업로드 완료 확인 후 비전 작업 큐에 접수."""
-    raise NotImplementedError("A: 작업 접수·멱등성·상태 복원")
+    """소유권·업로드 완료 확인 후 영상 분석 작업을 만들고 Modal에 넘긴다(app/api/analysis.py)."""
+    from app.api import analysis
+
+    return await analysis.start_analysis(actor_id, case_id, storage_path, idempotency_key)
 
 
 async def get_case(actor_id: str, case_id: str) -> dict[str, object]:
     """현재 단계·카드·판단·질문·보고서 버전을 권한 검사 후 조회(새로고침·재접속 복원용)."""
     case_id = _case_uuid(case_id)
     async with services.connect() as conn:
-        rows = await services.repo(conn).summaries(case_id=case_id)
+        repo = services.repo(conn)
+        await repo.expire_analysis(case_id)
+        rows = await repo.summaries(case_id=case_id)
     if not rows:
         raise not_found("사건을 찾을 수 없습니다.")
     if str(rows[0]["assignee_id"]) != actor_id:

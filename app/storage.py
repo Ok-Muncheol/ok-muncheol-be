@@ -145,3 +145,50 @@ async def create_signed_upload_url(
     if not isinstance(signed, str) or not signed.startswith("/"):
         raise _unavailable(retryable=False)
     return f"{base}/storage/v1{signed}"
+
+
+DOWNLOAD_URL_EXPIRES_SECONDS = 3600
+
+
+async def create_signed_download_url(
+    object_key: str,
+    expires_in: int = DOWNLOAD_URL_EXPIRES_SECONDS,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> str | None:
+    """`STORAGE_BUCKET`의 `object_key`를 키 없이 내려받는 서명 URL. 파일이 없으면 None.
+
+    영상 분석 접수가 Modal에 넘긴다(Modal에는 서버 키를 두지 않는다).
+    만들면서 업로드 여부도 확인된다.
+    호출하는 쪽이 먼저 사건 권한과 경로를 확인한다. `transport`는 테스트용.
+    """
+    settings = get_settings()
+    if not settings.supabase_url or not settings.supabase_secret_key:
+        raise _not_configured()
+    base = settings.supabase_url.rstrip("/")
+    url = (
+        f"{base}/storage/v1/object/sign/"
+        f"{quote(STORAGE_BUCKET, safe='')}/{quote(object_key, safe='/')}"
+    )
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT_SECONDS, transport=transport, follow_redirects=False
+        ) as client:
+            resp = await client.post(
+                url,
+                headers={"apikey": settings.supabase_secret_key},
+                json={"expiresIn": expires_in},
+            )
+    except httpx.HTTPError:
+        raise _unavailable(retryable=True) from None
+    if _is_not_found(resp.status_code, resp.content):
+        return None
+    if resp.status_code != 200:
+        raise _unavailable(retryable=resp.status_code >= 500)
+    try:
+        signed = resp.json()["signedURL"]
+    except (ValueError, KeyError, TypeError):
+        raise _unavailable(retryable=False) from None
+    if not isinstance(signed, str) or not signed.startswith("/"):
+        raise _unavailable(retryable=False)
+    return f"{base}/storage/v1{signed}"

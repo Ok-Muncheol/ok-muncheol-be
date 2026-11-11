@@ -102,9 +102,13 @@ def test_dev_actor_only_in_local_off_vercel(client):
     assert client.get("/cases/case-1").status_code == 503
 
 
-def test_unimplemented_service_is_501(client):
-    res = client.post("/cases/case-1/analysis", json={"storage_path": "case-files/x/videos/a.mp4"},
-                      headers={**token(), **KEY})
+def test_unimplemented_service_is_501(client, monkeypatch):
+    # 경로 서비스가 모두 구현돼, 서비스 하나를 미구현으로 바꿔 끼워 501 변환을 확인한다
+    async def not_yet(*args, **kwargs):
+        raise NotImplementedError("미구현 예시")
+
+    monkeypatch.setattr(cases, "get_case", not_yet)
+    res = client.get("/cases/case-1", headers=token())
     assert res.status_code == 501
     assert res.json()["error"]["code"] == "not_implemented"
 
