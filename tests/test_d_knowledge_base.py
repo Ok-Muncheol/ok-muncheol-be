@@ -19,7 +19,12 @@ from app.calculation.rules import RuleSet
 from app.retrieval import common as retrieval_common
 from app.retrieval import embedding as retrieval_embedding
 from app.retrieval.common import configure_retrieval, fetch_by_parent
-from app.retrieval.embedding import EmbeddingSpec, FakeEmbedder, RetrievalNotConfigured
+from app.retrieval.embedding import (
+    EmbeddingMismatch,
+    EmbeddingSpec,
+    FakeEmbedder,
+    RetrievalNotConfigured,
+)
 from app.retrieval.hybrid import RetrievalOptions
 from app.retrieval.index import InMemoryIndex
 from app.retrieval.keyword import SimpleTokenizer
@@ -343,6 +348,39 @@ class KnowledgeBaseFailureLeavesStateTest(unittest.TestCase):
             handoff_embedding_spec(root)
 
         self.assert_fails_unchanged("handoff.json", embedder=from_env)
+
+    @needs_dotenv
+    def test_embedding_settings_mismatch_is_not_configured(self):
+        """.env 임베딩 모델·차원이 handoff와 다르거나 숫자가 아니면 EmbeddingSettingsInvalid.
+
+        실제 OpenAIEmbedder.from_env를 부른다(키는 가짜, 네트워크 없음). 메시지에 키가 없어야 한다.
+        """
+        from_env = api.OpenAIEmbedder.from_env
+        spec = handoff_embedding_spec()
+        cases = (
+            {"OPENAI_EMBEDDING_MODEL": "other-model", "OPENAI_EMBEDDING_DIMENSIONS": "1536"},
+            {"OPENAI_EMBEDDING_MODEL": spec.model, "OPENAI_EMBEDDING_DIMENSIONS": "3"},
+            {"OPENAI_EMBEDDING_MODEL": spec.model, "OPENAI_EMBEDDING_DIMENSIONS": "abc"},
+        )
+        for env in cases:
+            with self.subTest(env=env), patch.dict(os.environ, {"OPENAI_API_KEY": FAKE_KEY, **env}):
+                with self.assertRaises(api.EmbeddingSettingsInvalid) as caught:
+                    self.connect(embedder=from_env)
+                error = caught.exception
+                self.assertIsInstance(error, RetrievalNotConfigured)
+                self.assertIsInstance(error.__cause__, EmbeddingMismatch)
+                self.assertIn("OPENAI_EMBEDDING", str(error))
+                self.assertNotIn(FAKE_KEY, str(error))
+                self.assertNotIn(FAKE_KEY, repr(error.__cause__))
+                self.assert_unchanged()
+
+    def test_embedding_mismatch_from_settings_changes_nothing(self):
+        def mismatch():
+            raise EmbeddingMismatch("OPENAI_EMBEDDING_*: 임베딩 불일치")
+
+        with self.assertRaises(api.EmbeddingSettingsInvalid):
+            self.connect(embedder=mismatch)
+        self.assert_unchanged()
 
     def test_failure_while_making_adapter_changes_nothing(self):
         def broken(corpus):
