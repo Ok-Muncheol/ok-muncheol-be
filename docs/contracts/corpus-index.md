@@ -60,7 +60,7 @@ Git에는 코드·`data/corpora/*/manifest.json`·합성 견본만 둔다.
 ## 적재
 
 ```bash
-python scripts/export_corpus_index_rows.py   # → data/private/corpus-db-import/db_import/<table>.jsonl (git 무시, D 로더 기본 경로)
+python scripts/export_corpus_index_rows.py   # → data/private/corpus-db-import/db_import/<table>.jsonl (git 무시, D 로더 기본 경로. zip으로 받아 풀어 둔 파일을 덮어쓴다)
 ```
 
 스크립트가 중복 ID·청크 없는 부모·끊긴 도표/수정요소/대조표/부칙 연결·페이지 누락·manifest 해시 불일치를 검사하고

@@ -13,5 +13,6 @@ def test_export_default_output_is_loader_path():
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    # 다르면 새로 내보낸 파일을 로더가 못 읽고 실데이터 테스트가 조용히 skip된다
-    assert module.DB_IMPORT.resolve() == DB_IMPORT.resolve()
+    # 실제 쓰는 곳(--output 기본값)을 본다. 다르면 새로 내보낸 파일을 로더가 못 읽고
+    # 실데이터 테스트가 조용히 skip된다
+    assert module.build_parser().parse_args([]).output == DB_IMPORT

@@ -1,6 +1,7 @@
 """C: data/private 코퍼스 산출물 → DB 적재 행(JSONL).
 
-결과는 data/private/corpus-db-import/db_import/에만 쓴다(D 로더 기본 경로).
+결과는 data/private/corpus-db-import/db_import/에만 쓴다(D 로더 기본 경로 `loader.DB_IMPORT`).
+zip으로 받은 코퍼스를 같은 폴더에 풀어 두었다면 실행할 때 그 파일을 덮어쓴다.
 
 테이블 계약은 docs/contracts/corpus-index.md.
 결과에 원문·청크·벡터가 들어 있으므로 저장소에 커밋하지 않는다.
@@ -12,12 +13,15 @@
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from app.retrieval.loader import DB_IMPORT  # noqa: E402 -- standalone CLI adds repository root before app imports
+
 PRIVATE = ROOT / "data" / "private"
-DB_IMPORT = PRIVATE / "corpus-db-import" / "db_import"
 FOLDERS = {
     "fault_standards": "01_fault_standards",
     "dispute_cases": "02_dispute_cases",
@@ -208,11 +212,16 @@ def build(corpus: str, manifest_docs: dict) -> dict[str, list[dict]]:
     }
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="코퍼스 산출물 → DB 적재 행")
     parser.add_argument("--manifests", type=Path, default=ROOT / "data" / "corpora")
-    # D 로더(app/retrieval/loader.py DB_IMPORT)가 읽는 곳과 같게 둔다
+    # D 로더가 읽는 곳(loader.DB_IMPORT). 상수를 다시 쓰지 않고 로더 값을 그대로 쓴다
     parser.add_argument("--output", type=Path, default=DB_IMPORT)
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
     if PRIVATE not in args.output.resolve().parents:
         parser.error("출력은 data/private/ 아래에만 쓴다(원문·벡터 포함)")
