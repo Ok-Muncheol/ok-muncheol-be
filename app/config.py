@@ -12,6 +12,10 @@ def _split(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _flag(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     app_env: str
@@ -21,6 +25,9 @@ class Settings:
     jwt_audience: str
     cors_allow_origins: tuple[str, ...]
     dev_actor_id: str | None
+    # 켜면 서버 시작 때 D 지식베이스(근거 검색·면책 조항 판정)를 연결한다(app/main.py).
+    # 로컬 전용: 시작에 약 12초·230MB. 기본 꺼짐이고 Vercel에는 두지 않는다
+    load_knowledge_base: bool = False
     # 서버 전용 Postgres 주소(Supabase Session pooler). 없으면 DB를 쓰는 경로는 503(app/db.py)
     database_url: str | None = None
 
@@ -53,5 +60,6 @@ def get_settings() -> Settings:
         jwt_audience=env.get("SUPABASE_JWT_AUDIENCE", "authenticated"),
         cors_allow_origins=_split(env.get("CORS_ALLOW_ORIGINS", "")),
         dev_actor_id=env.get("DEV_ACTOR_ID") or None,
+        load_knowledge_base=_flag(env.get("LOAD_KNOWLEDGE_BASE", "")),
         database_url=env.get("DATABASE_URL") or None,
     )

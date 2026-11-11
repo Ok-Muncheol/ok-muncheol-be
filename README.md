@@ -131,7 +131,7 @@ SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과
 | 비전 워커 | Modal · YOLO11s · OpenCV Farneback · VideoMAE · scikit-learn | 차량 탐지·추적, 촬영 차량 움직임(광류), 영상 분류(미세조정), PCA·로지스틱 회귀 작은 분류기 | 실험 단계. 저장소 평가 코드(`evals/vision/`)에는 YOLO11n·광류만 있고 `workers/vision/`은 자리표시자. V-JEPA는 실험 중, SAM2는 효과가 입증되면 선택 |
 | 사실 추출 | OpenAI VLM | 키프레임·궤적 특징으로 사실 카드 초안 작성 | 평가 기준 `gpt-5.4-mini`([평가 보고서](docs/vision-fact-card-eval-report.md) 1절). 개선 실험에 쓰는 `gpt-4o`는 OpenAI가 스냅샷 종료를 2027-01-14로 공지 |
 | 판단 | LangGraph · Postgres 체크포인터(psycopg) · OpenAI LLM | 고정 판단 그래프·구분 질문 재개·반박 검토 | 구현. LLM 모델은 `OPENAI_MODEL`(`.env.example`은 `gpt-5`) |
-| 검색·색인 | pdfplumber · OpenAI 임베딩(`text-embedding-3-small`) · Kiwi BM25 · pgvector | 코퍼스별 파싱·청킹·임베딩, 구조화 검색·한국어 BM25 | 검색은 메모리 색인(`InMemoryIndex`)으로 돈다. pgvector는 `VectorIndex` 교체 지점으로 남아 있다. LangChain은 LangGraph 설정 타입(`langchain_core`)만 쓴다 |
+| 검색·색인 | pdfplumber · OpenAI 임베딩(`text-embedding-3-small`) · Kiwi BM25 · pgvector | 코퍼스별 파싱·청킹·임베딩, 구조화 검색·한국어 BM25 | 검색은 메모리 색인(`InMemoryIndex`)으로 돈다. 로컬은 `LOAD_KNOWLEDGE_BASE=1`이면 서버 시작에서 db_import 파일로 켜고, 운영(Vercel)에는 색인 파일이 없어 꺼져 있다. pgvector는 `VectorIndex` 교체 지점으로 남아 있다. LangChain은 LangGraph 설정 타입(`langchain_core`)만 쓴다 |
 | 데이터·파일·인증 | Supabase Postgres · Storage · Auth · RLS | 사건·근거·비공개 영상·담당자 접근 통제 | 사건 접근·판단·보고서 마이그레이션 3개(`supabase/migrations/`) |
 | 진행·관측 | Supabase Realtime · LangSmith · Vercel Observability | 작업 변경 알림·단계별 비용·처리 시간 | Realtime은 `judgment_runs`·`judgment_questions`를 발행한다. LangSmith는 아직 연결하지 않았다 |
 | CI·배포 | GitHub Actions · Vercel Git 연동 | 머지 전 검사, `main` 배포 | Actions는 `check`(lint·check·test)와 `gitleaks`만 돌린다. 배포는 Vercel이 `main` push를 받아 한다 |
@@ -289,7 +289,9 @@ make contracts  # app/schemas/examples.py → docs/contracts/examples.json
 
 CI `check`가 lint → check → test를 같은 순서로 돌리고, 버려도 되는 Postgres 서비스로 마이그레이션·판단 저장 동작도 검사한다.
 모델·Supabase 실환경은 검증하지 않는다.
-서버 환경 변수 양식은 `.env.example`이다. 로컬에서 토큰 없이 부르려면 `APP_ENV=local`과 `DEV_ACTOR_ID`를 함께 둔다(Vercel 위에서는 꺼진다). LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
+서버 환경 변수 양식은 `.env.example`이다. 로컬에서 토큰 없이 부르려면 `APP_ENV=local`과 `DEV_ACTOR_ID`를 함께 둔다(Vercel 위에서는 꺼진다).
+근거 검색·면책 조항 판정(D 지식베이스)은 `LOAD_KNOWLEDGE_BASE=1`일 때만 서버 시작에서 켠다. 로컬 `data/private/corpus-db-import/db_import`와 OpenAI 키가 필요하고 시작에 약 12초·230MB가 든다. 파일·키가 없거나 못 쓰면 경고 로그만 남기고 꺼진 채로 시작한다(면책은 담당자 입력으로 판정).
+LLM·VLM·Modal·DB 비밀키는 서버에서만 관리하며 실제 사건·원문은 커밋하지 않는다.
 견본 생성/FE 동기화는 [공통 계약](docs/contracts/README.md), 담당별 작업은 [TEAM.md](TEAM.md)를 따른다.
 
 평가는 영상→카드와 카드→판단을 분리한다. 먼저 정답 카드로 S0(벡터 검색 기준선), S1(속성 필터·검색 개선),
