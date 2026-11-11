@@ -1,7 +1,7 @@
 # 구현 단계 검증 계획
 
 `make check`는 문법·import·JSON 검사다.
-`make test`(pytest)는 `tests/` 전체를 돌린다. API 인증·오류 응답·경로 배선은 `tests/api/`, 검색·코퍼스는 `tests/test_*.py`,
+`make test`(pytest)는 `tests/` 전체를 돌린다. API 인증·오류 응답·경로 배선·시작 시 지식베이스 연결은 `tests/api/`, 검색·코퍼스는 `tests/test_*.py`,
 비전 평가는 `tests/evals/`, ship 게이트·폴링 스크립트는 `tests/automation/`에 있다.
 마이그레이션 파일 규칙·계약 동기화는 `tests/migrations/`에 있다. DB 동작 검사(마이그레이션, 판단 저장 `tests/api/test_judgment_service.py`)는
 `MIGRATION_TEST_DATABASE_URL`이 있을 때 돌고, CI는 Postgres 서비스로 늘 돌린다(`supabase/migrations/README.md` 「로컬 검사」).

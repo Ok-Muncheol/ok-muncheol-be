@@ -6,6 +6,8 @@
 2. add_documents    — 견적·계약·증빙 추가 → 자동 재산정.
                       입력이 바뀌면 새 보고서 버전(확인 완료 풀림)
    upload_estimate  — 서식 견적서 PDF 자동 추출 후 add_documents
+   upload_estimate_from_storage — 견적서 경로(POST /cases/{id}/estimates): 권한·경로 확인 후
+                      Storage에서 임시 파일로 내려받아 upload_estimate(저장 경로는 Storage 경로)
 3. set_agreed_fault — 협의 과실 입력·해제(이유 필수) → 9번 다시 계산한 새 버전
 4. confirm_report   — 담당자 [확인 완료] 한 번: 최신·draft_ready면 확인 기록.
                       청구서 조건이 맞으면 구상 청구 패키지 생성, 아니면 package=None +
@@ -20,11 +22,15 @@ HTTP 경로는 app/api/routes.py(구준휘 님)가 이 함수들을 감싸 붙�
 ApiException으로 바꾼다 — 없음 404, 담당 아님 403, 최신 아님 409, 처리 불가 입력·상태 422.
 """
 
+import os
+import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC
 from functools import wraps
+from pathlib import Path
 
+from app import storage
 from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.calculation.estimate_reader import read_estimate_pdf
 from app.calculation.exclusions import (
@@ -92,6 +98,7 @@ __all__ = [
     "set_agreed_fault",
     "submit_judgment",
     "upload_estimate",
+    "upload_estimate_from_storage",
 ]
 
 
@@ -126,7 +133,20 @@ class DocumentsInvalid(ValueError):
     """서류 모양이 아님(document_id 없음, kind가 견적서·자차 계약·증빙이 아님)."""
 
 
+class StoragePathInvalid(ValueError):
+    """견적서 Storage 경로가 그 사건의 견적서 폴더가 아님(다른 사건, '..' 등)."""
+
+
+class EstimateNotPdf(ValueError):
+    """내려받은 견적서가 PDF가 아니거나 PDF로 읽을 수 없음."""
+
+
 DOCUMENT_KINDS = ("repair_estimate", "own_damage_contract", "evidence")
+# 견적서 Storage 내려받기(upload_estimate_from_storage)
+ESTIMATE_MAX_BYTES = 10 * 1024 * 1024
+PDF_HEADER = b"%PDF-"
+# PDF 규격상 앞에 다른 바이트가 붙어도 앞 1024바이트 안에 머리가 있으면 정상
+PDF_HEADER_WINDOW = 1024
 
 
 # 하위 클래스를 먼저 본다(StaleVersion·ConfirmBlocked 등은 ValueError).
@@ -138,6 +158,13 @@ _API_ERRORS: tuple[tuple[type[Exception], Callable[[Exception], ApiException]], 
     (CardNotConfirmed, lambda e: unprocessable("card_not_confirmed", str(e))),
     (AgreedFaultInvalid, lambda e: unprocessable("invalid_agreed_fault", str(e))),
     (DocumentsInvalid, lambda e: unprocessable("invalid_documents", str(e))),
+    (StoragePathInvalid, lambda e: unprocessable("invalid_storage_path", str(e))),
+    (EstimateNotPdf, lambda e: unprocessable("estimate_not_pdf", str(e))),
+    (storage.StorageObjectTooLarge, lambda e: unprocessable("estimate_too_large", str(e))),
+    (
+        storage.StorageObjectNotFound,
+        lambda e: ApiException(404, "estimate_file_not_found", str(e)),
+    ),
     (
         ReportsDbNotReady,
         lambda e: ApiException(
@@ -380,19 +407,88 @@ async def add_documents(
 
 @_api_boundary
 async def upload_estimate(
-    actor_id: str, case_id: str, pdf_path: str, party_id: str
+    actor_id: str, case_id: str, pdf_path: str, party_id: str, *, storage_path: str | None = None
 ) -> ReviewReport | None:
     """서식 견적서 PDF 업로드 → 자동 추출(read_by="pdf_extract") → add_documents(자동 재산정).
+
+    `pdf_path`는 읽을 파일, `storage_path`는 견적서·증빙에 저장할 경로(없으면 `pdf_path`).
     pdfplumber가 없으면 EstimateReaderUnavailable(설치 안내)."""
     await services.repo.get(actor_id, case_id)  # 권한·사건 확인을 PDF 읽기보다 먼저
+    stored_path = storage_path or pdf_path
     doc = read_estimate_pdf(pdf_path, party_id=party_id)
+    doc["storage_path"] = stored_path
     evidence = {
         "kind": "evidence",
         "document_id": f"ev-{doc['document_id']}",
         "doc_type": "repair_estimate",
-        "storage_path": pdf_path,
+        "storage_path": stored_path,
     }  # 견적서 PDF는 청구서 증빙으로 자동 등록
     return await add_documents(actor_id, case_id, [doc, evidence])  # type: ignore[list-item]
+
+
+def estimate_object_key(case_id: str, storage_path: str) -> str:
+    """`<STORAGE_BUCKET>/<case_id>/estimates/<파일>`인지 확인하고 버킷을 뗀 객체 키를 돌려준다.
+
+    서버 키는 RLS를 건너뛰므로 이 확인이 다른 사건 파일을 막는 방어다.
+    '..'·'%'(인코딩 우회)·역슬래시·빈 조각·제어 문자는 거절한다. 비ASCII(한글 등)도 거절한다 —
+    Supabase Storage가 그런 객체 이름을 400 InvalidKey로 거절해 503으로 보이지 않게.
+    """
+    prefix = f"{storage.STORAGE_BUCKET}/{case_id}/estimates/"
+    name = storage_path.removeprefix(prefix)
+    if (
+        not storage_path.startswith(prefix)
+        or ".." in storage_path
+        or any(ch in storage_path for ch in "%\\")
+        or not storage_path.isascii()
+        or not storage_path.isprintable()
+        or any(part in ("", ".") for part in name.split("/"))
+    ):
+        raise StoragePathInvalid(f"견적서 경로는 {prefix} 아래 파일이어야 합니다")
+    return storage_path.removeprefix(f"{storage.STORAGE_BUCKET}/")
+
+
+def _require_pdf_header(path: Path) -> None:
+    with path.open("rb") as f:
+        head = f.read(PDF_HEADER_WINDOW)
+    if PDF_HEADER not in head:
+        raise EstimateNotPdf("견적서 파일이 PDF가 아닙니다")
+
+
+def _pdf_parse_errors() -> tuple[type[Exception], ...]:
+    """pdfplumber·pdfminer의 PDF 파싱 오류만. 그 밖의 예외(코드 버그)는 잡지 않는다."""
+    try:
+        from pdfminer.psparser import PSException
+        from pdfplumber.utils.exceptions import MalformedPDFException, PdfminerException
+    except ImportError:  # pdfplumber 없음 → EstimateReaderUnavailable이 그대로 올라간다
+        return ()
+    return (PSException, PdfminerException, MalformedPDFException)
+
+
+@_api_boundary
+async def upload_estimate_from_storage(
+    actor_id: str, case_id: str, storage_path: str, party_id: str
+) -> ReviewReport | None:
+    """견적서 경로: 권한 확인 → 경로 확인 → Storage에서 임시 파일로 내려받기 → upload_estimate.
+
+    순서를 바꾸지 않는다(서버 키가 RLS를 건너뛰어 앞의 두 확인이 유일한 방어).
+    견적서·증빙에는 임시 파일이 아니라 Storage 경로를 저장한다. 임시 파일은 결과와 상관없이 지운다.
+    """
+    await services.repo.get(actor_id, case_id)
+    object_key = estimate_object_key(case_id, storage_path)
+    fd, name = tempfile.mkstemp(prefix="estimate-", suffix=".pdf")
+    os.close(fd)
+    tmp = Path(name)
+    try:
+        await storage.download_object(object_key, tmp, max_bytes=ESTIMATE_MAX_BYTES)
+        _require_pdf_header(tmp)
+        try:
+            return await upload_estimate(
+                actor_id, case_id, str(tmp), party_id, storage_path=storage_path
+            )
+        except _pdf_parse_errors() as exc:
+            raise EstimateNotPdf("견적서 PDF를 읽을 수 없습니다") from exc
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 @_api_boundary

@@ -36,7 +36,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | `app/schemas/reports.py` | 서류(견적·계약·증빙)·산정 전 검증·보고서 항목·구상 패키지 계약. 추가 필드는 `NotRequired` |
 | `app/calculation/rules.py` | 자기부담금·전손·조항 ID 규칙. **전부 예시**(`example-` 버전) |
 | `app/calculation/damages.py` | 확정 견적 우선, OCR 미확인은 `null`, 견적서 없으면 항상 `null`(평균 수리비 참고값 없음) |
-| `app/calculation/estimate_reader.py` | 서식(별지 제89호의3, `data/forms/car_estimate_form.pdf`) 견적서 텍스트 PDF에서 총액·일련번호·발급일·견적구분·부품·공임·부가가치세 추출(`read_by="pdf_extract"`, 담당자 확인 없이 계산에 사용). pdfplumber 선택 의존성 |
+| `app/calculation/estimate_reader.py` | 서식(별지 제89호의3, `data/forms/car_estimate_form.pdf`) 견적서 텍스트 PDF에서 총액·일련번호·발급일·견적구분·부품·공임·부가가치세 추출(`read_by="pdf_extract"`, 담당자 확인 없이 계산에 사용). pdfplumber 기본 의존성 |
 | `app/calculation/exclusions.py` | **면책 근거 = 조항 ID 직접 조회만**(C의 `validate_hits`로 검증, 벡터 검색 없음). 조항이 색인에 없거나 검증에 실패하면 담당자 입력을 따르고, 입력이 없으면 "면책 확인 필요 — 조항 미확인"(막지 않음). |
 | `app/calculation/insurance.py` | 판단 과실(`draft_ready`) 기반 자차 보험금. 승인 단계 없음. 계약·보험기간·운전자 범위·매핑·면책 확인 후 코드 계산 |
 | `app/claims/package.py` | `compute_recovery`(9번 자동), `check_claimable`(확인 완료 조건), `build_claim_package`(사건 1행, 예시 규칙 표시, 멱등 키) |
@@ -64,15 +64,17 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 ## HTTP 경로 (11-10, 구준휘 님과 합의)
 
 `app/api/routes.py`·README API 표·FE ApiClient는 구준휘 님이 맞춘다. D는 아래 서비스 함수(`app/api/reports.py`)만 제공한다.
-다만 견적서 경로(`POST /cases/{id}/estimates`)의 Storage 내려받기는 11/10부터 D가 맡는다(구준휘 님에게서 넘겨받음).
-준비물은 정지원 님 업로드 서명 URL(`POST /cases/{id}/uploads`), Storage 읽기 서버 키(Vercel 등록은 구준휘 님), `pdfplumber`를 pyproject 기본 의존성으로 옮기기(지금은 선택 의존성 `estimate-pdf`)다.
+다만 견적서 경로(`POST /cases/{id}/estimates`)의 Storage 내려받기는 11/10부터 D가 맡는다(구준휘 님에게서 넘겨받음, #95로 연결).
+`upload_estimate_from_storage`가 ① 권한 확인(`repo.get`) ② 경로 확인(`{STORAGE_BUCKET}/{case_id}/estimates/` 아래, `..`·`%`·역슬래시·빈 조각·비ASCII 거절 — Supabase가 비ASCII 객체 이름을 400 InvalidKey로 거절) ③ `app/storage.py`로 임시 파일에 내려받기(10MB, 앞 1024바이트 안에 `%PDF-`) ④ `upload_estimate(…, storage_path=Storage 경로)` 순서로 처리하고 임시 파일은 항상 지운다.
+서버 키(`SUPABASE_SECRET_KEY`)는 RLS를 건너뛰므로 ①·②가 유일한 방어다. 버킷은 `app/storage.py` `STORAGE_BUCKET`(기본 `case-files`, 미확정) 하나만 바꾸면 된다.
+오류: 키 없음 503 `storage_not_configured`, Storage 실패 503 `storage_unavailable`, 파일 없음 404 `estimate_file_not_found`, 다른 사건 경로 422 `invalid_storage_path`, 10MB 초과 422 `estimate_too_large`, PDF 아님·PDF 파싱 오류 422 `estimate_not_pdf`.
 `…`는 `/cases/{case_id}`.
 
 | 메서드·경로 | 서비스 함수 | 요청 | 응답 |
 | --- | --- | --- | --- |
 | `GET …/reports/{v}` | `get_report(actor_id, case_id, version)` | - | `ReviewReport` |
 | `POST …/reports/{v}/confirm` | `confirm_report(actor_id, case_id, version, counterparty?)` | body: `counterparty`(선택, `CounterpartyInfo`) | `ConfirmResult` |
-| `POST /cases/{id}/estimates` | `upload_estimate(actor_id, case_id, pdf_path, party_id)` | body: `storage_path`, `party_id`. D가 경로 본문에서 `storage_path`가 그 사건 폴더인지 확인하고 Storage에서 `/tmp`로 내려받아 `pdf_path`로 넘긴다(연결 전 501) | `ReviewReport \| null` |
+| `POST /cases/{id}/estimates` | `upload_estimate_from_storage(actor_id, case_id, storage_path, party_id)` | body: `storage_path`(버킷 포함), `party_id`. 위 ①~④. 로컬 파일은 `upload_estimate(actor_id, case_id, pdf_path, party_id, storage_path?)` | `ReviewReport \| null` |
 | `POST /cases/{id}/documents` | `add_documents(actor_id, case_id, documents, case_facts?)` | body: `documents`, `case_facts`(선택) | `ReviewReport \| null` |
 | `GET …/reports/{v}/claim` | `get_claim(actor_id, case_id, version)` | - | `ClaimResult` |
 | `PATCH /cases/{id}/agreed-fault` | `set_agreed_fault(actor_id, case_id, agreed_counterparty_fault?, fault_change_reason, clear?)` | body: 같은 이름 | `ReviewReport` |
