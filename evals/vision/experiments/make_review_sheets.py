@@ -17,8 +17,38 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from evals.vision.make_answer_sheet import image_index  # noqa: E402
 
-FRAMES = [1, 15, 30, 40, 46, 50, 54, 58, 61, 64, 66, 68, 70, 71, 72, 73, 74, 75, 76, 78,
-          80, 83, 86, 90, 95, 100, 110, 125, 140, 150]
+FRAMES = [
+    1,
+    15,
+    30,
+    40,
+    46,
+    50,
+    54,
+    58,
+    61,
+    64,
+    66,
+    68,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    78,
+    80,
+    83,
+    86,
+    90,
+    95,
+    100,
+    110,
+    125,
+    140,
+    150,
+]
 COLS, W, H = 6, 384, 216
 
 
@@ -29,8 +59,13 @@ def main():
     parser.add_argument("--eval-set", default=Path("evals/results/vision/eval_set.csv"), type=Path)
     parser.add_argument("--videos", default=Path("data/private/aihub/videos"), type=Path)
     parser.add_argument("--out", default=Path("data/private/aihub/review_sheets"), type=Path)
-    parser.add_argument("--label-zips", default=Path(
-        "data/095.교통사고 영상 데이터/01.데이터/2.Validation/라벨링데이터_231108_add"), type=Path)
+    parser.add_argument(
+        "--label-zips",
+        default=Path(
+            "data/095.교통사고 영상 데이터/01.데이터/2.Validation/라벨링데이터_231108_add"
+        ),
+        type=Path,
+    )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     index = image_index(args.label_zips)
@@ -55,7 +90,10 @@ def main():
                 tiles.append(tiles[-1] * 0)
                 continue
             for o in boxes.get(f, []):
-                for flag, tag, color in (("isObjectA", "A", (0, 0, 255)), ("isObjectB", "B", (255, 0, 0))):
+                for flag, tag, color in (
+                    ("isObjectA", "A", (0, 0, 255)),
+                    ("isObjectB", "B", (255, 0, 0)),
+                ):
                     if o.get(flag):
                         x, y, w, h = map(int, o["bbox"])
                         cv2.rectangle(img, (x, y), (x + w, y + h), color, 8)
@@ -64,7 +102,7 @@ def main():
             cv2.rectangle(img, (0, 0), (60, 28), (0, 0, 0), -1)
             cv2.putText(img, str(f), (4, 22), 0, 0.8, (0, 255, 255), 2)
             tiles.append(img)
-        sheet = cv2.vconcat([cv2.hconcat(tiles[i:i + COLS]) for i in range(0, len(tiles), COLS)])
+        sheet = cv2.vconcat([cv2.hconcat(tiles[i : i + COLS]) for i in range(0, len(tiles), COLS)])
         cv2.imwrite(str(args.out / f"{name}.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 88])
     print(f"{len(rows)}장 → {args.out}")
 

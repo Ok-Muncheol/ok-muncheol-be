@@ -143,11 +143,27 @@ def main():
             dev_count += 1
     selected.sort(key=lambda r: (r["map_사고장소"], r["video_point_of_view"], r["video_name"]))
 
-    out_cols = ["split", "video_name", "map_사고장소", "video_point_of_view", "accident_type",
-                "map_장소특징", "map_A진행", "map_B진행", "map_A신호", "map_B신호",
-                "accidental_negligence_rateA", "accidental_negligence_rateB",
-                "map_기본과실A", "map_기본과실B", "filming_way", "a_boxes", "b_boxes",
-                "ab_frames", "mp4_path"]
+    out_cols = [
+        "split",
+        "video_name",
+        "map_사고장소",
+        "video_point_of_view",
+        "accident_type",
+        "map_장소특징",
+        "map_A진행",
+        "map_B진행",
+        "map_A신호",
+        "map_B신호",
+        "accidental_negligence_rateA",
+        "accidental_negligence_rateB",
+        "map_기본과실A",
+        "map_기본과실B",
+        "filming_way",
+        "a_boxes",
+        "b_boxes",
+        "ab_frames",
+        "mp4_path",
+    ]
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_csv = args.out_dir / "eval_set.csv"
     with out_csv.open("w", newline="", encoding="utf-8-sig") as f:
@@ -196,9 +212,12 @@ def main():
         "",
         table(Counter(r["split"] for r in selected), "split"),
         "",
-        table(Counter(f'{r["video_point_of_view"]}인칭 / {r["split"]}' for r in selected), "시점 / split"),
+        table(
+            Counter(f"{r['video_point_of_view']}인칭 / {r['split']}" for r in selected),
+            "시점 / split",
+        ),
         "",
-        table(Counter(f'{r["map_사고장소"]} / {r["split"]}' for r in selected), "장소 / split"),
+        table(Counter(f"{r['map_사고장소']} / {r['split']}" for r in selected), "장소 / split"),
         "",
         f"- 사고 유형 종류: {len({r['accident_type'] for r in selected})}개 / {len(selected)}건",
         f"- 신호 정답(A신호·B신호)이 있는 영상: {sum(bool(r['map_A신호'] or r['map_B신호']) for r in selected)}건",
@@ -211,13 +230,17 @@ def main():
     for r in selected:
         a = r["accidental_negligence_rateA"] or r["map_기본과실A"]
         b = r["accidental_negligence_rateB"] or r["map_기본과실B"]
-        md.append(f'| {r["split"]} | {r["video_name"]} | {r["map_사고장소"]} | {r["video_point_of_view"]} | '
-                  f'{r["accident_type"]} | {r["map_A진행"]} | {r["map_B진행"]} | {a}:{b} |')
+        md.append(
+            f"| {r['split']} | {r['video_name']} | {r['map_사고장소']} | {r['video_point_of_view']} | "
+            f"{r['accident_type']} | {r['map_A진행']} | {r['map_B진행']} | {a}:{b} |"
+        )
     out_md = args.out_dir / "eval_set_criteria.md"
     out_md.write_text("\n".join(md) + "\n", encoding="utf-8")
 
-    print(f"후보 {len(candidates)}건 → 선정 {len(selected)}건 "
-          f"(dev {sum(r['split'] == 'dev' for r in selected)}, test {sum(r['split'] == 'test' for r in selected)})")
+    print(
+        f"후보 {len(candidates)}건 → 선정 {len(selected)}건 "
+        f"(dev {sum(r['split'] == 'dev' for r in selected)}, test {sum(r['split'] == 'test' for r in selected)})"
+    )
     print("저장:", out_csv, out_md)
 
 

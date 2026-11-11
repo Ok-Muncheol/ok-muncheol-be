@@ -3,8 +3,10 @@
 사용:
     .venv/Scripts/python evals/vision/experiments/exp_crop_motion.py
 
-상대 차: 학습 영상은 교차 검증으로 고른 번호(pick_oof.json, 그 영상을 안 본 고르기 모델 → 점수 부풀림 방지),
-개선용은 학습한 고르기(opponent_pick.pick). 기준 시점은 움직임 분류기와 같음(카메라 충돌 순간, 없으면 75).
+상대 차: 학습 영상은 교차 검증으로 고른 번호(pick_oof.json, 그 영상을 안 본 고르기 모델 → 점수
+부풀림 방지),
+개선용은 학습한 고르기(opponent_pick.pick). 기준 시점은 움직임 분류기와 같음(카메라 충돌 순간,
+없으면 75).
 비교: 기존 특징만 vs 기존 + 앞·옆·뒷면 점수 vs 기존 + 앞·옆·뒷면 + 모습 숫자(PCA).
 """
 
@@ -17,9 +19,10 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # evals/vision 공통 도구
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 이 폴더의 실험 모듈
+from crop_embed import crop_embeddings, view_scores  # noqa: E402
 from silver import ego_cached  # noqa: E402
 from train_motion import video_features  # noqa: E402
-from crop_embed import crop_embeddings, view_scores  # noqa: E402
+
 from workers.vision.detection import detect_and_track, stitch_back  # noqa: E402
 from workers.vision.opponent_pick import pick  # noqa: E402
 from workers.vision.scene_embed import embed_video, scene_vector  # noqa: E402
@@ -61,7 +64,12 @@ def main():
 
     for field in ("movement_A", "movement_B"):
         ns = [n for n in names if answers[n][field] and feats[n]]
-        y = np.array([v if v in ("직진", "좌회전", "우회전") else "기타" for v in (answers[n][field] for n in ns)])
+        y = np.array(
+            [
+                v if v in ("직진", "좌회전", "우회전") else "기타"
+                for v in (answers[n][field] for n in ns)
+            ]
+        )
         base = np.array([[feats[n].get(k, np.nan) for k in cols] for n in ns])
         Z = np.array([scene_vector(embed_video("", n)) for n in ns])
         base = np.hstack([base, PCA(20, random_state=0).fit_transform(Z)])
@@ -76,14 +84,24 @@ def main():
         e_feat = P.reshape(len(ns), -1)
         cv = StratifiedKFold(5, shuffle=True, random_state=0)
         print(f"\n== {field} ({len(y)}건)")
-        for label, X in (("기존 특징", base), ("+ 앞·옆·뒷면 점수", np.hstack([base, v_feat])),
-                         ("+ 앞·옆·뒷면 + 모습 숫자", np.hstack([base, v_feat, e_feat]))):
-            m = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, max_leaf_nodes=15,
-                                               l2_regularization=1.0, random_state=0)
+        for label, X in (
+            ("기존 특징", base),
+            ("+ 앞·옆·뒷면 점수", np.hstack([base, v_feat])),
+            ("+ 앞·옆·뒷면 + 모습 숫자", np.hstack([base, v_feat, e_feat])),
+        ):
+            m = HistGradientBoostingClassifier(
+                max_iter=300,
+                learning_rate=0.05,
+                max_leaf_nodes=15,
+                l2_regularization=1.0,
+                random_state=0,
+            )
             p = cross_val_predict(m, X, y, cv=cv)
             cls_acc = {c: np.mean(p[y == c] == c) for c in ("좌회전", "우회전")}
-            print(f"  {label:22} 정확도 {np.mean(p == y) * 100:.1f}% | 좌회전 {cls_acc['좌회전'] * 100:.0f}%"
-                  f" 우회전 {cls_acc['우회전'] * 100:.0f}%")
+            print(
+                f"  {label:22} 정확도 {np.mean(p == y) * 100:.1f}% | 좌회전 {cls_acc['좌회전'] * 100:.0f}%"
+                f" 우회전 {cls_acc['우회전'] * 100:.0f}%"
+            )
 
 
 if __name__ == "__main__":

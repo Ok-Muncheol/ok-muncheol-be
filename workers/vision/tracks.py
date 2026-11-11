@@ -1,4 +1,5 @@
-"""A: 차량 궤적(박스 목록)을 VLM이 읽을 수 있게 바꾼다. 2단계(정답 박스)·3단계(YOLO)가 같은 형식을 쓴다.
+"""A: 차량 궤적(박스 목록)을 VLM이 읽을 수 있게 바꾼다. 2단계(정답 박스)·3단계(YOLO)가 같은 형식을
+쓴다.
 
 궤적 형식: {"A": [(frame, x, y, w, h), ...], "B": [...]}  — 픽셀 좌표, 입력표 기준(블랙박스 차=B)
 """
@@ -17,10 +18,13 @@ def _size(area: float) -> str:
     return "아주 큼" if area > 0.15 else "큼" if area > 0.04 else "보통" if area > 0.008 else "작음"
 
 
-def summarize_tracks(tracks: dict[str, Track], width: int, height: int, viewpoint: int,
-                     source: str = "정답 박스") -> str:
+def summarize_tracks(
+    tracks: dict[str, Track], width: int, height: int, viewpoint: int, source: str = "정답 박스"
+) -> str:
     """궤적을 짧은 글로. 위치는 화면 비율(0~1), 크기는 박스 넓이/화면 넓이."""
-    lines = [f"[{source}] 화면 좌표 x: 0=왼쪽~1=오른쪽, y: 0=위~1=아래. 크기는 화면 대비 박스 넓이(클수록 가까움)."]
+    lines = [
+        f"[{source}] 화면 좌표 x: 0=왼쪽~1=오른쪽, y: 0=위~1=아래. 크기는 화면 대비 박스 넓이(클수록 가까움)."
+    ]
     for party in ("A", "B"):
         pts = sorted(tracks.get(party, []))
         if not pts:
@@ -39,10 +43,16 @@ def summarize_tracks(tracks: dict[str, Track], width: int, height: int, viewpoin
         (f0, x0, _, a0), (f1, x1, _, a1) = steps[0], steps[-1]
         if len(steps) > 1:
             dx = x1 - x0
-            move = "거의 그대로" if abs(dx) < 0.08 else ("오른쪽으로" if dx > 0 else "왼쪽으로") + f" {abs(dx):.2f} 이동"
+            move = (
+                "거의 그대로"
+                if abs(dx) < 0.08
+                else ("오른쪽으로" if dx > 0 else "왼쪽으로") + f" {abs(dx):.2f} 이동"
+            )
             grow = a1 / a0 if a0 > 0 else 0
             near = "다가옴" if grow > 1.3 else "멀어짐" if grow < 0.77 else "거리 비슷"
-            lines.append(f"  요약: #{f0}~#{f1} 사이 화면 {_where(x0)}→{_where(x1)}, {move}, 크기 {grow:.1f}배({near}).")
+            lines.append(
+                f"  요약: #{f0}~#{f1} 사이 화면 {_where(x0)}→{_where(x1)}, {move}, 크기 {grow:.1f}배({near})."
+            )
     if all(tracks.get(p) for p in ("A", "B")):
         common = sorted({p[0] for p in tracks["A"]} & {p[0] for p in tracks["B"]})
         if common:
@@ -71,4 +81,6 @@ def draw_boxes(img, tracks: dict[str, Track], frame: int) -> None:
     for party, (_, x, y, w, h) in boxes_near(tracks, frame).items():
         color = COLORS[party]
         cv2.rectangle(img, (int(x), int(y)), (int(x + w), int(y + h)), color, 6)
-        cv2.putText(img, party, (int(x), max(50, int(y) - 12)), cv2.FONT_HERSHEY_SIMPLEX, 2, color, 6)
+        cv2.putText(
+            img, party, (int(x), max(50, int(y) - 12)), cv2.FONT_HERSHEY_SIMPLEX, 2, color, 6
+        )

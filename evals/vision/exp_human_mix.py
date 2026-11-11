@@ -4,10 +4,13 @@
     .venv/Scripts/python evals/vision/exp_human_mix.py
 
 미리 정한 방식(결과를 보고 바꾸지 않는다, 2026-11-09):
-- 사람 정답: 구준휘님 라벨 64건(움직임 A·B, 영상만 보고 붙임) + 우리 정답 카드 30건. 겹치면 구준휘님 라벨
-- 학습: AI Hub 라벨(사람 라벨 영상은 모두 뺌, 무게 1) + 사람 라벨 학습 묶음(무게 W). W는 0과 20 두 가지만
+- 사람 정답: 구준휘님 라벨 64건(움직임 A·B, 영상만 보고 붙임) + 우리 정답 카드 30건. 겹치면 구준휘님
+  라벨
+- 학습: AI Hub 라벨(사람 라벨 영상은 모두 뺌, 무게 1) + 사람 라벨 학습 묶음(무게 W). W는 0과 20 두
+  가지만
 - 평가: 사람 라벨 영상 5묶음 교차 검증(영상 단위). 기준: 전부 직진, 카메라 규칙(B), VLM(우리 30건만)
-- 특징: 움직임 특징 + CLIP 장면(PCA 20) + 장소(AI Hub 라벨, 담당자 확인 장소로 봄). 분류기가 기타면 B는 규칙, A는 직진
+- 특징: 움직임 특징 + CLIP 장면(PCA 20) + 장소(AI Hub 라벨, 담당자 확인 장소로 봄). 분류기가 기타면
+  B는 규칙, A는 직진
 """
 
 import csv
@@ -24,6 +27,7 @@ from make_answer_sheet import prefill  # noqa: E402
 from score import load_answers  # noqa: E402
 from silver import ego_cached  # noqa: E402
 from train_motion import video_features  # noqa: E402
+
 from workers.vision.detection import detect_and_track  # noqa: E402
 from workers.vision.motion_model import place_onehot  # noqa: E402
 from workers.vision.scene_embed import embed_video, scene_vector  # noqa: E402
@@ -64,12 +68,17 @@ def main():
     gold = load_answers(ROOT / "evals/vision/answers/answer_cards.xlsx")
     for n, g in gold.items():
         human[n] = {"movement_A": g["movement_A"], "movement_B": g["movement_B"], "src": "우리 30"}
-    jh = [json.loads(x) for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")]
+    jh = [
+        json.loads(x) for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")
+    ]
     jh_all = {r["example_id"] for r in jh}
     for r in jh:
         if r["status"] == "scored":
-            human[r["example_id"]] = {"movement_A": EN[r["movement_other"]], "movement_B": EN[r["movement_ego"]],
-                                      "src": "구준휘 64"}
+            human[r["example_id"]] = {
+                "movement_A": EN[r["movement_other"]],
+                "movement_B": EN[r["movement_ego"]],
+                "src": "구준휘 64",
+            }
     for n in human:
         ensure(labels[n])
     place = {n: prefill(labels[n]).get("location_type") for n in labels}
@@ -80,8 +89,10 @@ def main():
         for p in (RESULTS / "runs" / run).glob("*.json"):
             if p.name != "run.json":
                 c = json.loads(p.read_text(encoding="utf-8"))
-                vlm[c["case_id"]] = {k: (c["fields"][k]["vision_detail"].get("vlm") or {}).get("value")
-                                     for k in ("movement_A", "movement_B")}
+                vlm[c["case_id"]] = {
+                    k: (c["fields"][k]["vision_detail"].get("vlm") or {}).get("value")
+                    for k in ("movement_A", "movement_B")
+                }
 
     with (RESULTS / "train_answers.csv").open(encoding="utf-8-sig") as f:
         silver_ans = {r["video_name"]: r for r in csv.DictReader(f)}
@@ -100,8 +111,10 @@ def main():
         return np.hstack([base, z, np.array([place_onehot(place[n], places) for n in names])])
 
     Xs, Xh = X(silver), X(hum)
-    print(f"사람 정답 {len(hum)}건 (구준휘 {sum(human[n]['src'] == '구준휘 64' for n in hum)}, "
-          f"우리 {sum(human[n]['src'] == '우리 30' for n in hum)}), AI Hub 학습 {len(silver)}건")
+    print(
+        f"사람 정답 {len(hum)}건 (구준휘 {sum(human[n]['src'] == '구준휘 64' for n in hum)}, "
+        f"우리 {sum(human[n]['src'] == '우리 30' for n in hum)}), AI Hub 학습 {len(silver)}건"
+    )
     folds = list(KFold(5, shuffle=True, random_state=0).split(hum))
     results = {}  # 다른 스크립트(eval_video_human.py)가 영상별 예측을 쓰도록 돌려준다
     for field in ("movement_B", "movement_A"):
@@ -109,7 +122,9 @@ def main():
         m = ys != ""
         yh4 = np.array([four(human[n][field]) for n in hum])
         truth = np.array([human[n][field] for n in hum])
-        rule = np.array([ego_cached(n).field_opinions(place[n])["movement_B"]["value"] for n in hum])
+        rule = np.array(
+            [ego_cached(n).field_opinions(place[n])["movement_B"]["value"] for n in hum]
+        )
         preds = {}
         for w in (0, 20):
             out = np.empty(len(hum), dtype=object)
@@ -117,29 +132,48 @@ def main():
                 Xt = np.vstack([Xs[m], Xh[tr]]) if w else Xs[m]
                 yt = np.concatenate([ys[m], yh4[tr]]) if w else ys[m]
                 sw = np.concatenate([np.ones(m.sum()), np.full(len(tr), w)]) if w else None
-                clf = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.05, max_leaf_nodes=15,
-                                                     l2_regularization=1.0, random_state=0).fit(Xt, yt, sample_weight=sw)
+                clf = HistGradientBoostingClassifier(
+                    max_iter=300,
+                    learning_rate=0.05,
+                    max_leaf_nodes=15,
+                    l2_regularization=1.0,
+                    random_state=0,
+                ).fit(Xt, yt, sample_weight=sw)
                 p = clf.predict(Xh[te])
                 fallback = rule[te] if field == "movement_B" else np.array(["직진"] * len(te))
                 out[te] = np.where(p == "기타", fallback, p)
             preds[w] = out
-        results[field] = {n: {"classifier": preds[20][i], "rule": rule[i]} for i, n in enumerate(hum)}
+        results[field] = {
+            n: {"classifier": preds[20][i], "rule": rule[i]} for i, n in enumerate(hum)
+        }
         N = len(hum)
         print(f"\n== {field} (사람 정답 {N}건)")
-        print(f"  분류기 AI Hub만(무게 0):   {np.sum(preds[0] == truth)}/{N} ({np.mean(preds[0] == truth) * 100:.0f}%)")
-        print(f"  분류기 + 사람 라벨(무게 20): {np.sum(preds[20] == truth)}/{N} ({np.mean(preds[20] == truth) * 100:.0f}%)")
-        print(f"  전부 직진:                  {np.sum(truth == '직진')}/{N} ({np.mean(truth == '직진') * 100:.0f}%)")
+        print(
+            f"  분류기 AI Hub만(무게 0):   {np.sum(preds[0] == truth)}/{N} ({np.mean(preds[0] == truth) * 100:.0f}%)"
+        )
+        print(
+            f"  분류기 + 사람 라벨(무게 20): {np.sum(preds[20] == truth)}/{N} ({np.mean(preds[20] == truth) * 100:.0f}%)"
+        )
+        print(
+            f"  전부 직진:                  {np.sum(truth == '직진')}/{N} ({np.mean(truth == '직진') * 100:.0f}%)"
+        )
         if field == "movement_B":
-            print(f"  카메라 규칙:                {np.sum(rule == truth)}/{N} ({np.mean(rule == truth) * 100:.0f}%)")
+            print(
+                f"  카메라 규칙:                {np.sum(rule == truth)}/{N} ({np.mean(rule == truth) * 100:.0f}%)"
+            )
         has_vlm = np.array([n in vlm for n in hum])
         if has_vlm.any():
             v = np.array([vlm[n][field] if n in vlm else None for n in hum])
             k = has_vlm.sum()
-            print(f"  (우리 30건 중 VLM 답 있는 {k}건) VLM {np.sum(v[has_vlm] == truth[has_vlm])}/{k} | "
-                  f"분류기+사람 {np.sum(preds[20][has_vlm] == truth[has_vlm])}/{k}")
+            print(
+                f"  (우리 30건 중 VLM 답 있는 {k}건) VLM {np.sum(v[has_vlm] == truth[has_vlm])}/{k} | "
+                f"분류기+사람 {np.sum(preds[20][has_vlm] == truth[has_vlm])}/{k}"
+            )
         for c in ("좌회전", "우회전"):
             sel = truth == c
-            print(f"  {c} {sel.sum()}건 맞힘: 무게0 {np.sum(preds[0][sel] == c)} | 무게20 {np.sum(preds[20][sel] == c)}")
+            print(
+                f"  {c} {sel.sum()}건 맞힘: 무게0 {np.sum(preds[0][sel] == c)} | 무게20 {np.sum(preds[20][sel] == c)}"
+            )
     return results
 
 

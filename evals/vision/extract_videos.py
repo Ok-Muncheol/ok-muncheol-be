@@ -2,7 +2,8 @@
 
 사용:
     python evals/vision/extract_videos.py
-    python evals/vision/extract_videos.py --eval-set evals/results/vision/eval_set.csv --out data/private/aihub/videos
+    python evals/vision/extract_videos.py --eval-set evals/results/vision/eval_set.csv --out
+    data/private/aihub/videos
 """
 
 import argparse

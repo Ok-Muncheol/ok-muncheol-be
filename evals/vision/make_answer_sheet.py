@@ -1,7 +1,8 @@
 """정답 카드 입력표(엑셀)와 A/B 참고 사진을 만든다.
 
 사용:
-    .venv/Scripts/python evals/vision/make_answer_sheet.py              # 30건 → answers/answer_cards.xlsx
+    .venv/Scripts/python evals/vision/make_answer_sheet.py              # 30건 →
+    answers/answer_cards.xlsx
     .venv/Scripts/python evals/vision/make_answer_sheet.py --split dev  # 개선용만
 
 - AI Hub 라벨로 알 수 있는 칸은 미리 채우고 노란색으로 칠한다(영상과 다르면 고친다).
@@ -16,15 +17,32 @@ import sys
 import zipfile
 from pathlib import Path
 
-# OpenCV·openpyxl은 비전 환경(.venv)에만 있으므로 함수 안에서 불러온다(레포 검사가 모든 모듈을 import함)
+#  OpenCV·openpyxl은 비전 환경(.venv)에만 있으므로 함수 안에서 불러온다(레포 검사가 모든 모듈을
+# import함)
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from workers.vision.fields import FIELDS  # noqa: E402
 # 유형 → 칸 변환 규칙은 서비스 코드와 같이 쓴다
 from workers.vision.accident_types import (  # noqa: E402,F401
-    INTERSECTIONS, MOVE_WORDS, PLACE_MAP, SIGNAL_MAP, movement, signal, type_fields,
+    INTERSECTIONS,
+    MOVE_WORDS,
+    PLACE_MAP,
+    SIGNAL_MAP,
+    movement,
+    signal,
+    type_fields,
 )
+from workers.vision.fields import FIELDS  # noqa: E402
 
-REF_COLS = ["video_name", "split", "시점", "영상", "참고사진", "라벨_장소특징", "라벨_A진행", "라벨_B진행", "라벨_과실A:B"]
+REF_COLS = [
+    "video_name",
+    "split",
+    "시점",
+    "영상",
+    "참고사진",
+    "라벨_장소특징",
+    "라벨_A진행",
+    "라벨_B진행",
+    "라벨_과실A:B",
+]
 SHEET_FIELDS = [(n, v, r, d) for n, v, r, d in FIELDS if n != "narrative"]
 STRIP_FRAMES = list(range(51, 99))  # 참고 사진 아래쪽에 붙일 충돌 근처 프레임
 
@@ -40,8 +58,12 @@ def label_swapped(r) -> bool:
 
 def label_view(r) -> dict:
     """입력표 기준(블랙박스 차=B)으로 맞춘 라벨 값: 진행·신호·과실."""
-    keys = [("map_A진행", "map_B진행"), ("map_A신호", "map_B신호"),
-            ("accidental_negligence_rateA", "accidental_negligence_rateB"), ("map_기본과실A", "map_기본과실B")]
+    keys = [
+        ("map_A진행", "map_B진행"),
+        ("map_A신호", "map_B신호"),
+        ("accidental_negligence_rateA", "accidental_negligence_rateB"),
+        ("map_기본과실A", "map_기본과실B"),
+    ]
     out = dict(r)
     if label_swapped(r):
         for ka, kb in keys:
@@ -52,8 +74,14 @@ def label_view(r) -> dict:
 def prefill(r):
     """라벨에서 확실히 알 수 있는 칸만 채운다. 애매하면 비워 둔다."""
     r = label_view(r)
-    return type_fields(r["map_사고장소"], r["map_장소특징"], r["map_A진행"], r["map_B진행"],
-                       r["map_A신호"], r["map_B신호"])
+    return type_fields(
+        r["map_사고장소"],
+        r["map_장소특징"],
+        r["map_A진행"],
+        r["map_B진행"],
+        r["map_A신호"],
+        r["map_B신호"],
+    )
 
 
 def image_index(label_zip_dir):
@@ -83,8 +111,11 @@ def make_ref_image(r, index, video_path, out_path):
     cap = cv2.VideoCapture(str(video_path))
     tiles = []
     # 입력표 기준(블랙박스 차=B)으로 글자를 붙인다. 라벨 A/B가 반대인 영상은 바꿔 그린다.
-    tags = (("isObjectA", "B", (255, 0, 0)), ("isObjectB", "A", (0, 0, 255))) if label_swapped(r) else \
-           (("isObjectA", "A", (0, 0, 255)), ("isObjectB", "B", (255, 0, 0)))
+    tags = (
+        (("isObjectA", "B", (255, 0, 0)), ("isObjectB", "A", (0, 0, 255)))
+        if label_swapped(r)
+        else (("isObjectA", "A", (0, 0, 255)), ("isObjectB", "B", (255, 0, 0)))
+    )
     for f in sorted({early, near}):
         cap.set(cv2.CAP_PROP_POS_FRAMES, f - 1)
         ok, img = cap.read()
@@ -108,7 +139,7 @@ def make_ref_image(r, index, video_path, out_path):
         cv2.rectangle(img, (0, 0), (62, 30), (0, 0, 0), -1)
         cv2.putText(img, str(f), (4, 24), 0, 0.8, (0, 255, 255), 2)
         cells.append(img)
-    grid = cv2.vconcat([cv2.hconcat(cells[i:i + 8]) for i in range(0, len(cells), 8)])
+    grid = cv2.vconcat([cv2.hconcat(cells[i : i + 8]) for i in range(0, len(cells), 8)])
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), cv2.vconcat([top, grid]))
 
@@ -120,11 +151,18 @@ def main():
     parser.add_argument("--labels", default=Path("evals/results/vision/labels.csv"), type=Path)
     parser.add_argument("--videos", default=Path("data/private/aihub/videos"), type=Path)
     parser.add_argument("--refs", default=Path("data/private/aihub/answer_refs"), type=Path)
-    parser.add_argument("--label-zips", default=Path(
-        "data/095.교통사고 영상 데이터/01.데이터/2.Validation/라벨링데이터_231108_add"), type=Path)
+    parser.add_argument(
+        "--label-zips",
+        default=Path(
+            "data/095.교통사고 영상 데이터/01.데이터/2.Validation/라벨링데이터_231108_add"
+        ),
+        type=Path,
+    )
     parser.add_argument("--out", type=Path)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("--refs-only", action="store_true", help="엑셀은 그대로 두고 참고 사진만 다시 만든다")
+    parser.add_argument(
+        "--refs-only", action="store_true", help="엑셀은 그대로 두고 참고 사진만 다시 만든다"
+    )
     args = parser.parse_args()
     name = "answer_cards.xlsx" if args.split == "all" else f"answer_cards_{args.split}.xlsx"
     out = args.out or Path("evals/vision/answers") / name
@@ -141,7 +179,9 @@ def main():
     if args.refs_only:
         for r in rows:
             name = r["video_name"]
-            make_ref_image({**full[name], **r}, index, args.videos / f"{name}.mp4", args.refs / f"{name}.jpg")
+            make_ref_image(
+                {**full[name], **r}, index, args.videos / f"{name}.mp4", args.refs / f"{name}.jpg"
+            )
         print(f"참고 사진 {len(rows)}장 → {args.refs} (엑셀은 그대로)")
         return
 
@@ -154,10 +194,20 @@ def main():
     wb = Workbook()
     ws = wb.active
     ws.title = "정답"
-    headers = REF_COLS + [n if n != "collision_time_ms" else "collision_frame" for n, *_ in SHEET_FIELDS] + ["메모"]
+    headers = (
+        REF_COLS
+        + [n if n != "collision_time_ms" else "collision_frame" for n, *_ in SHEET_FIELDS]
+        + ["메모"]
+    )
     ws.append(headers)
-    ws.append([""] * len(REF_COLS) + [d if n != "collision_time_ms" else "충돌 순간 프레임 번호(1~150)"
-                                      for n, _, _, d in SHEET_FIELDS] + ["애매한 점, 판단 근거"])
+    ws.append(
+        [""] * len(REF_COLS)
+        + [
+            d if n != "collision_time_ms" else "충돌 순간 프레임 번호(1~150)"
+            for n, _, _, d in SHEET_FIELDS
+        ]
+        + ["애매한 점, 판단 근거"]
+    )
     for c in ws[1] + ws[2]:
         c.fill, c.alignment = HEADER, Alignment(wrap_text=True, vertical="top")
         c.font = Font(bold=c.row == 1)
@@ -171,10 +221,26 @@ def main():
         lv = label_view(r)
         a = lv["accidental_negligence_rateA"] or lv["map_기본과실A"]
         b = lv["accidental_negligence_rateB"] or lv["map_기본과실B"]
-        note = "라벨 원본은 A/B 반대(상대 차가 라벨 B). 표에는 블랙박스 차=B로 바꿔 적음" if label_swapped(r) else ""
-        ws.append([name, r["split"], f'{r["video_point_of_view"]}인칭', "열기", "열기",
-                   r["map_장소특징"], lv["map_A진행"], lv["map_B진행"], f"{a}:{b}"]
-                  + [pre.get(n, "") for n, *_ in SHEET_FIELDS] + [note])
+        note = (
+            "라벨 원본은 A/B 반대(상대 차가 라벨 B). 표에는 블랙박스 차=B로 바꿔 적음"
+            if label_swapped(r)
+            else ""
+        )
+        ws.append(
+            [
+                name,
+                r["split"],
+                f"{r['video_point_of_view']}인칭",
+                "열기",
+                "열기",
+                r["map_장소특징"],
+                lv["map_A진행"],
+                lv["map_B진행"],
+                f"{a}:{b}",
+            ]
+            + [pre.get(n, "") for n, *_ in SHEET_FIELDS]
+            + [note]
+        )
         row = ws.max_row
         ws.cell(row, 4).hyperlink, ws.cell(row, 5).hyperlink = video.as_uri(), ref.as_uri()
         for i, (n, *_) in enumerate(SHEET_FIELDS):
@@ -185,9 +251,17 @@ def main():
     for i, (n, values, _, _) in enumerate(SHEET_FIELDS):
         col = ws.cell(1, len(REF_COLS) + 1 + i).column_letter
         if isinstance(values, list):
-            dv = DataValidation(type="list", formula1='"' + ",".join(values) + '"', allow_blank=True)
+            dv = DataValidation(
+                type="list", formula1='"' + ",".join(values) + '"', allow_blank=True
+            )
         else:
-            dv = DataValidation(type="whole", operator="between", formula1="1", formula2="150" if n == "collision_time_ms" else "10", allow_blank=True)
+            dv = DataValidation(
+                type="whole",
+                operator="between",
+                formula1="1",
+                formula2="150" if n == "collision_time_ms" else "10",
+                allow_blank=True,
+            )
         dv.error, dv.showErrorMessage = "목록의 값(또는 범위 안의 숫자)만 넣을 수 있습니다.", True
         ws.add_data_validation(dv)
         dv.add(f"{col}{first}:{col}{last}")
@@ -208,8 +282,11 @@ def main():
         "7. motion_trend·time_condition·weather는 채점하지 않는다. 쉬우면 채운다.",
         "",
         "칸 설명 (docs/contracts/fact-card-v0.md 3절)",
-    ] + [f"- {n}: {d}  [{ {'always': '필수', 'cond': '조건부 필수', 'optional': '선택'}[req] }]"
-         + (f"  값: {' / '.join(v)}" if isinstance(v, list) else "") for n, v, req, d in SHEET_FIELDS]
+    ] + [
+        f"- {n}: {d}  [{ {'always': '필수', 'cond': '조건부 필수', 'optional': '선택'}[req] }]"
+        + (f"  값: {' / '.join(v)}" if isinstance(v, list) else "")
+        for n, v, req, d in SHEET_FIELDS
+    ]
     for line in help_lines:
         help_ws.append([line])
     help_ws.column_dimensions["A"].width = 140

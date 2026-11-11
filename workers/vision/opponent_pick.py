@@ -1,13 +1,14 @@
 """A: 상대 차(A) 고르기를 학습한 모델로 한다(2026-11-09 시험). 1인칭 영상.
 
-지금 규칙(detection.pick_opponent: 충돌 무렵 가장 크게 보인 차)은 개선용 8/10. 틀리면 충돌 부위 B·움직임 분류기 등이 함께 무너진다.
-AI Hub 이미지 라벨의 상대 차 정답 박스로 'YOLO 추적 번호마다 상대 차인가'를 학습한다(evals/vision/train_pick.py).
+지금 규칙(detection.pick_opponent: 충돌 무렵 가장 크게 보인 차)은 개선용 8/10. 틀리면 충돌 부위
+B·움직임 분류기 등이 함께 무너진다.
+AI Hub 이미지 라벨의 상대 차 정답 박스로 'YOLO 추적 번호마다 상대 차인가'를
+학습한다(evals/vision/train_pick.py).
 영상마다 확률이 가장 높은 번호를 고르고, 끊긴 추적은 detection.stitch_back으로 잇는다.
 """
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,10 +34,18 @@ def track_features(det: dict, anchor: int) -> dict[str, dict]:
         win = [i for i, f in enumerate(frames) if 40 <= f <= 110]
         k = int(area.argmax())
         rows[tid] = {
-            "n_boxes": len(b), "first": frames[0], "last": frames[-1], "span": frames[-1] - frames[0],
-            "n_win": len(win), "n_near": len(near),
-            "peak_area": float(area[k]), "peak_frame": frames[k], "peak_from_anchor": frames[k] - anchor,
-            "peak_cx": float(cx[k]), "peak_center_dist": abs(float(cx[k]) - 0.5), "peak_bottom": float(bottom[k]),
+            "n_boxes": len(b),
+            "first": frames[0],
+            "last": frames[-1],
+            "span": frames[-1] - frames[0],
+            "n_win": len(win),
+            "n_near": len(near),
+            "peak_area": float(area[k]),
+            "peak_frame": frames[k],
+            "peak_from_anchor": frames[k] - anchor,
+            "peak_cx": float(cx[k]),
+            "peak_center_dist": abs(float(cx[k]) - 0.5),
+            "peak_bottom": float(bottom[k]),
             "near_area": float(area[near].max()) if near else 0.0,
             "near_cx": float(cx[near].mean()) if near else float("nan"),
             "win_area": float(area[win].max()) if win else 0.0,
@@ -80,9 +89,15 @@ def pick_learned(det: dict, anchor: int, stitch: bool = True) -> tuple[list, dic
     prob = bundle["model"].predict_proba(X)[:, list(bundle["model"].classes_).index(1)]
     order = sorted(range(len(tids)), key=lambda i: -prob[i])
     tid = tids[order[0]]
-    why = {"track": tid, "prob": round(float(prob[order[0]]), 2), "cls": det["tracks"][tid]["cls"],
-           "runner_up_prob": round(float(prob[order[1]]), 2) if len(order) > 1 else None,
-           "peak_frame": feats[tid]["peak_frame"], "peak_area": round(feats[tid]["peak_area"], 3),
-           "runner_up_area": None, "method": "learned"}
+    why = {
+        "track": tid,
+        "prob": round(float(prob[order[0]]), 2),
+        "cls": det["tracks"][tid]["cls"],
+        "runner_up_prob": round(float(prob[order[1]]), 2) if len(order) > 1 else None,
+        "peak_frame": feats[tid]["peak_frame"],
+        "peak_area": round(feats[tid]["peak_area"], 3),
+        "runner_up_area": None,
+        "method": "learned",
+    }
     boxes = stitch_back(det, tid) if stitch else [tuple(b[:5]) for b in det["tracks"][tid]["boxes"]]
     return boxes, why

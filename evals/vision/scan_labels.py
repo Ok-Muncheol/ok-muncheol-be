@@ -13,16 +13,37 @@ ALIASES = {
     "accidental_negligence_rateB": "accident_negligence_rateB",
     "accident_type": "traffic_accident_type",
 }
-MAP_FIELDS = ["사고대상", "사고장소", "장소특징", "A진행", "B진행",
-              "A신호", "B신호", "기본과실A", "기본과실B"]
+MAP_FIELDS = [
+    "사고대상",
+    "사고장소",
+    "장소특징",
+    "A진행",
+    "B진행",
+    "A신호",
+    "B신호",
+    "기본과실A",
+    "기본과실B",
+]
 
 FIELDS = [
-    "video_name", "video_date", "filming_way", "video_point_of_view",
-    "accidental_negligence_rateA", "accidental_negligence_rateB",
-    "accident_type", "accident_object", "accident_place",
-    "accident_place_feature", "vehicle_a_progress_info",
-    "vehicle_b_progress_info", "damage_location", "related_laws",
-    "violation_of_law", "additional_elements", "violation_factor", "weather",
+    "video_name",
+    "video_date",
+    "filming_way",
+    "video_point_of_view",
+    "accidental_negligence_rateA",
+    "accidental_negligence_rateB",
+    "accident_type",
+    "accident_object",
+    "accident_place",
+    "accident_place_feature",
+    "vehicle_a_progress_info",
+    "vehicle_b_progress_info",
+    "damage_location",
+    "related_laws",
+    "violation_of_law",
+    "additional_elements",
+    "violation_factor",
+    "weather",
 ]
 
 
@@ -61,7 +82,8 @@ def iter_image_jsons(root):
 
 
 def iter_video_labels(root):
-    """영상 라벨 [(표시 이름, 파일 이름, 읽기 함수)]. 풀어 둔 JSON과 zip 안의 JSON(_영상_ zip)을 모두 읽는다.
+    """영상 라벨 [(표시 이름, 파일 이름, 읽기 함수)]. 풀어 둔 JSON과 zip 안의 JSON(_영상_ zip)을
+    모두 읽는다.
     Training 라벨은 zip으로만 있어서 필요하다(2026-11-10)."""
     items = [(str(p), p, lambda p=p: load_json(p)) for p in sorted(root.rglob("*.json"))]
     for zpath in sorted(root.rglob("*.zip")):
@@ -70,8 +92,13 @@ def iter_video_labels(root):
         zf = zipfile.ZipFile(zpath)  # 다 읽을 때까지 열어 둔다
         for name in sorted(zf.namelist()):
             if name.endswith(".json"):
-                items.append((f"{zpath}::{name}", Path(name),
-                              lambda n=name, zf=zf: json.loads(zf.read(n).decode("utf-8-sig"))))
+                items.append(
+                    (
+                        f"{zpath}::{name}",
+                        Path(name),
+                        lambda n=name, zf=zf: json.loads(zf.read(n).decode("utf-8-sig")),
+                    )
+                )
     return items
 
 
@@ -160,18 +187,25 @@ def main():
         stat = image_stats.get(stem, {"frames": 0, "a_boxes": 0, "b_boxes": 0, "ab_frames": set()})
         mapped = type_map.get(str(row["accident_type"]), {})
         row.update({f"map_{k}": mapped.get(k, "") for k in MAP_FIELDS})
-        row.update({
-            "label_file": label_name,
-            "has_mp4": stem in mp4_stems,
-            "mp4_path": mp4_paths.get(stem, ""),
-            "frames": stat["frames"],
-            "a_boxes": stat["a_boxes"],
-            "b_boxes": stat["b_boxes"],
-            # A나 B 박스가 있는 프레임 번호 (세미콜론으로 구분)
-            "ab_frames": ";".join(str(n) for n in sorted(x for x in stat["ab_frames"] if x is not None)),
-        })
-        # 122건은 과실이 accident_negligence_rate 한 칸뿐이다. 값은 A의 과실(유형표 기본과실 A와 121/121 일치)
-        if row["accidental_negligence_rateA"] == "" and isinstance(video.get("accident_negligence_rate"), int):
+        row.update(
+            {
+                "label_file": label_name,
+                "has_mp4": stem in mp4_stems,
+                "mp4_path": mp4_paths.get(stem, ""),
+                "frames": stat["frames"],
+                "a_boxes": stat["a_boxes"],
+                "b_boxes": stat["b_boxes"],
+                # A나 B 박스가 있는 프레임 번호 (세미콜론으로 구분)
+                "ab_frames": ";".join(
+                    str(n) for n in sorted(x for x in stat["ab_frames"] if x is not None)
+                ),
+            }
+        )
+        #  122건은 과실이 accident_negligence_rate 한 칸뿐이다. 값은 A의 과실(유형표 기본과실 A와
+        # 121/121 일치)
+        if row["accidental_negligence_rateA"] == "" and isinstance(
+            video.get("accident_negligence_rate"), int
+        ):
             row["accidental_negligence_rateA"] = video["accident_negligence_rate"]
             row["accidental_negligence_rateB"] = 100 - video["accident_negligence_rate"]
         rows.append(row)
@@ -185,6 +219,7 @@ def main():
     print("mp4 파일:", len(mp4_stems))
     print("이미지 라벨 파일:", image_files, "| 읽기 실패:", unread)
     print("라벨과 mp4 연결:", sum(r["has_mp4"] for r in rows))
+
     # 1인칭은 내 차(B)가 화면에 없을 수 있어 A나 B 중 하나만 있어도 인정한다
     def usable(r):
         if str(r["video_point_of_view"]) == "1":
@@ -192,8 +227,14 @@ def main():
         return r["a_boxes"] > 0 and r["b_boxes"] > 0
 
     print("정답 박스까지 있음:", sum(r["has_mp4"] and usable(r) for r in rows))
-    for key in ["filming_way", "video_point_of_view", "accident_place", "weather",
-                "map_사고대상", "map_사고장소"]:
+    for key in [
+        "filming_way",
+        "video_point_of_view",
+        "accident_place",
+        "weather",
+        "map_사고대상",
+        "map_사고장소",
+    ]:
         print(key, Counter(str(r[key]) for r in rows).most_common(10))
     types = Counter(str(r["accident_type"]) for r in rows)
     print("사고 유형 종류:", len(types), "| 상위:", types.most_common(10))

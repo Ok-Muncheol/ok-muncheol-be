@@ -1,6 +1,6 @@
 """라벨 기반 개선용 세트(make_silver_set.py) 공통 도구: 정답 읽기, 카메라 계산 결과 저장·재사용.
 
-    .venv/Scripts/python evals/vision/silver.py      # 카메라 계산으로 움직임 B를 라벨 정답과 비교(무료)
+.venv/Scripts/python evals/vision/silver.py      # 카메라 계산으로 움직임 B를 라벨 정답과 비교(무료)
 """
 
 import csv
@@ -25,7 +25,8 @@ def load_silver() -> tuple[list[dict], dict]:
 
 
 def ego_cached(name: str):
-    """카메라 계산(ego_motion.analyze_video) 결과를 evals/results/vision/ego_cache/에 저장해 두고 다시 쓴다."""
+    """카메라 계산(ego_motion.analyze_video) 결과를 evals/results/vision/ego_cache/에 저장해 두고
+    다시 쓴다."""
     from workers.vision.ego_motion import _decide, analyze_video
 
     path = RESULTS / "ego_cache" / f"{name}.json"
@@ -34,8 +35,16 @@ def ego_cached(name: str):
         return _decide(d["series"], d["collision"], d["conf"], d["collision"])
     ego = analyze_video(str(VIDEOS / f"{name}.mp4"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"series": ego.series, "collision": ego.collision_frame,
-                                "conf": ego.collision_confidence}), encoding="utf-8")
+    path.write_text(
+        json.dumps(
+            {
+                "series": ego.series,
+                "collision": ego.collision_frame,
+                "conf": ego.collision_confidence,
+            }
+        ),
+        encoding="utf-8",
+    )
     return ego
 
 

@@ -3,11 +3,16 @@
 사용:
     .venv/Scripts/python evals/vision/experiments/eval_human64.py
 
-- 라벨: evals/results/vision/human_labels_jh_2026-11-09.jsonl (원격 main의 evals/vision/labels/에서 복사, status=scored만)
-  movement_ego(촬영 차량) → 움직임 B, movement_other(상대 차) → 움직임 A. 우리 카드도 촬영 차량=B라 그대로 맞음
-- 이 78건은 우리 분류기 학습 1,256건에 들어 있으므로, **학습에서 빼고 다시 학습(메모리에서만, 저장 안 함)** 한 뒤 잰다
+- 라벨: evals/results/vision/human_labels_jh_2026-11-09.jsonl (원격 main의 evals/vision/labels/에서
+  복사,
+  status=scored만)
+  movement_ego(촬영 차량) → 움직임 B, movement_other(상대 차) → 움직임 A. 우리 카드도 촬영 차량=B라
+  그대로 맞음
+- 이 78건은 우리 분류기 학습 1,256건에 들어 있으므로, **학습에서 빼고 다시 학습(메모리에서만, 저장
+  안 함)** 한 뒤 잰다
 - 장소: AI Hub 라벨 장소(데이터 폴더 기준, 담당자가 확인한 장소와 같다고 봄)
-비교: 카메라 규칙(B), 전부 직진(A), AI Hub 라벨 자체가 사람 라벨과 맞는 비율, 구준휘님 보고서의 VLM 숫자(같은 64건)
+비교: 카메라 규칙(B), 전부 직진(A), AI Hub 라벨 자체가 사람 라벨과 맞는 비율, 구준휘님 보고서의 VLM
+숫자(같은 64건)
 """
 
 import csv
@@ -22,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # evals/vision 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 이 폴더의 실험 모듈
 from silver import ego_cached  # noqa: E402
 from train_motion import fit_motion, video_features  # noqa: E402
+
 import workers.vision.motion_model as mm  # noqa: E402
 from workers.vision.scene_embed import embed_video  # noqa: E402
 
@@ -39,16 +45,24 @@ def four(v):
 def main():
     labels = [json.loads(line) for line in LABELS.open(encoding="utf-8")]
     held_out = {r["example_id"] for r in labels}
-    human = {r["example_id"]: {"movement_B": EN.get(r["movement_ego"], r["movement_ego"]),
-                               "movement_A": EN.get(r["movement_other"], r["movement_other"])}
-             for r in labels if r["status"] == "scored"}
+    human = {
+        r["example_id"]: {
+            "movement_B": EN.get(r["movement_ego"], r["movement_ego"]),
+            "movement_A": EN.get(r["movement_other"], r["movement_other"]),
+        }
+        for r in labels
+        if r["status"] == "scored"
+    }
     with (RESULTS / "train_answers.csv").open(encoding="utf-8-sig") as f:
         answers = {r["video_name"]: r for r in csv.DictReader(f)}
-    # 사람 라벨 영상 중 평가 30건에 든 것도 있어 장소·AI Hub 값은 전체 라벨 목록에서 만든다(같은 규칙)
+    #  사람 라벨 영상 중 평가 30건에 든 것도 있어 장소·AI Hub 값은 전체 라벨 목록에서 만든다(같은
+    # 규칙)
     from make_answer_sheet import prefill
 
     with (RESULTS / "labels.csv").open(encoding="utf-8-sig") as f:
-        aihub = {r["video_name"]: prefill(r) for r in csv.DictReader(f) if r["video_name"] in held_out}
+        aihub = {
+            r["video_name"]: prefill(r) for r in csv.DictReader(f) if r["video_name"] in held_out
+        }
 
     feats = {n: x for n in answers if n not in held_out and (x := video_features(n)) is not None}
     columns = sorted({k for x in feats.values() for k in x})
@@ -86,8 +100,15 @@ def main():
         conf_b[(tb, card_b)] += 1
         conf_a[(ta, card_a)] += 1
     print(f"\n사람 라벨 {n}건 (장소는 확인된 장소)")
-    for k in ("B 분류기", "B 카메라 규칙", "B 전부 직진", "B AI Hub 라벨",
-              "A 분류기", "A 전부 직진", "A AI Hub 라벨"):
+    for k in (
+        "B 분류기",
+        "B 카메라 규칙",
+        "B 전부 직진",
+        "B AI Hub 라벨",
+        "A 분류기",
+        "A 전부 직진",
+        "A AI Hub 라벨",
+    ):
         print(f"  {k:14} {ok[k]}/{n} ({ok[k] / n * 100:.0f}%)")
     print("  (구준휘님 보고서, 같은 64건 VLM: B 0.67, A 0.38~0.50)")
     for label, conf in (("움직임 B", conf_b), ("움직임 A", conf_a)):
