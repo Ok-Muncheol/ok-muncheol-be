@@ -1,10 +1,10 @@
 """평가 영상에 사실 카드 생성을 돌리고 결과를 저장한다.
 
 사용:
-    .venv/Scripts/python evals/vision/run_vlm.py                     # 1단계(VLM 단독), 개선용 10건
-    .venv/Scripts/python evals/vision/run_vlm.py --limit 2            # 2건만 빠르게
-    .venv/Scripts/python evals/vision/run_vlm.py --split test --final # 최종 평가(마지막에 한 번만)
-    .venv/Scripts/python evals/vision/run_vlm.py --vlm openai --stage 2   # OpenAI gpt-4o-mini (유료)
+    .venv/Scripts/python evals/vision/run_cards.py                     # 1단계(VLM 단독), 개선용 10건
+    .venv/Scripts/python evals/vision/run_cards.py --limit 2            # 2건만 빠르게
+    .venv/Scripts/python evals/vision/run_cards.py --split test --final # 최종 평가(마지막에 한 번만)
+    .venv/Scripts/python evals/vision/run_cards.py --vlm openai --stage 2   # OpenAI gpt-4o-mini (유료)
 
 결과: evals/results/vision/runs/<run_id>/<video>.json, run.json(설정·시간)
 최종 평가용(test)은 --final 없이는 돌지 않는다. 프롬프트·코드를 고치는 데 쓰지 않기 위해서다.

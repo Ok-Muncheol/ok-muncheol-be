@@ -32,7 +32,7 @@
 | --- | --- |
 | 라벨 정리 | `scan_labels.py` → `select_eval_set.py`(평가 30건) → `make_answer_sheet.py`(정답 입력표) |
 | 영상 꺼내기 | `extract_videos.py`(평가 영상), `prepare_train.py`, `prepare_train_tr.py`(Training → 16장 저장) |
-| 카드 만들기 (💰 VLM 유료) | `run_vlm.py --ego --yolo --motion --video` |
+| 카드 만들기 (💰 VLM 유료) | `run_cards.py --ego --yolo --motion --video` |
 | 무료 재조립 | `replay_cards.py <실행 폴더> --ego --yolo --motion --video` (저장된 VLM 답 + 지금 코드) |
 | 채점 | `score.py <폴더>`, `combine_runs.py <폴더1> <폴더2> --out dev30_<이름>` (30건 합산) |
 | 영상 모델 학습 | `train_video.py --spec v2 / v3 / j3 --answers train_answers.csv train_answers_tr.csv --epochs 3 --balance` |

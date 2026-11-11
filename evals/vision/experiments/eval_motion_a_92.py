@@ -1,7 +1,7 @@
 """움직임 A: VLM vs 영상 모델, 사람 정답 92건 비교. 무료(저장된 카드만 읽음).
 
-사용(먼저 run_vlm.py로 62건 카드를 만든다, 유료 약 2,300원):
-    .venv/Scripts/python evals/vision/run_vlm.py --split human --eval-set evals/results/vision/human62_set.csv --ego --yolo --motion --video
+사용(먼저 run_cards.py로 62건 카드를 만든다, 유료 약 2,300원):
+    .venv/Scripts/python evals/vision/run_cards.py --split human --eval-set evals/results/vision/human62_set.csv --ego --yolo --motion --video
     .venv/Scripts/python evals/vision/experiments/eval_motion_a_92.py evals/results/vision/runs/<위 실행 폴더>
 
 미리 정한 방식(결과를 보고 바꾸지 않는다, 2026-11-10):
