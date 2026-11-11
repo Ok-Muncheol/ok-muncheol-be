@@ -14,11 +14,19 @@ from pydantic import BaseModel, Field
 from app.api import cases, facts, judgments, reports
 from app.api.deps import ActorId, IdempotencyKey
 from app.api.errors import unprocessable, version_conflict
+from app.schemas.common import UploadKind, UploadTicket
 from app.schemas.facts import FactCard, FactPatch
 from app.schemas.judgment import QuestionAnswer
 from app.schemas.reports import ClaimResult, ConfirmResult, CounterpartyInfo, ReviewReport
 
 router = APIRouter()
+
+
+class UploadRequest(BaseModel):
+    """kind가 목록 밖이면 422 invalid_request. kind별 허용 형식 검사는 A 서비스가 한다."""
+
+    kind: UploadKind
+    content_type: str = Field(min_length=1, max_length=100)
 
 
 class AnalysisRequest(BaseModel):
@@ -71,8 +79,8 @@ async def create_case(actor_id: ActorId, payload: dict[str, object]) -> dict[str
 
 
 @router.post("/cases/{case_id}/uploads", tags=["A cases"])
-async def request_upload(actor_id: ActorId, case_id: str) -> dict[str, object]:
-    return await cases.request_upload(actor_id, case_id)
+async def request_upload(actor_id: ActorId, case_id: str, body: UploadRequest) -> UploadTicket:
+    return await cases.request_upload(actor_id, case_id, body.kind, body.content_type)
 
 
 @router.post("/cases/{case_id}/analysis", tags=["A cases"], status_code=202)
