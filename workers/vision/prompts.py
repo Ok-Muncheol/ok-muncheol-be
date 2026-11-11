@@ -1,7 +1,7 @@
 """A: VLM에 보낼 사진 고르기·그리기와 질문문(버전별).
 
 - 기본 버전은 PROMPT_VERSION(v0.2). v0.1·v0.3·v0.4는 지난 실험 재현용(evals/vision/run_cards.py
-  --prompt)으로 남긴다. 결과는 각 함수 주석과 evals/vision/CARDS.md에 있다.
+  --prompt)으로 남긴다. 결과는 각 함수 주석과 evals/vision/README.md에 있다.
 - 칸 이름·허용값은 내부 한국어 값(workers/vision/fields.py)이다. 팀에 넘길 때는 contract.py가
   영어 v1으로 바꾼다.
 """

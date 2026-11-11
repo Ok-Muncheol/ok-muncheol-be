@@ -39,6 +39,8 @@ from select_eval_set import reject_reason  # noqa: E402
 from workers.vision.video_model import CACHE, load_clip  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
+# 구준휘님 사람 라벨(scored 64건)
+HUMAN_LABELS = ROOT / "evals/vision/labels/human_labels_2026-11-09.jsonl"
 TMP = ROOT / "data/private/tmp_clip"  # 영어 경로(OpenCV가 한글 경로를 못 여는 경우가 있음)
 FIELDS = [
     "location_type",
@@ -111,7 +113,7 @@ def main():
         human = {r["video_name"] for r in csv.DictReader(f)}
     human |= {
         json.loads(x)["example_id"]
-        for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")
+        for x in HUMAN_LABELS.open(encoding="utf-8")
     }
 
     by_place = defaultdict(list)

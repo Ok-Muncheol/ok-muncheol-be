@@ -3,9 +3,7 @@
 사용:
     .venv/Scripts/python evals/vision/experiments/eval_human64.py
 
-- 라벨: evals/results/vision/human_labels_jh_2026-11-09.jsonl (원격 main의 evals/vision/labels/에서
-  복사,
-  status=scored만)
+- 라벨: evals/vision/labels/human_labels_2026-11-09.jsonl (status=scored만)
   movement_ego(촬영 차량) → 움직임 B, movement_other(상대 차) → 움직임 A. 우리 카드도 촬영 차량=B라
   그대로 맞음
 - 이 78건은 우리 분류기 학습 1,256건에 들어 있으므로, **학습에서 빼고 다시 학습(메모리에서만, 저장
@@ -33,7 +31,7 @@ from workers.vision.scene_embed import embed_video  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
 VIDEOS = ROOT / "data/private/aihub/videos"
-LABELS = RESULTS / "human_labels_jh_2026-11-09.jsonl"
+LABELS = Path(__file__).resolve().parents[1] / "labels/human_labels_2026-11-09.jsonl"
 EN = {"straight": "직진", "left_turn": "좌회전", "right_turn": "우회전", "u_turn": "유턴"}
 FOUR = ("직진", "좌회전", "우회전")
 

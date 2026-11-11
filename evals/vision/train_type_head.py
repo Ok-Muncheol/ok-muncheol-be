@@ -53,6 +53,8 @@ from workers.vision.video_model import (  # noqa: E402
 )  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
+# 구준휘님 사람 라벨(scored 64건)
+HUMAN_LABELS = ROOT / "evals/vision/labels/human_labels_2026-11-09.jsonl"
 MODELS = ROOT / "data/private/models"
 FEAT = RESULTS / "type_feat"
 OUT = MODELS / "type_head.pt"
@@ -150,7 +152,7 @@ def main():
     human = load_human()
     jh = {
         json.loads(x)["example_id"]
-        for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")
+        for x in HUMAN_LABELS.open(encoding="utf-8")
     }
     # train_video.py와 같은 순서로 섞어 같은 검증 10%를 쓴다(v2·v3가 보지 않은 영상)
     pool = sorted(n for n in silver if n not in set(human) | jh and (CACHE / f"{n}.npy").exists())

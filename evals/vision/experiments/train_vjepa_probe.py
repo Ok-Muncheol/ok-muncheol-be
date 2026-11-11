@@ -43,6 +43,8 @@ from vjepa_feat import load_feat  # noqa: E402
 from workers.vision.video_model import SPECS, label_class, predict  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
+# 구준휘님 사람 라벨(scored 64건)
+HUMAN_LABELS = ROOT / "evals/vision/labels/human_labels_2026-11-09.jsonl"
 MODEL_OUT = ROOT / "data/private/models/vjepa_probe.pt"
 SPEC = "v3"
 FIELDS = tuple(SPECS[SPEC])
@@ -96,7 +98,7 @@ def main():
     human = load_human()
     jh = {
         json.loads(x)["example_id"]
-        for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")
+        for x in HUMAN_LABELS.open(encoding="utf-8")
     }
     excluded = set(human) | jh
     pool = sorted(n for n in silver if n not in excluded and load_feat(n) is not None)

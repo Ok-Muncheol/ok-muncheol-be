@@ -30,7 +30,7 @@
 | 진입 순서 | `entry_order` | 60% | 신호 없는 교차로에서만 사용. 도표 당사자 A 기준(`first` = A 선진입) |
 | 야간 | (A가 칸 이름 확정) | — | 도표 선택에 쓰지 않음 (수정요소 자동 적용 안 함) |
 
-정확도는 10건 기준 참고값이며 평가 결과가 아니다. AI Hub 영상 438건 기준 측정값(gpt-5.4-mini)은 `evals/vision/README.md` 결과 절에 있다. 모든 칸의 `model_confidence`는 참고용이고, 도표 선택은 `verification_status="human_confirmed"`인 값만 사용한다.
+정확도는 10건 기준 참고값이며 평가 결과가 아니다. AI Hub 영상 438건 기준 측정값(gpt-5.4-mini)은 `docs/vision-fact-card-eval-report.md`에, 지금 파이프라인의 칸별 정확도는 `docs/contracts/fact-card-v1.md` 3절에 있다. 모든 칸의 `model_confidence`는 참고용이고, 도표 선택은 `verification_status="human_confirmed"`인 값만 사용한다.
 칸 허용값(enum)·보류 사유·필수 확인 칸은 `app/schemas/chart_scope.py`에 코드로 둔다. A가 칸 이름을 확정하면 이 모듈과 문서를 함께 바꾸고 `make contracts`로 견본을 재생성한다. 범위 게이트는 `app/workflow/graph.py`의 `scope_gate`가 담당한다. C의 도표 레코드는 같은 enum으로 속성을 기록해야 필터 검색이 맞물린다.
 
 ## 도표 레코드 값 규칙

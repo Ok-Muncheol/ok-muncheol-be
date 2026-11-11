@@ -37,6 +37,8 @@ from workers.vision.video_model import (  # noqa: E402
 )
 
 RESULTS = ROOT / "evals/results/vision"
+# 구준휘님 사람 라벨(scored 64건)
+HUMAN_LABELS = ROOT / "evals/vision/labels/human_labels_2026-11-09.jsonl"
 VIDEOS = ROOT / "data/private/aihub/videos"
 MODELS = ROOT / "data/private/models"
 #  학습할 칸과 답 목록(video_model.SPECS). main에서 --spec으로 정한다. v2: 장소·움직임
@@ -101,7 +103,7 @@ def main():
             silver.update({r["video_name"]: r for r in csv.DictReader(f)})
     gold = load_answers(ROOT / "evals/vision/answers/answer_cards.xlsx")
     jh = [
-        json.loads(x) for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")
+        json.loads(x) for x in HUMAN_LABELS.open(encoding="utf-8")
     ]
     human = {n: {f: g.get(f) for f in FIELDS} for n, g in gold.items()}
     for r in jh:

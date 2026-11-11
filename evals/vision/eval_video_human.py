@@ -45,6 +45,8 @@ from workers.vision.video_model import (  # noqa: E402
 )  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
+# 구준휘님 사람 라벨(scored 64건)
+HUMAN_LABELS = ROOT / "evals/vision/labels/human_labels_2026-11-09.jsonl"
 MOVE_FIELDS = ("movement_B", "movement_A")
 
 
@@ -70,7 +72,7 @@ def load_human():
         }
         for n, g in gold.items()
     }
-    for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8"):
+    for x in HUMAN_LABELS.open(encoding="utf-8"):
         r = json.loads(x)
         if r["status"] == "scored":
             human[r["example_id"]] = {

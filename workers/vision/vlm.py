@@ -1,7 +1,7 @@
 """A: 사진 + 질문 → JSON 답을 주는 VLM 연결. 모두 VLM 규약(generate)을 따른다.
 
 - OpenAIVLM: 서비스 기본(gpt-4o). 키는 환경 변수 OPENAI_API_KEY(workers/vision/.env).
-- ClaudeVLM·OllamaVLM: 비교 실험용(evals/vision/run_cards.py --backend).
+- ClaudeVLM·OllamaVLM: 비교 실험용(evals/vision/run_cards.py --vlm).
 - 외부 패키지(openai·anthropic·requests)는 함수 안에서 불러온다(팀 CI에는 없음).
 """
 

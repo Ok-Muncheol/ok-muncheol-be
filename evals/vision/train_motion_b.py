@@ -6,7 +6,7 @@
 근거(2026-11-09, exp_human_mix.py, 사람 정답 92건 5묶음 교차 검증, 한 번만 잼):
   분류기 + 사람 라벨 75% vs 카메라 규칙 67% vs 전부 직진 59%. 우리 30건에서 VLM 14/30 vs 20/30.
   움직임 A는 사람 라벨을 섞어도 전부 직진과 같아(48% vs 49%) 분류기를 쓰지 않는다(VLM + 항상 확인).
-- 사람 라벨: 구준휘님 64건(evals/results/vision/human_labels_jh_2026-11-09.jsonl) + 우리 정답 카드
+- 사람 라벨: 구준휘님 64건(evals/vision/labels/human_labels_2026-11-09.jsonl) + 우리 정답 카드
   30건
 - 특징: 움직임 특징 + CLIP 장면(PCA 20) + 장소(AI Hub 라벨 = 담당자 확인 장소). 카드에서는 장소별
   예측을 미리 계산
@@ -30,6 +30,8 @@ from workers.vision.motion_model import MODEL_DIR, place_onehot  # noqa: E402
 from workers.vision.scene_embed import embed_video, scene_vector  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
+# 구준휘님 사람 라벨(scored 64건)
+HUMAN_LABELS = ROOT / "evals/vision/labels/human_labels_2026-11-09.jsonl"
 HUMAN_WEIGHT = 20
 
 
@@ -46,7 +48,7 @@ def main():
         for n, g in load_answers(ROOT / "evals/vision/answers/answer_cards.xlsx").items()
     }
     jh = [
-        json.loads(x) for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")
+        json.loads(x) for x in HUMAN_LABELS.open(encoding="utf-8")
     ]
     jh_all = {r["example_id"] for r in jh}
     human.update({r["example_id"]: EN[r["movement_ego"]] for r in jh if r["status"] == "scored"})

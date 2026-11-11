@@ -33,6 +33,8 @@ from workers.vision.motion_model import place_onehot  # noqa: E402
 from workers.vision.scene_embed import embed_video, scene_vector  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
+# 구준휘님 사람 라벨(scored 64건)
+HUMAN_LABELS = ROOT / "evals/vision/labels/human_labels_2026-11-09.jsonl"
 VIDEOS = ROOT / "data/private/aihub/videos"
 EN = {"straight": "직진", "left_turn": "좌회전", "right_turn": "우회전", "u_turn": "유턴"}
 FOUR = ("직진", "좌회전", "우회전")
@@ -69,7 +71,7 @@ def main():
     for n, g in gold.items():
         human[n] = {"movement_A": g["movement_A"], "movement_B": g["movement_B"], "src": "우리 30"}
     jh = [
-        json.loads(x) for x in (RESULTS / "human_labels_jh_2026-11-09.jsonl").open(encoding="utf-8")
+        json.loads(x) for x in HUMAN_LABELS.open(encoding="utf-8")
     ]
     jh_all = {r["example_id"] for r in jh}
     for r in jh:

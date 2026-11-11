@@ -1,7 +1,7 @@
 # workers/vision — 블랙박스 영상 → 사실 카드 (A 정지원)
 
 영상 파일 하나를 받아 팀 계약 사실 카드 v1(영어 12칸, [docs/contracts/fact-card-v1.md](../../docs/contracts/fact-card-v1.md))을 만든다.
-학습·평가 스크립트는 [evals/vision/CARDS.md](../../evals/vision/CARDS.md).
+학습·평가 스크립트는 [evals/vision/README.md](../../evals/vision/README.md).
 
 ## 흐름
 
@@ -49,7 +49,7 @@ analyze_video(case_id, 로컬 영상 경로)                          pipeline.p
 
 ## 실행에 필요한 것
 
-- 패키지: `opencv-python`, `torch`, `transformers`, `ultralytics`, `scikit-learn`, `joblib`, `numpy`, `openai`(팀 CI에는 없다. 테스트는 없으면 건너뛴다)
+- 패키지: `pip install -e ".[vision-eval]"`(torch·transformers·ultralytics·OpenCV·scikit-learn·openai 등, `pyproject.toml`). 팀 CI에는 없고, 테스트는 없으면 건너뛴다
 - 모델 파일(`data/private/models/`, git 제외): `video_model_tr.pt`, `video_model_v3.pt`, `video_model_j3.pt`, `type_head.pt`,
   `motion_movement_B.joblib`, `scene_location_type.joblib`, `scene_road_priority.joblib`, `yolo11s.pt`
 - Hugging Face 본체(처음 실행 때 내려받음): `MCG-NJU/videomae-base-finetuned-kinetics`, `facebook/vjepa2-vitl-fpc16-256-ssv2`, `openai/clip-vit-base-patch16`
