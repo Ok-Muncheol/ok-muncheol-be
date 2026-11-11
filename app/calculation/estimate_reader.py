@@ -8,7 +8,8 @@
 - 총액을 못 찾으면 amount=None + "견적서 총액 인식 실패" (0으로 채우지 않음).
 - 부품+공임+부가가치세 ≠ 총액이면 총액으로 계산하고 "견적서 합계 불일치 — 확인 필요".
 - party_id는 업로드할 때 받은 값을 쓴다(차량번호 자동 매칭 안 함).
-- pdfplumber는 선택 의존성. 없으면 이 기능만 EstimateReaderUnavailable로 안내한다.
+- pdfplumber는 기본 의존성(견적서 경로가 운영에서 쓴다). 그래도 없으면 이 기능만
+  EstimateReaderUnavailable로 안내한다.
 """
 
 import hashlib

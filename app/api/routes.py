@@ -180,7 +180,9 @@ async def upload_estimate(
     준비물: 정지원 업로드 서명 URL, Storage 읽기 서버 키(Vercel 등록은 구준휘),
     pdfplumber 기본 의존성.
     """
-    raise NotImplementedError("D: 견적서 Storage 내려받기 — 업로드 서명 URL·서버 키 준비 뒤 연결")
+    return await reports.upload_estimate_from_storage(
+        actor_id, case_id, body.storage_path, body.party_id
+    )
 
 
 @router.patch("/cases/{case_id}/agreed-fault", tags=["D reports"])

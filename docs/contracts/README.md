@@ -43,7 +43,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/reports/{version}/confirm` | D | 본문 `{counterparty?}`, 응답 `ConfirmResult`. 최신 아님 409, 추가 확인·보류 422 `confirm_blocked` |
 | GET | `/cases/{id}/reports/{version}/claim` | D | 응답 `ClaimResult`. 청구서가 없으면 404 |
 | POST | `/cases/{id}/documents` | D | `{documents, case_facts?}` → 재산정한 `ReviewReport` 또는 null. 1차 확장 |
-| POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}`. 경로 본문의 Storage 내려받기도 D(11/10 B에서 이관), 연결 전에는 501. 1차 확장 |
+| POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}` → 재산정한 `ReviewReport` 또는 null. `storage_path`는 버킷을 포함한 `case-files/{id}/estimates/<파일>`(버킷은 `app/storage.py` `STORAGE_BUCKET`, 미확정). 권한 → 경로 확인 → 서버 키로 Storage에서 내려받기(10MB 이하 PDF). 1차 확장 |
 | PATCH | `/cases/{id}/agreed-fault` | D | `{agreed_counterparty_fault?, fault_change_reason, clear?}` → 새 `ReviewReport`. 1차 확장 |
 
 | 상태 | `code` | 뜻 |
@@ -51,12 +51,14 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 401 | `unauthorized` | 토큰 없음·만료·서명/발급자/audience 불일치 |
 | 403 | `forbidden` | 담당 사건이 아님(서비스 함수가 던짐) |
 | 404 | `not_found` | 사건·질문이 없음 |
+| 404 | `estimate_file_not_found` | 견적서 경로에 Storage 파일이 없음 |
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
 | 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
 | 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_documents`·`invalid_agreed_fault` 같은 처리 불가 상태 |
+| 422 | `invalid_storage_path`·`estimate_too_large`·`estimate_not_pdf` | 견적서 경로가 그 사건의 `estimates/` 폴더가 아님(다른 사건·`..`·비ASCII 이름 등)·10MB 초과·PDF가 아니거나 읽을 수 없음 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
 | 502 | `qa_failed` | 질의응답 모델 호출·응답 오류. 다시 질문할 수 있다 |
-| 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable`·`reports_db_not_ready` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패·보고서 테이블 미적용 |
+| 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable`·`reports_db_not_ready`·`storage_not_configured`·`storage_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패·보고서 테이블 미적용·서버 Storage 키(`SUPABASE_URL`·`SUPABASE_SECRET_KEY`) 없음·Storage 연결 실패나 오류 |
 | 504 | `qa_timeout` | 질의응답 LLM 호출 시간 상한 초과(질문당 합계 120초, 또는 호출 1회가 재시도 뒤에도 45초 초과). 다시 질문할 수 있다 |
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |
 
