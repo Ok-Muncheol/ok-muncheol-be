@@ -37,9 +37,11 @@ A24, A34, A10 = (f"{T}:general_article:{n}" for n in ("24:p68", "34:p76", "10:p6
 S3_OLD = f"{T}:payment_standard:별표3:1:until-2022-12-31"
 S3_NEW = f"{T}:payment_standard:별표3:1:from-2023-01-01"
 S2 = f"{T}:payment_standard:별표2:1"
-N24, N24_4 = "보통약관 제24조(지급보험금의 계산)", (
-    "보통약관 제24조 ④(자기차량손해 지급 후 상대방에 대한 권리 취득)"
+N24 = "보통약관 제24조(지급보험금의 계산)"
+N24_1_4 = (
+    "보통약관 제24조 ① 제4호(자기부담금 확정 부담 조건 선지급 후 상대방에 대한 권리 취득)"
 )
+N24_1_5 = "보통약관 제24조 ① 제5호(구상금을 받으면 자기부담금 차액을 피보험자에게 지급)"
 N34, N682 = "보통약관 제34조(보험회사의 대위)", "상법 제682조(제3자에 대한 보험대위)"
 N_S3_NEW, N_S2 = "별표3 1. 과실상계(2023년 1월 1일 이후 사고)", "별표2 1. 수리비용"
 HASH = "a" * 64
@@ -62,21 +64,22 @@ class SelectTest(unittest.TestCase):
         self.assertEqual([(r.name, r.parent_id) for r in sel.payout], [(N24, A24)])
         self.assertEqual(
             [(r.name, r.parent_id) for r in sel.recovery_main],
-            [(N34, A34), (N24_4, A24), (N682, None)],
+            [(N34, A34), (N24_1_4, A24), (N682, None)],
         )
-        self.assertEqual(self.ids(sel.recovery_reference), [S3_NEW, S2])
-        # 청구서 이름 목록에는 제34조·상법 제682조만(제24조 ④는 넣지 않음)
+        self.assertEqual(self.ids(sel.recovery_reference), [S3_NEW, S2, A24])
+        self.assertEqual(sel.recovery_reference[-1].name, N24_1_5)
+        # 청구서 이름 목록에는 제34조·상법 제682조만(제24조 ① 제4호·제5호는 넣지 않음)
         self.assertEqual([r.name for r in sel.all() if r.in_claim], [N34, N682])
 
     def test_schedule_3_follows_accident_date(self):
         for day, expected in (
-            ("2022-12-31", [S3_OLD, S2]),
-            ("2023-01-01", [S3_NEW, S2]),
-            ("2023-01-01T09:00:00+09:00", [S3_NEW, S2]),
-            (None, [S2]),
-            ("", [S2]),
-            ("사고일 미상", [S2]),
-            ("2023-13-40", [S2]),
+            ("2022-12-31", [S3_OLD, S2, A24]),
+            ("2023-01-01", [S3_NEW, S2, A24]),
+            ("2023-01-01T09:00:00+09:00", [S3_NEW, S2, A24]),
+            (None, [S2, A24]),
+            ("", [S2, A24]),
+            ("사고일 미상", [S2, A24]),
+            ("2023-13-40", [S2, A24]),
         ):
             with self.subTest(day=day):
                 self.assertEqual(
@@ -88,6 +91,17 @@ class SelectTest(unittest.TestCase):
             ids = {r.parent_id for r in cl.select_report_clauses(day).all()}
             self.assertNotIn(A10, ids)
             self.assertFalse(any(":general_article:10:" in str(i) for i in ids))
+
+    def test_article_24_paragraph_4_is_never_used(self):
+        """④항(전부손해 시 피해물 인수)은 구상 근거가 아니다. 쓰는 것은 ① 제4호·제5호."""
+        names = [r.name for r in cl.select_report_clauses("2026-10-20").all()]
+        self.assertFalse(any("④" in n for n in names))
+
+    def test_find_ignores_whitespace(self):
+        text = "가. 이 경우 「자기차량손해」 보험 \n 금을 지급한 보험회사는 권리를"
+        phrase = "이 경우 「자기차량손해」 보험금을 지급한 보험회사는"
+        self.assertEqual(cl._find_loose(text, phrase), 3)
+        self.assertEqual(cl._find_loose(text, "피해물을 인수합니다"), -1)
 
     def test_notice(self):
         self.assertEqual(cl.clause_notice(True, False), "예시 규칙 기준 — 약관 검수 전 초안")
@@ -132,6 +146,15 @@ def _parent(parent_id, kind, pages, **body):
     }
 
 
+# 실제 p.69 청크처럼 줄바꿈 자리에 공백이 낀 문구('보험 금을')를 넣는다
+ARTICLE_24_P69 = (
+    "(합성) 3. 자기부담금 공제. 4. 「대물배상」 책임이 발생하는 사고 시 자기부담금 확정 부담 조건 "
+    "선지급. 이 경우 「자기차량손해」 보험 금을 지급한 보험회사는 상대방에 대한 피보험자의 권리를 "
+    "취득합니다. 5. 「자기차량손해」 보험금을 지급한 보험회사가 구상금을 받은 경우 자기부담금 차액 "
+    "지급. ④ 전부손해 시 피해물 인수"
+)
+
+
 def fake_rows():
     """실제와 같은 parent ID의 약관 조항·별표(합성 문구). 제10조도 넣어 쓰이지 않는지 본다."""
     def clause_meta(pid):
@@ -141,8 +164,7 @@ def fake_rows():
     chunks = [
         _chunk("c24a", A24, 68, "(합성) 제24조(지급보험금의 계산) 자기차량손해 지급보험금",
                clause_meta(A24)),
-        _chunk("c24b", A24, 69, "(합성) 비용. 4. 「대물배상」 책임이 발생하는 사고 시 권리 취득",
-               clause_meta(A24)),
+        _chunk("c24b", A24, 69, ARTICLE_24_P69, clause_meta(A24)),
         _chunk("c34", A34, 76, "(합성) 제34조(보험회사의 대위) 제3자에 대한 권리 취득",
                clause_meta(A34)),
         _chunk("c10", A10, 61, "(합성) 제10조 대인배상Ⅱ·대물배상 지급보험금", clause_meta(A10)),
@@ -250,13 +272,20 @@ class AttachedTest(ReportFlowCase):
         s9 = self.section(report, 9)
         basis = s9["body"]["근거 조항"]
         main = basis["주 근거"]
-        self.assertEqual(self.names(main), [N34, N24_4, N682])
+        self.assertEqual(self.names(main), [N34, N24_1_4, N682])
         self.assertEqual((main[0]["ID"], main[0]["페이지"]), (A34, "76"))
-        # 제24조 ④는 그 문구가 있는 청크에서 발췌
+        # 제24조 ① 제4호는 권리 취득 문장부터 발췌(공백 무시로 '보험 금을'도 찾음)
         self.assertEqual(main[1]["페이지"], "69")
-        self.assertTrue(main[1]["발췌"].startswith("「대물배상」 책임이 발생하는 사고"))
+        self.assertTrue(
+            main[1]["발췌"].startswith("이 경우 「자기차량손해」 보험 금을 지급한 보험회사는")
+        )
         self.assertEqual(main[2], {"조항": N682, "출처": cl.TEXT_ONLY_SOURCE})
-        self.assertEqual(self.names(basis["참고 근거"]), [N_S3_NEW, N_S2])
+        reference = basis["참고 근거"]
+        self.assertEqual(self.names(reference), [N_S3_NEW, N_S2, N24_1_5])
+        self.assertEqual(reference[2]["페이지"], "69")
+        self.assertTrue(
+            reference[2]["발췌"].startswith("5. 「자기차량손해」 보험금을 지급한 보험회사가")
+        )
         self.assertTrue({A34, A24, S3_NEW, S2} <= set(s9["evidence_ids"]))
         self.assertNotIn(S3_OLD, s9["evidence_ids"])
         all_ids = {i for s in report["sections"] for i in s["evidence_ids"]}
@@ -266,7 +295,7 @@ class AttachedTest(ReportFlowCase):
         report, _ = self.flow(accident_date="2022-06-01")
         s9 = self.section(report, 9)
         self.assertEqual(
-            [r["ID"] for r in s9["body"]["근거 조항"]["참고 근거"]], [S3_OLD, S2]
+            [r["ID"] for r in s9["body"]["근거 조항"]["참고 근거"]], [S3_OLD, S2, A24]
         )
 
     def test_claim_package_has_names_only(self):
@@ -321,7 +350,7 @@ class NotAttachedTest(ReportFlowCase):
         self.connect(drop_parent=A34)
         report, pkg = self.flow()
         s9 = self.section(report, 9)
-        self.assertEqual(self.names(s9["body"]["근거 조항"]["주 근거"]), [N24_4, N682])
+        self.assertEqual(self.names(s9["body"]["근거 조항"]["주 근거"]), [N24_1_4, N682])
         self.assertNotIn(A34, s9["evidence_ids"])
         self.assertEqual(pkg["basis"]["근거 조항"], [N682])  # 제34조가 없으면 법령 이름만
         self.assertEqual(pkg["rule_notice"], cl.EXAMPLE_NOTICE_WITH_CLAUSES)
@@ -338,6 +367,7 @@ class NotAttachedTest(ReportFlowCase):
         self.assertEqual(main[0], cl.NOT_CONNECTED)
         self.assertEqual(self.names(main[1:]), [N682])
         self.assertEqual(self.names(s9["body"]["근거 조항"]["참고 근거"]), [N_S3_NEW, N_S2])
+        # 제24조 청크가 없으니 ① 제5호도 빠진다
 
     def test_validation_failure_skips_only_that_clause(self):
         async def tampered(corpus, parent_ids, **kw):
@@ -349,7 +379,20 @@ class NotAttachedTest(ReportFlowCase):
         self.connect(fetch=tampered)
         report, _ = self.flow()
         reference = self.section(report, 9)["body"]["근거 조항"]["참고 근거"]
-        self.assertEqual(self.names(reference), [N_S3_NEW])
+        self.assertEqual(self.names(reference), [N_S3_NEW, N24_1_5])
+
+    def test_missing_excerpt_phrase_drops_only_that_item(self):
+        """호 문구를 못 찾으면 다른 항의 문구를 그 이름으로 보여 주지 않고 그 항목만 뺀다."""
+        for c in self.rows["corpus_chunks"]:
+            if c["chunk_id"] == "c24b":
+                c["text"] = c["raw_text"] = "(합성) ④ 전부손해 시 피해물 인수"
+        self.connect()
+        report, pkg = self.flow()
+        s8, s9 = self.section(report, 8), self.section(report, 9)
+        self.assertEqual(self.names(s8["body"]["근거 조항"]), [N24])  # 조항 자체는 붙는다
+        self.assertEqual(self.names(s9["body"]["근거 조항"]["주 근거"]), [N34, N682])
+        self.assertEqual(self.names(s9["body"]["근거 조항"]["참고 근거"]), [N_S3_NEW, N_S2])
+        self.assertEqual(pkg["basis"]["근거 조항"], [N34, N682])
 
     def test_code_bug_is_not_wrapped(self):
         async def broken(corpus, parent_ids, **kw):
@@ -387,21 +430,27 @@ class RealCorpusTest(ReportFlowCase):
         self.assertEqual((r24["조항"], r24["ID"], r24["페이지"]), (N24, A24, "68–71"))
         self.assertIn("제24조", r24["발췌"])
         main = s9["body"]["근거 조항"]["주 근거"]
-        self.assertEqual(self.names(main), [N34, N24_4, N682])
+        self.assertEqual(self.names(main), [N34, N24_1_4, N682])
         self.assertEqual((main[0]["ID"], main[0]["페이지"]), (A34, "76"))
         self.assertIn("보험회사의 대위", main[0]["발췌"])
         self.assertEqual(main[1]["페이지"], "69")
-        self.assertIn("「대물배상」 책임이 발생하는 사고", main[1]["발췌"])
+        self.assertTrue(main[1]["발췌"].startswith("이 경우 「자기차량손해」 보험"))
+        self.assertIn("피보험자의 권리를 취", main[1]["발췌"])
         reference = s9["body"]["근거 조항"]["참고 근거"]
-        self.assertEqual([r["ID"] for r in reference], [S3_NEW, S2])
-        self.assertEqual([r["페이지"] for r in reference], ["103", "100"])
+        self.assertEqual(self.names(reference), [N_S3_NEW, N_S2, N24_1_5])
+        self.assertEqual([r["ID"] for r in reference], [S3_NEW, S2, A24])
+        self.assertEqual([r["페이지"] for r in reference], ["103", "100", "69"])
+        self.assertTrue(
+            reference[2]["발췌"].startswith("5. 「자기차량손해」 보험금을 지급한 보험회사가")
+        )
+        self.assertNotIn("피해물", main[1]["발췌"] + reference[2]["발췌"])
         self.assertEqual(s8["body"]["근거 상태"], cl.EXAMPLE_NOTICE_WITH_CLAUSES)
         self.assertEqual(pkg["basis"]["근거 조항"], [N34, N682])
 
     def test_old_accident_uses_old_schedule_3(self):
         report, _ = self.flow(accident_date="2022-06-01")
         reference = self.section(report, 9)["body"]["근거 조항"]["참고 근거"]
-        self.assertEqual([r["ID"] for r in reference], [S3_OLD, S2])
+        self.assertEqual([r["ID"] for r in reference], [S3_OLD, S2, A24])
 
 
 if __name__ == "__main__":

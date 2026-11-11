@@ -11,6 +11,7 @@
 """
 
 import logging
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -36,7 +37,8 @@ _EXCERPT = 120
 class ClauseRef:
     name: str
     parent_id: str | None = None  # None이면 코퍼스에 없는 법령: 이름만 표기
-    excerpt_from: str | None = None  # 발췌를 이 문구가 있는 청크·위치에서 시작(없으면 첫 청크)
+    # 발췌를 이 문구가 있는 청크·위치에서 시작(공백 무시). 못 찾으면 그 항목은 붙이지 않는다
+    excerpt_from: str | None = None
     in_claim: bool = False  # 청구서 근거서에 이름을 넣는다
 
 
@@ -56,6 +58,8 @@ def select_report_clauses(accident_date: str | None) -> ClauseSelection:
     - 제10조(대인배상Ⅱ·대물배상 지급보험금 계산)는 자차 산정과 무관해 쓰지 않는다.
     - 별표3 과실상계는 사고일로 판 하나를 고른다(2022-12-31 이전 / 2023-01-01 이후).
       사고일이 없거나 날짜가 아니면 넣지 않는다.
+    - 제24조의 호(號)는 같은 parent 안 문구로 발췌 위치를 고른다(① 제4호 권리 취득 문장, ① 제5호).
+      제24조 ④항은 전부손해 시 피해물 인수라 구상 근거가 아니다.
     """
     article_24 = f"{TERMS}:general_article:24:p68"
     reference = []
@@ -72,6 +76,11 @@ def select_report_clauses(accident_date: str | None) -> ClauseSelection:
                 f"{TERMS}:payment_standard:별표3:1:from-2023-01-01",
             ))
     reference.append(ClauseRef("별표2 1. 수리비용", f"{TERMS}:payment_standard:별표2:1"))
+    reference.append(ClauseRef(
+        "보통약관 제24조 ① 제5호(구상금을 받으면 자기부담금 차액을 피보험자에게 지급)",
+        article_24,
+        excerpt_from="5. 「자기차량손해」 보험금을 지급한 보험회사가",
+    ))
     return ClauseSelection(
         payout=(ClauseRef("보통약관 제24조(지급보험금의 계산)", article_24),),
         recovery_main=(
@@ -81,9 +90,10 @@ def select_report_clauses(accident_date: str | None) -> ClauseSelection:
                 in_claim=True,
             ),
             ClauseRef(
-                "보통약관 제24조 ④(자기차량손해 지급 후 상대방에 대한 권리 취득)",
+                "보통약관 제24조 ① 제4호"
+                "(자기부담금 확정 부담 조건 선지급 후 상대방에 대한 권리 취득)",
                 article_24,
-                excerpt_from="「대물배상」 책임이 발생하는 사고",
+                excerpt_from="이 경우 「자기차량손해」 보험금을 지급한 보험회사는",
             ),
             ClauseRef("상법 제682조(제3자에 대한 보험대위)", in_claim=True),
         ),
@@ -148,6 +158,13 @@ def _pages(chunks: list[EvidenceHit]) -> str:
     return f"{start}" + (f"–{end}" if end != start else "")
 
 
+def _find_loose(text: str, phrase: str) -> int:
+    """공백을 무시하고 찾는다. 원문 청크는 줄바꿈 자리에 공백이 끼어 있다(예: '보험 금을')."""
+    pattern = r"\s*".join(re.escape(ch) for ch in phrase if not ch.isspace())
+    found = re.search(pattern, text)
+    return found.start() if found else -1
+
+
 def _row(ref: ClauseRef, clauses: ReportClauses) -> dict[str, object] | None:
     if ref.parent_id is None:
         return {"조항": ref.name, "출처": TEXT_ONLY_SOURCE}
@@ -157,11 +174,19 @@ def _row(ref: ClauseRef, clauses: ReportClauses) -> dict[str, object] | None:
     first = chunks[0]["chunk"]
     text, page = first["text"], _pages(chunks)
     if ref.excerpt_from:
-        for h in chunks:
-            i = h["chunk"]["text"].find(ref.excerpt_from)
-            if i >= 0:
-                text, page = h["chunk"]["text"][i:], _pages([h])
-                break
+        located = next(
+            (
+                (h, i)
+                for h in chunks
+                if (i := _find_loose(h["chunk"]["text"], ref.excerpt_from)) >= 0
+            ),
+            None,
+        )
+        if located is None:  # 다른 항·호의 문구를 이 이름으로 보여 주지 않는다
+            logger.warning("보고서 근거 조항 발췌 위치 없음: %s (%s)", ref.name, ref.parent_id)
+            return None
+        h, i = located
+        text, page = h["chunk"]["text"][i:], _pages([h])
     return {
         "조항": ref.name,
         "ID": ref.parent_id,
