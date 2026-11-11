@@ -6,10 +6,12 @@
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app import storage
 from app.api import reports
 from app.calculation.rules import RuleSet
 from app.config import Settings, get_settings
@@ -86,11 +88,55 @@ def test_report_flow_through_routes(client):
 def test_report_route_errors(client):
     res = client.get(f"/cases/{CASE}/reports/1")
     assert (res.status_code, res.json()["error"]["code"]) == (404, "not_found")
-    res = client.post(f"/cases/{CASE}/estimates",
-                      json={"storage_path": f"cases/{CASE}/estimate.pdf", "party_id": "P1"})
-    assert (res.status_code, res.json()["error"]["code"]) == (501, "not_implemented")
     res = client.post(f"/cases/{CASE}/estimates", json={"party_id": "P1"})
     assert (res.status_code, res.json()["error"]["code"]) == (422, "invalid_request")
     # 확인 완료 흐름으로 바뀌며 없어진 경로
     for removed in ("approve", "calculation", "claim-export"):
         assert client.post(f"/cases/{CASE}/reports/1/{removed}").status_code == 404
+
+
+SAMPLE_10M = Path(__file__).parents[1] / "fixtures" / "estimate_sample_10m.pdf"
+
+
+def test_estimate_route_downloads_from_storage(client, monkeypatch):
+    """견적서 경로: 권한 → 경로 확인 → Storage 내려받기(가짜) → 재산정. 저장 경로는 Storage 경로."""
+    calls: list[str] = []
+
+    async def fake_download(object_key: str, dest: Path, *, max_bytes: int) -> int:
+        calls.append(object_key)
+        dest.write_bytes(SAMPLE_10M.read_bytes())
+        return dest.stat().st_size
+
+    monkeypatch.setattr(storage, "download_object", fake_download)
+    path = f"{storage.STORAGE_BUCKET}/{CASE}/estimates/estimate.pdf"
+    body = {"storage_path": path, "party_id": "P1"}
+
+    res = client.post(f"/cases/{CASE}/estimates", json=body)  # 사건 없음 → 내려받지 않음
+    assert (res.status_code, res.json()["error"]["code"]) == (404, "not_found")
+
+    asyncio.run(reports.submit_judgment(ACTOR, fx.card(), fx.judgment()))
+    other = f"{storage.STORAGE_BUCKET}/other/estimates/x.pdf"
+    res = client.post(f"/cases/{CASE}/estimates", json={**body, "storage_path": other})
+    assert (res.status_code, res.json()["error"]["code"]) == (422, "invalid_storage_path")
+    assert calls == []
+
+    res = client.post(f"/cases/{CASE}/estimates", json=body)
+    assert res.status_code == 200, res.text
+    assert res.json()["versions"]["report_version"] == 2
+    assert calls == [f"{CASE}/estimates/estimate.pdf"]
+    docs = fx.record(ACTOR, CASE).documents
+    assert {d["kind"]: d["storage_path"] for d in docs} == {
+        "repair_estimate": path, "evidence": path,
+    }
+
+
+def test_estimate_route_without_storage_key_is_503(client, monkeypatch):
+    monkeypatch.setattr(storage, "get_settings", lambda: Settings(
+        app_env="local", on_vercel=False, supabase_url="https://example.supabase.co",
+        supabase_jwt_secret=None, jwt_audience="authenticated", cors_allow_origins=(),
+        dev_actor_id=ACTOR, supabase_secret_key=None))
+    asyncio.run(reports.submit_judgment(ACTOR, fx.card(), fx.judgment()))
+    res = client.post(f"/cases/{CASE}/estimates", json={
+        "storage_path": f"{storage.STORAGE_BUCKET}/{CASE}/estimates/estimate.pdf", "party_id": "P1",
+    })
+    assert (res.status_code, res.json()["error"]["code"]) == (503, "storage_not_configured")

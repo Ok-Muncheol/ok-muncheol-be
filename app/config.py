@@ -4,7 +4,7 @@
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 
@@ -30,6 +30,9 @@ class Settings:
     load_knowledge_base: bool = False
     # 서버 전용 Postgres 주소(Supabase Session pooler). 없으면 DB를 쓰는 경로는 503(app/db.py)
     database_url: str | None = None
+    # 서버 전용 Supabase Storage 키(app/storage.py, apikey 헤더). RLS를 건너뛰므로 BE에만 둔다.
+    # 없으면 Storage를 쓰는 경로는 503. repr에서 빼 설정 객체를 출력해도 값이 보이지 않게 한다
+    supabase_secret_key: str | None = field(default=None, repr=False)
 
     @property
     def jwks_url(self) -> str | None:
@@ -62,4 +65,5 @@ def get_settings() -> Settings:
         dev_actor_id=env.get("DEV_ACTOR_ID") or None,
         load_knowledge_base=_flag(env.get("LOAD_KNOWLEDGE_BASE", "")),
         database_url=env.get("DATABASE_URL") or None,
+        supabase_secret_key=env.get("SUPABASE_SECRET_KEY") or None,
     )

@@ -12,9 +12,12 @@ dependencies = [
     # 판단 실행 저장·체크포인트(app/db.py·app/workflow/runs.py). Supabase Session pooler로 붙는다
     "langgraph-checkpoint-postgres>=3,<4",
     "psycopg[binary]>=3.2,<4",
+    # D: 견적서 경로(POST /cases/{id}/estimates) — Storage 내려받기(app/storage.py)·서식 견적서 PDF 읽기
+    "httpx>=0.27",
+    "pdfplumber>=0.11,<0.12",
 ]
 
-# 비전·PDF·임베딩 의존성은 API 런타임과 분리한다.
+# 비전·임베딩 의존성은 API 런타임과 분리한다(견적서 PDF 읽기 pdfplumber만 기본 의존성).
 
 [project.optional-dependencies]
 ingestion = ["pdfplumber>=0.11,<0.12"]
@@ -22,15 +25,12 @@ embedding = ["openai>=1,<4", "python-dotenv>=1,<2", "tiktoken>=0.7,<1"]
 # D: 키워드 검색(BM25) 한국어 토큰화. 없으면 공백·글자 기준 간단 토큰화로 대체
 keyword = ["kiwipiepy>=0.24,<1"]
 evaluation = ["numpy>=1.26,<3"]
-# D: 서식 견적서 PDF 자동 추출(app/calculation/estimate_reader.py). 없으면 이 기능만 안내 메시지, 관련 테스트는 건너뜀
-estimate-pdf = ["pdfplumber>=0.11,<0.12"]
 # D 개발용: 테스트 견적서 PDF 생성(tests/fixtures/make_estimate_pdfs.py)에서만 사용. 생성한 PDF는 커밋되어 있음
 estimate-fixtures = ["reportlab", "pypdf"]
 # 검증 도구 — make lint(ruff)·make test(pytest). CI check 잡이 같은 것을 설치한다(.github/workflows/ci.yml)
 dev = [
     "httpx>=0.27",
     "pytest>=8",
-    "pdfplumber>=0.11,<0.12",
     "openai>=1,<4",
     "numpy>=1.26,<3",
     "python-dotenv>=1,<2",
