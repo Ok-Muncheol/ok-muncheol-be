@@ -57,8 +57,8 @@ POSITION = {
     "같은방향_앞": "same_direction_front",
     "같은방향_뒤": "same_direction_rear",
     "맞은편": "opposite",
-    "왼쪽": "side",
-    "오른쪽": "side",
+    "왼쪽": "left",
+    "오른쪽": "right",
 }
 ENTRY = {"A먼저": "first", "B먼저": "second", "동시": "simultaneous", "해당없음": "none"}
 ACCIDENT = {"차대차": "car_to_car"}
@@ -106,7 +106,7 @@ FIELD_ACCURACY: dict[str, dict] = {
     "signal_B": {"accuracy": 0.00, "basis": "개발 세트 신호 교차로 4건 (0/4), 늘 확인 필요"},
     "movement_A": {"accuracy": 0.65, "basis": "사람 정답 92건 (60/92)"},
     "movement_B": {"accuracy": 0.75, "basis": "사람 정답 92건 (69/92)"},
-    "relative_position": {"accuracy": 0.73, "basis": "개발 세트 30건 (22/30)"},
+    "relative_position": {"accuracy": 0.63, "basis": "개발 세트 30건, 좌·우 구분 (19/30)"},
     "entry_order": {"accuracy": 0.47, "basis": "개발 세트 30건 (14/30)"},
     "collision_time_ms": {"accuracy": 0.57, "basis": "개발 세트 30건, ±200ms 이내 (17/30)"},
 }

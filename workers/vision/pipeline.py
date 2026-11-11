@@ -42,6 +42,8 @@ MODEL_FILES = (
     "video_model_j3.pt",
     "type_head.pt",
     "motion_movement_B.joblib",
+    "scene_location_type.joblib",
+    "scene_road_priority.joblib",
     "yolo11s.pt",
 )
 
@@ -210,7 +212,7 @@ def build_detections(video: str, work: Path, *, use_j3: bool = True) -> dict:
 
 
 def default_vlm():
-    from workers.vision.fact_card import OpenAIVLM
+    from workers.vision.vlm import OpenAIVLM
 
     return OpenAIVLM(model="gpt-4o")
 

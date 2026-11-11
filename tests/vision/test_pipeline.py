@@ -93,7 +93,7 @@ def test_v1_has_exactly_twelve_fields_in_english():
     assert v["road_priority"] == "major_B"
     assert v["signal_B"] == "green_left_arrow"
     assert v["movement_A"] == "lane_change" and v["movement_B"] == "other"
-    assert v["relative_position"] == "side" and v["entry_order"] == "first"
+    assert v["relative_position"] == "left" and v["entry_order"] == "first"
     assert v["night"] is True and v["collision_time_ms"] == 4667
 
 

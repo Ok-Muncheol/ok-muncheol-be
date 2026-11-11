@@ -24,14 +24,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from evals.vision.gt_tracks import load_gt_tracks  # noqa: E402
 from workers.vision.ego_motion import analyze_video  # noqa: E402
-from workers.vision.fact_card import (  # noqa: E402
-    PROMPT_VERSION,
-    PROMPT_VERSIONS,
-    ClaudeVLM,
-    OllamaVLM,
-    OpenAIVLM,
-    extract_fact_card_sync,
-)
+from workers.vision.fact_card import extract_fact_card_sync  # noqa: E402
+from workers.vision.prompts import PROMPT_VERSION, PROMPT_VERSIONS  # noqa: E402
+from workers.vision.vlm import ClaudeVLM, OllamaVLM, OpenAIVLM  # noqa: E402
 
 #  100만 토큰당 (입력, 출력) 달러. 2026-11-06 기준 어림값 — 정확한 금액은 OpenAI 사용량 페이지에서
 # 확인
@@ -52,7 +47,8 @@ def main():
         "--vlm",
         default="openai",
         choices=["ollama", "openai", "claude"],
-        help="openai(기본): OPENAI_API_KEY 필요(유료) / ollama: 노트북 로컬 Qwen / claude: ANTHROPIC_API_KEY 필요",
+        help="openai(기본): OPENAI_API_KEY 필요(유료) / ollama: 노트북 로컬 Qwen / claude: "
+             "ANTHROPIC_API_KEY 필요",
     )
     parser.add_argument(
         "--model", help="기본: openai=gpt-4o, ollama=qwen3.5:9b, claude=claude-opus-5-5"
@@ -76,7 +72,8 @@ def main():
         const="score",
         choices=["score", "choose"],
         dest="type_select",
-        help="사고 유형을 골라 장소·움직임 등을 채운다. score(기본): 코드가 점수로 고름(추가 비용 없음) / "
+        help="사고 유형을 골라 장소·움직임 등을 채운다. score(기본): 코드가 점수로 고름(추가 비용 "
+             "없음) / "
         "choose: VLM이 후보 목록에서 고름(비용 약 2배)",
     )
     parser.add_argument(
@@ -267,11 +264,13 @@ def main():
         json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8"
     )
     print(
-        f"\n완료 {len(meta['videos'])}건, 실패 {len(meta['failed'])}건, {meta['total_seconds']}s → {out_dir}"
+        f"\n완료 {len(meta['videos'])}건, 실패 {len(meta['failed'])}건, {meta['total_seconds']}s → "
+        f"{out_dir}"
     )
     n_ok = max(1, len(meta["videos"]))
     print(
-        f"토큰: 입력 {tin:,} / 출력 {tout:,} (영상 1건 평균 입력 {tin // n_ok:,} / 출력 {tout // n_ok:,})"
+        f"토큰: 입력 {tin:,} / 출력 {tout:,} (영상 1건 평균 입력 {tin // n_ok:,} / 출력 "
+        f"{tout // n_ok:,})"
         + (
             f" → 약 {usd:.3f}달러(약 {usd * KRW_PER_USD:,.0f}원, 어림값)"
             if price

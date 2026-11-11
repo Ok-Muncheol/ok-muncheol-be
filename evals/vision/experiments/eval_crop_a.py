@@ -28,8 +28,8 @@ from evals.vision.eval_boxes import MATCH_IOU, track_iou  # noqa: E402
 from evals.vision.gt_tracks import load_gt_tracks  # noqa: E402
 from evals.vision.score import load_answers  # noqa: E402
 from workers.vision.detection import detect_and_track, pick_opponent  # noqa: E402
-from workers.vision.fact_card import OpenAIVLM  # noqa: E402
 from workers.vision.fields import FPS  # noqa: E402
+from workers.vision.vlm import OpenAIVLM  # noqa: E402
 
 
 def main():
@@ -116,13 +116,15 @@ def main():
         )
         print(
             f"{name[:24]} 정답={truth} | 기존 VLM={vlm_value}{'✓' if vlm_value == truth else '✗'}"
-            f" | 확대={got}{'✓' if got == truth else '✗'} (상대 차 {'맞음' if pick_right else '틀림'})"
+            f" | 확대={got}{'✓' if got == truth else '✗'} (상대 차 "
+            f"{'맞음' if pick_right else '틀림'})"
         )
         if res:
             print(f"    관찰: {(res.get('observations') or '')[:160]}")
     usd = tin / 1e6 * 2.5 + tout / 1e6 * 10 if args.model == "gpt-4o" else None
     print(
-        f"\n움직임 A: 확대 질문(사진 없거나 불명이면 기존 답) {crop_ok}/{n} vs 기존 VLM {vlm_ok}/{n}"
+        f"\n움직임 A: 확대 질문(사진 없거나 불명이면 기존 답) {crop_ok}/{n} vs 기존 VLM "
+        f"{vlm_ok}/{n}"
     )
     print(
         f"토큰 입력 {tin:,} / 출력 {tout:,}" + (f" → 약 {usd * 1400:,.0f}원(어림값)" if usd else "")
