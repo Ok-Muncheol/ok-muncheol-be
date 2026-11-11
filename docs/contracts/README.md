@@ -113,7 +113,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 그래프 체크포인트를 `langgraph` 스키마에 저장한다. FE는 판단 조회(`GET /cases/{id}/judgment`)로 최신 실행·판정·질문·답을 읽어
 새로고침·재접속을 복원하고, Realtime은 변경 알림으로만 쓴다. 판정 결과(`JudgmentResult`)는 `judgment_runs.result`에 있다.
 보고서 3·4·5번용 필드도 판단 그래프가 채운다. `base_fault_A`(선택한 기본 과실 A), `modifiers`(선택한 도표의 수정요소마다
-`decision` 적용·미적용·불명과 `reason`·`evidence_fields`, 가감치가 있는 요소만), `alternatives`(고르지 않은 도표와 이유)다.
+`decision` 적용·미적용·불명과 `reason`·`evidence_fields`, 가감치가 있는 요소만), `alternatives`(고르지 않은 도표와 이유. 카드와 맞지 않는 도표는 검색 점수 순 앞 5개, 검수 전 도표는 앞 3개까지)다.
 MVP 그래프는 수정요소를 자동 적용하지 않으므로 `modifiers`는 모두 불명(담당자 판단)이고 과실은 기본 과실이다.
 도표를 고르지 못한 보류면 `null`·빈 목록이다.
 

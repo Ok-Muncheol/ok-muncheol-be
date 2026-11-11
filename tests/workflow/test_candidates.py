@@ -8,6 +8,7 @@ import pytest
 from app.retrieval import common
 from app.tools import _evidence
 from app.workflow.candidates import (
+    CHART_SEARCH_TOP_K,
     build_search_query,
     candidates_from_hits,
     confirmed_values,
@@ -39,6 +40,14 @@ def test_default_retriever_reads_chart_records_from_db_index(monkeypatch, db_ind
     request = search.await_args.args[0]
     assert request["corpus"] == "fault_standards"
     assert request["text"] == "신호 교차로 A 녹색 직진 B 적색 좌회전"
+
+
+def test_default_retriever_searches_deep_enough_for_reviewed_charts(monkeypatch):
+    """검수 도표가 상위 10개 밖이어도 후보가 되게 깊게 검색한다(시범 실행에서 차4-2가 28위)."""
+    search = AsyncMock(return_value=[])
+    monkeypatch.setattr(common, "search", search)
+    asyncio.run(retrieve_from_corpus(card()))
+    assert search.await_args.args[0]["top_k"] == CHART_SEARCH_TOP_K == 50
 
 
 def test_default_retriever_needs_no_index_when_nothing_found(monkeypatch):
@@ -116,3 +125,14 @@ def test_candidate_rejects_hits_from_another_document():
     other = {**DOCUMENT, "document_id": "other-standards"}
     with pytest.raises(ValueError, match="원문 문서가 다르다"):
         candidates_from_hits([hit(parent, 10, 0.5)], {parent: record("X-4", document=other)})
+
+
+def test_candidate_reads_published_month_from_validated_hits():
+    """발행월도 검색 결과의 문서 값에서 읽는다. 이전 색인처럼 키가 없으면 None이다."""
+    parent = f"{DOCUMENT['document_id']}:X-5"
+    with_month = hit(parent, 10, 0.5)
+    with_month["chunk"]["document"] = {**DOCUMENT, "published_month": "2023-06"}
+    [cand] = candidates_from_hits([with_month], {parent: record("X-5")})
+    assert cand["published_month"] == "2023-06"
+    [old] = candidates_from_hits([hit(parent, 10, 0.5)], {parent: record("X-5")})
+    assert old["published_month"] is None

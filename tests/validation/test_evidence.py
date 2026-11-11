@@ -1,6 +1,12 @@
 """검증 ①: 선택한 도표·인용·수정요소가 검수 레코드와 원문에 실재하는지."""
 
-from app.validation.evidence import PERIOD_UNKNOWN_WARNING, check_evidence
+import pytest
+
+from app.validation.evidence import (
+    PERIOD_UNKNOWN_WARNING,
+    PUBLISHED_SAME_MONTH_WARNING,
+    check_evidence,
+)
 from tests.workflow.synthetic import candidates
 
 
@@ -67,3 +73,32 @@ def test_no_hits_fails():
     cands[0]["hits"] = []
     check = check_evidence(selection(cands[0]), cands, "2026-10-01")
     assert any("원문 청크가 없다" in r for r in check["reasons"])
+
+
+UNKNOWN_START = PERIOD_UNKNOWN_WARNING.format(edition="synthetic-1")
+SAME_MONTH = PUBLISHED_SAME_MONTH_WARNING.format(edition="synthetic-1", month="2023-06")
+
+
+@pytest.mark.parametrize(
+    ("accident_date", "passed", "reasons"),
+    [
+        # 발행되기 전의 사고에는 그 판을 적용할 수 없다
+        ("2023-05-31", False,
+         ["사고 일자(2023-05-31)가 적용판 synthetic-1 발행월(2023-06)보다 앞선다"]),
+        # 같은 달은 시행일을 몰라 판단하지 않고 경고만 남긴다
+        ("2023-06-15", True, [UNKNOWN_START, SAME_MONTH]),
+        ("2026-10-01", True, [UNKNOWN_START]),
+    ],
+)
+def test_published_month_blocks_earlier_accidents(accident_date, passed, reasons):
+    cands = candidates()
+    cands[0]["effective_from"], cands[0]["published_month"] = "", "2023-06"
+    check = check_evidence(selection(cands[0]), cands, accident_date)
+    assert check == {"layer": "evidence", "passed": passed, "reasons": reasons}
+
+
+def test_missing_published_month_changes_nothing():
+    cands = candidates()
+    cands[0]["effective_from"], cands[0]["published_month"] = "", None
+    check = check_evidence(selection(cands[0]), cands, "2001-01-01")
+    assert check == {"layer": "evidence", "passed": True, "reasons": [UNKNOWN_START]}

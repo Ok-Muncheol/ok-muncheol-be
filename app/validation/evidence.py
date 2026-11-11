@@ -2,6 +2,8 @@
 
 적용판 시행일이 확인되지 않았으면(manifest `effective_period_status: unknown`) 날짜를 지어내지
 않는다. 이때는 통과시키되 사유에 경고를 남긴다. 보고서 1번은 통과한 검증의 사유도 보여 준다.
+원문에서 확인한 발행월(`published_month`)이 있으면 그보다 앞선 달의 사고는 막는다. 발행되기 전의
+사고에 그 판을 적용할 수는 없다. 발행월과 같은 달의 사고는 시행일을 몰라 경고만 남긴다.
 """
 
 from datetime import date
@@ -13,12 +15,16 @@ from app.workflow.state import ChartSelection
 PERIOD_UNKNOWN_WARNING = (
     "경고: 적용판 {edition}의 시행일이 확인되지 않아 사고 일자와 대조하지 않았다"
 )
+PUBLISHED_SAME_MONTH_WARNING = (
+    "경고: 사고가 적용판 {edition} 발행월({month})과 같은 달이라 시행 전 사고일 수 있다"
+)
 
 
 def edition_covers(candidate: ChartCandidate, accident_date: str) -> str | None:
     """사고 일자에 유효한 적용판인지. 문제가 있으면 이유를 돌려준다.
 
-    시행일이 비어 있으면 끝 날짜만 본다. 시행일 미확인 경고는 `check_evidence`가 남긴다.
+    시행일이 비어 있으면 끝 날짜만 본다. 발행월이 있으면 그보다 앞선 달의 사고도 막는다.
+    시행일 미확인·발행월과 같은 달 경고는 `check_evidence`가 남긴다.
     """
     try:
         accident = date.fromisoformat(accident_date)
@@ -29,6 +35,11 @@ def edition_covers(candidate: ChartCandidate, accident_date: str) -> str | None:
         return "사고 일자 또는 적용판 유효기간 형식이 잘못됐다"
     if (start is not None and accident < start) or (end is not None and accident > end):
         return f"적용판 {candidate['edition']}은 사고 일자 {accident_date}에 유효하지 않다"
+    month = candidate.get("published_month")
+    if month and accident_date[:7] < month:
+        return (
+            f"사고 일자({accident_date})가 적용판 {candidate['edition']} 발행월({month})보다 앞선다"
+        )
     return None
 
 
@@ -54,6 +65,11 @@ def check_evidence(
         reasons.append(period)
     elif not candidate["effective_from"]:
         warnings.append(PERIOD_UNKNOWN_WARNING.format(edition=candidate["edition"]))
+        month = candidate.get("published_month")
+        if month and accident_date[:7] == month:
+            warnings.append(
+                PUBLISHED_SAME_MONTH_WARNING.format(edition=candidate["edition"], month=month)
+            )
     if not candidate["hits"]:
         reasons.append(f"도표 {candidate['chart_id']}를 뒷받침하는 원문 청크가 없다")
     for hit in candidate["hits"]:

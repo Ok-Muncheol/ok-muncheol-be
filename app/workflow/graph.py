@@ -77,11 +77,15 @@ STAGES = (
     "build_judgment_result",
 )
 MAX_REBUTTAL_RETRIES = 1
+# 보고서 3번·보류 사유에 늘어놓는 제외 후보 수. 검색 후보가 넓어서(candidates.CHART_SEARCH_TOP_K)
+# 검수 전 도표가 20개 넘게 섞이므로 검색 점수가 높은 앞쪽만 보여 준다
+MAX_LISTED_EXCLUDED = 5
+MAX_LISTED_UNREVIEWED = 3
 # 실행 입력 버전(judgment_runs). 같은 카드·인정기준·규칙 버전이면 다시 판단하지 않는다.
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.11.1"
+RULE_VERSION = "judgment-rules-2026.11.11.2"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 FIELD_LABELS = {
@@ -268,16 +272,54 @@ def _matched_fields(candidate: ChartCandidate, values: dict[str, str]) -> list[s
     return matched + best
 
 
-def open_fields(state: JudgmentState) -> list[str]:
-    """아직 묻지 않은 구분 칸: 범위 필수 칸 + 후보 도표가 가르는 칸. 확인됐거나 '모른다'면 뺀다.
+def _ruled_out(
+    candidate: ChartCandidate, values: dict[str, str], unknown: set[str], required: set[str],
+) -> str | None:
+    """확인한 값이나 '모른다' 답 때문에 이미 고를 수 없는 후보면 그 이유, 아직 고를 수 있으면 None.
 
-    남은 후보가 모두 `*`(무관)로 둔 필수 칸은 묻지 않는다.
+    `*`은 어떤 값과도 맞는다. 속성과 기본 과실 변형을 모두 대조한다. 더 묻는다고 다시 고를 수 있게
+    되지 않으므로 질문(`open_fields`)과 순위(`_rank`)가 같은 판정을 쓴다.
+    """
+    # 장소처럼 카드와 이미 어긋난 칸을 먼저 본다. 다른 장소 도표는 그 장소의 필수 칸이 없어도
+    # "미정의"가 아니라 "불일치"로 보고하는 편이 정확하다
+    attributes = _concrete(candidate["attributes"])
+    mismatch = [k for k, v in attributes.items() if k in values and values[k] != v]
+    if mismatch:
+        return f"카드와 불일치 {mismatch}"
+    keys = set(candidate["attributes"])
+    for variant in candidate["base_variants"]:
+        keys |= set(variant["conditions"])
+    if not required <= keys:
+        return f"구분 칸 {sorted(required - keys)} 미정의"
+    unverifiable = [k for k in attributes if k not in values and k in unknown]
+    if unverifiable:
+        return f"확인 불가 칸 {unverifiable}"
+    fitting = [v for v in candidate["base_variants"] if _variant_fits(v, values)]
+    if not fitting:
+        conflict = sorted({k for v in candidate["base_variants"]
+                           for k, x in _concrete(v["conditions"]).items()
+                           if k in values and values[k] != x})
+        return f"카드와 맞는 기본 과실 변형 없음 {conflict}"
+    blocked = [{k for k in _concrete(v["conditions"]) if k not in values and k in unknown}
+               for v in fitting]
+    if all(blocked):
+        return f"확인 불가 칸 {sorted(set().union(*blocked))}"
+    return None
+
+
+def open_fields(state: JudgmentState) -> list[str]:
+    """아직 묻지 않은 구분 칸: 범위 필수 칸 + 아직 고를 수 있는 후보 도표가 가르는 칸.
+
+    확인됐거나 '모른다'면 뺀다. 카드와 이미 어긋난 후보(장소·신호·진행 방향이 다른 도표)가 가르는
+    칸은 묻지 않는다. 남은 후보가 모두 `*`(무관)로 둔 필수 칸도 묻지 않는다.
     수정요소는 자동 적용하지 않으므로 수정요소 조건 칸도 묻지 않는다.
     """
     card = state["card"]
     values = confirmed_values(card)
     unknown = set(state.get("unknown_fields", []))
-    needed = [_needed_fields(c) for c in _eligible(state)]
+    required = set(_required_fields(card))
+    needed = [_needed_fields(c) for c in _eligible(state)
+              if _ruled_out(c, values, unknown, required) is None]
     ordered = [k for k in _required_fields(card) if not needed or any(k in n for n in needed)]
     for keys in needed:
         ordered += keys
@@ -291,9 +333,9 @@ def open_fields(state: JudgmentState) -> list[str]:
 def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, str]]]:
     """확인한 칸과 모순 없는 검수 후보를 일치 칸 수·검색 점수로 정렬한다.
 
-    `*`은 어떤 값과도 맞는다. 속성과 기본 과실 변형을 모두 대조해, 카드로 고를 수 있는 변형이 없는
-    도표는 순위에 올리지 않는다(1순위가 변형에서 막혀 차순위를 보지 못하는 일을 막는다).
-    (순위, [(도표, 제외 이유)]).
+    `*`은 어떤 값과도 맞는다. 속성과 기본 과실 변형을 모두 대조해(`_ruled_out`), 카드로 고를 수
+    있는 변형이 없는 도표는 순위에 올리지 않는다(1순위가 변형에서 막혀 차순위를 보지 못하는 일을
+    막는다). (순위, [(도표, 제외 이유)]). 제외 목록은 검색 점수 순이다.
     """
     card = state["card"]
     values = confirmed_values(card)
@@ -302,33 +344,9 @@ def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, s
     ranked: list[tuple[int, float, ChartCandidate]] = []
     skipped: list[tuple[str, str]] = []
     for candidate in _eligible(state):
-        chart_id = candidate["chart_id"]
-        keys = set(candidate["attributes"])
-        for variant in candidate["base_variants"]:
-            keys |= set(variant["conditions"])
-        if not required <= keys:
-            skipped.append((chart_id, f"구분 칸 {sorted(required - keys)} 미정의"))
-            continue
-        attributes = _concrete(candidate["attributes"])
-        mismatch = [k for k, v in attributes.items() if k in values and values[k] != v]
-        if mismatch:
-            skipped.append((chart_id, f"카드와 불일치 {mismatch}"))
-            continue
-        unverifiable = [k for k in attributes if k not in values and k in unknown]
-        if unverifiable:
-            skipped.append((chart_id, f"확인 불가 칸 {unverifiable}"))
-            continue
-        fitting = [v for v in candidate["base_variants"] if _variant_fits(v, values)]
-        if not fitting:
-            conflict = sorted({k for v in candidate["base_variants"]
-                               for k, x in _concrete(v["conditions"]).items()
-                               if k in values and values[k] != x})
-            skipped.append((chart_id, f"카드와 맞는 기본 과실 변형 없음 {conflict}"))
-            continue
-        blocked = [{k for k in _concrete(v["conditions"]) if k not in values and k in unknown}
-                   for v in fitting]
-        if all(blocked):
-            skipped.append((chart_id, f"확인 불가 칸 {sorted(set().union(*blocked))}"))
+        why = _ruled_out(candidate, values, unknown, required)
+        if why:
+            skipped.append((candidate["chart_id"], why))
             continue
         ranked.append((len(_matched_fields(candidate, values)), candidate["score"], candidate))
     ranked.sort(key=lambda item: (-item[0], -item[1]))
@@ -389,7 +407,8 @@ def alternative_reasons(
 ) -> list[ChartAlternative]:
     """보고서 3번 차순위 후보.
 
-    반박으로 뺀 도표 → 차순위 → 카드와 맞지 않는 후보 → 검수 전 레코드 순이다.
+    반박으로 뺀 도표 → 차순위 → 카드와 맞지 않는 후보(앞 MAX_LISTED_EXCLUDED개) → 검수 전
+    레코드(앞 MAX_LISTED_UNREVIEWED개) 순이다. 제외 후보는 검색 점수 순으로 자른다.
     """
     out: list[ChartAlternative] = []
     rebutted = [ch for ch in state["checks"] if ch["layer"] == "rebuttal" and not ch["passed"]
@@ -407,16 +426,22 @@ def alternative_reasons(
         else:
             why = "반박 검토가 고른 도표를 우선함"
         out.append({"chart_id": candidate["chart_id"], "reason": f"차순위 — {why}"})
-    out += [{"chart_id": chart_id, "reason": f"제외 — {why}"} for chart_id, why in skipped]
-    out += [
-        {"chart_id": c["chart_id"], "reason": "제외 — 검수 전 도표 레코드"}
-        for c in state.get("candidates", []) if not c["calculation_ready"]
-    ]
+    out += [{"chart_id": chart_id, "reason": f"제외 — {why}"}
+            for chart_id, why in skipped[:MAX_LISTED_EXCLUDED]]
+    unreviewed = [c for c in state.get("candidates", []) if not c["calculation_ready"]]
+    out += [{"chart_id": c["chart_id"], "reason": "제외 — 검수 전 도표 레코드"}
+            for c in unreviewed[:MAX_LISTED_UNREVIEWED]]
     return out
 
 
 def _outcome(status: str, reasons: list[str]) -> Outcome:
     return {"status": status, "reasons": reasons}  # type: ignore[typeddict-item]
+
+
+def _listed(lines: list[str], limit: int, what: str) -> list[str]:
+    """사유 줄을 앞 limit개만 남기고 나머지는 개수 한 줄로 줄인다."""
+    rest = len(lines) - limit
+    return lines[:limit] + ([f"그 밖에 {what} {rest}개"] if rest > 0 else [])
 
 
 def build_graph(
@@ -453,8 +478,9 @@ def build_graph(
             "evidence": [hit for c in candidates for hit in c["hits"]],
         }
         if not any(c["calculation_ready"] for c in candidates):
-            reasons = [REASON_NO_REVIEWED_CHART]
-            reasons += [f"{c['chart_id']}: {r}" for c in candidates for r in c.get("reasons", [])]
+            lines = [f"{c['chart_id']}: {r}" for c in candidates for r in c.get("reasons", [])]
+            reasons = [REASON_NO_REVIEWED_CHART,
+                       *_listed(lines, MAX_LISTED_UNREVIEWED, "검수 전 도표")]
             update["outcome"] = _outcome("deferred", reasons)
         return update
 
@@ -483,7 +509,8 @@ def build_graph(
         update: dict = {"stage": "select_chart_and_modifiers", "selection": None}
         ranked, skipped = _rank(state)
         if not ranked:
-            excluded = [f"{chart_id}: {why}" for chart_id, why in skipped]
+            excluded = _listed([f"{chart_id}: {why}" for chart_id, why in skipped],
+                               MAX_LISTED_EXCLUDED, "제외한 도표")
             update["outcome"] = _outcome(
                 "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
                 or [REASON_NO_REVIEWED_CHART, *excluded]

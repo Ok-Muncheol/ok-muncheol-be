@@ -27,7 +27,7 @@ from app.workflow.graph import (
     run_outcome,
     thread_config,
 )
-from tests.workflow.synthetic import candidate, candidates, card, field, verdict
+from tests.workflow.synthetic import SIGNALIZED, candidate, candidates, card, field, verdict
 
 
 def run(card_, verdicts=None, cands=None, thread="run-1"):
@@ -416,3 +416,67 @@ def test_unknown_edition_start_passes_evidence_with_warning():
     evidence = result["checks"][0]
     assert (evidence["layer"], evidence["passed"]) == ("evidence", True)
     assert evidence["reasons"] == [PERIOD_UNKNOWN_WARNING.format(edition="synthetic-1")]
+
+
+def test_fields_of_contradicting_candidates_are_not_asked():
+    """신호 교차로 카드에 신호 없는 교차로 도표가 섞여도 그 도표만 가르는 칸(도로 관계·진입 순서)은
+    묻지 않는다. 더 물어도 장소가 다른 도표를 고를 수는 없다."""
+    other = candidate("N-1", UNSIGNALIZED, 20, score=0.95, base_variants=[
+        {"variant": "가", "base_A": 20, "base_B": 80, "conditions": {"entry_order": "first"}},
+        {"variant": "나", "base_A": 60, "base_B": 40, "conditions": {"entry_order": "second"}},
+    ])
+    _, out, _ = run(card(), cands=[other, *candidates()])
+    assert "__interrupt__" not in out
+    result = out["result"]
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "S-1")
+    assert {"chart_id": "N-1", "reason": "제외 — 카드와 불일치 ['location_type']"} \
+        in result["alternatives"]
+
+
+def mismatching(n: int) -> list:
+    return [candidate(f"M-{i}", {**SIGNALIZED, "movement_B": "u_turn"}, 40, score=0.8 - i / 100)
+            for i in range(1, n + 1)]
+
+
+def unreviewed(n: int) -> list:
+    return [candidate(f"U-{i}", {"location_type": "signalized_intersection"}, 40,
+                      score=0.5 - i / 100, calculation_ready=False, reasons=["검수 전"])
+            for i in range(1, n + 1)]
+
+
+def test_report_lists_only_the_first_excluded_and_unreviewed_candidates():
+    """검색을 넓혀도 보고서 3번에는 검색 점수가 높은 제외 도표 5개·검수 전 도표 3개만 남긴다."""
+    best = candidates()[0]
+    _, out, _ = run(card(), cands=[best, *mismatching(7), *unreviewed(5)])
+    alternatives = out["result"]["alternatives"]
+    assert [a["chart_id"] for a in alternatives] == \
+        ["M-1", "M-2", "M-3", "M-4", "M-5", "U-1", "U-2", "U-3"]
+
+
+@pytest.mark.parametrize(
+    ("cands", "listed"),
+    [
+        (unreviewed(5),
+         ["U-1: 검수 전", "U-2: 검수 전", "U-3: 검수 전", "그 밖에 검수 전 도표 2개"]),
+        (mismatching(7), [*(f"M-{i}: 카드와 불일치 ['movement_B']" for i in range(1, 6)),
+                          "그 밖에 제외한 도표 2개"]),
+    ],
+)
+def test_deferral_reasons_list_only_the_first_candidates(cands, listed):
+    _, out, _ = run(card(), cands=cands)
+    result = out["result"]
+    assert result["status"] == "deferred"
+    assert result["reasons"] == [REASON_NO_REVIEWED_CHART, *listed]
+
+
+def test_accident_before_published_month_defers_without_llm():
+    cands = candidates()
+    cands[0]["effective_from"], cands[0]["published_month"] = "", "2026-11"
+    _, out, reviewer = run(card(), cands=cands)
+    result = out["result"]
+    assert result["status"] == "deferred"
+    assert result["reasons"] == [
+        REASON_NO_REVIEWED_CHART,
+        "사고 일자(2026-10-01)가 적용판 synthetic-1 발행월(2026-11)보다 앞선다",
+    ]
+    assert reviewer.await_count == 0
