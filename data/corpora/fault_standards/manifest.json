@@ -20,6 +20,8 @@
       "effective_to": null,
       "effective_period_status": "unknown",
       "effective_period_note": "원문·과실비율정보포털 모두 시행일 표기 없음. 파일명 230630은 게시일로 보이며 시행일 근거가 아님. 협회 확인 전까지 비워 둔다.",
+      "published_month": "2023-06",
+      "published_month_source": "판권면 '개정 : 2023년 6월 / 발행 : 2023년 6월'(600쪽), 개정경과 '10차 개정 2023년 6월'(11쪽). 일자는 원문에 없음",
       "content_hash": "6502fca09a6f9cb26c6166f182429f9c947582dbdbbe1e844a3c7949fbfab06e",
       "parser_version": "pdfplumber-0.11.10:v1",
       "usage_review": {

@@ -3,9 +3,11 @@
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.ingestion.chart_scope_review import apply_scope_review
 from app.ingestion.fault_standards import build_standards
 from app.ingestion.preprocess import preprocess_chunks
 
@@ -16,6 +18,12 @@ def main():
     )
     parser.add_argument("blocks", type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--scope-review",
+        type=Path,
+        help="검수한 도표 선택 칸 JSON(비공개). 예: "
+        "data/private/01_fault_standards/review/chart_scope.json",
+    )
     args = parser.parse_args()
     blocks = [
         json.loads(line)
@@ -28,6 +36,18 @@ def main():
     if len(identities) != 1:
         parser.error("원문 하나의 블록만 입력하세요.")
     result = build_standards(blocks)
+    if args.scope_review:
+        review = json.loads(args.scope_review.read_text(encoding="utf-8"))
+        try:
+            reviewed = apply_scope_review(result["charts"], result["modifiers"], review)
+        except ValueError as error:
+            parser.error(str(error))
+        result["summary"].update(reviewed)
+        if reviewed["reviewed_charts"]:
+            result["summary"]["status"] = "partially_reviewed"
+        result["summary"]["issue_counts"] = dict(
+            Counter(i for r in result["charts"] for i in r["issues"])
+        )
     result["chunks"] = preprocess_chunks(result["chunks"])
     result["summary"]["chunks"] = len(result["chunks"])
     args.output.mkdir(parents=True, exist_ok=True)
