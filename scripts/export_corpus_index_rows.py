@@ -1,4 +1,6 @@
-"""C: data/private 코퍼스 산출물 → DB 적재 행(JSONL). 결과는 data/private/db_import/에만 쓴다.
+"""C: data/private 코퍼스 산출물 → DB 적재 행(JSONL).
+
+결과는 data/private/corpus-db-import/db_import/에만 쓴다(D 로더 기본 경로).
 
 테이블 계약은 docs/contracts/corpus-index.md.
 결과에 원문·청크·벡터가 들어 있으므로 저장소에 커밋하지 않는다.
@@ -15,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE = ROOT / "data" / "private"
+DB_IMPORT = PRIVATE / "corpus-db-import" / "db_import"
 FOLDERS = {
     "fault_standards": "01_fault_standards",
     "dispute_cases": "02_dispute_cases",
@@ -208,7 +211,8 @@ def build(corpus: str, manifest_docs: dict) -> dict[str, list[dict]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="코퍼스 산출물 → DB 적재 행")
     parser.add_argument("--manifests", type=Path, default=ROOT / "data" / "corpora")
-    parser.add_argument("--output", type=Path, default=PRIVATE / "db_import")
+    # D 로더(app/retrieval/loader.py DB_IMPORT)가 읽는 곳과 같게 둔다
+    parser.add_argument("--output", type=Path, default=DB_IMPORT)
     args = parser.parse_args()
     if PRIVATE not in args.output.resolve().parents:
         parser.error("출력은 data/private/ 아래에만 쓴다(원문·벡터 포함)")
