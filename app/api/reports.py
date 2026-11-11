@@ -430,7 +430,8 @@ def estimate_object_key(case_id: str, storage_path: str) -> str:
     """`<STORAGE_BUCKET>/<case_id>/estimates/<파일>`인지 확인하고 버킷을 뗀 객체 키를 돌려준다.
 
     서버 키는 RLS를 건너뛰므로 이 확인이 다른 사건 파일을 막는 방어다.
-    '..'·'%'(인코딩 우회)·역슬래시·빈 조각·제어 문자는 거절한다.
+    '..'·'%'(인코딩 우회)·역슬래시·빈 조각·제어 문자는 거절한다. 비ASCII(한글 등)도 거절한다 —
+    Supabase Storage가 그런 객체 이름을 400 InvalidKey로 거절해 503으로 보이지 않게.
     """
     prefix = f"{storage.STORAGE_BUCKET}/{case_id}/estimates/"
     name = storage_path.removeprefix(prefix)
@@ -438,6 +439,7 @@ def estimate_object_key(case_id: str, storage_path: str) -> str:
         not storage_path.startswith(prefix)
         or ".." in storage_path
         or any(ch in storage_path for ch in "%\\")
+        or not storage_path.isascii()
         or not storage_path.isprintable()
         or any(part in ("", ".") for part in name.split("/"))
     ):

@@ -26,7 +26,7 @@ ACTOR, OTHER, CASE = "handler-1", "handler-2", "synthetic-case"
 FAKE_KEY = "sb_secret_test-only-not-a-real-key"
 SUPABASE_URL = "https://example.supabase.co"
 SAMPLE_10M = Path(__file__).parent / "fixtures" / "estimate_sample_10m.pdf"
-GOOD_PATH = f"{storage.STORAGE_BUCKET}/{CASE}/estimates/견적서 1.pdf"
+GOOD_PATH = f"{storage.STORAGE_BUCKET}/{CASE}/estimates/estimate 1.pdf"
 
 
 def run(coro):
@@ -64,7 +64,7 @@ def configured(monkeypatch):
 def download(tmp_path: Path, handler, *, max_bytes: int = 1024) -> tuple[int, Path]:
     dest = tmp_path / "out.pdf"
     size = run(storage.download_object(
-        f"{CASE}/estimates/견적서 1.pdf", dest, max_bytes=max_bytes,
+        f"{CASE}/estimates/estimate 1.pdf", dest, max_bytes=max_bytes,
         transport=httpx.MockTransport(handler),
     ))
     return size, dest
@@ -84,7 +84,7 @@ def test_download_sends_only_apikey_header_to_object_url(configured, tmp_path):
     # 객체 키는 버킷을 뗀 나머지, 조각마다 URL 인코딩
     assert str(request.url) == (
         f"{SUPABASE_URL}/storage/v1/object/{storage.STORAGE_BUCKET}/"
-        f"{CASE}/estimates/%EA%B2%AC%EC%A0%81%EC%84%9C%201.pdf"
+        f"{CASE}/estimates/estimate%201.pdf"
     )
     assert request.headers["apikey"] == FAKE_KEY
     assert "authorization" not in request.headers
@@ -215,7 +215,7 @@ def test_success_stores_storage_path_not_temp_file(service, monkeypatch):
     fake = use_storage(monkeypatch, FakeStorage(SAMPLE_10M.read_bytes()))
     report = upload()
     assert report is not None and report["versions"]["report_version"] == 2
-    assert fake.calls[0][0] == f"{CASE}/estimates/견적서 1.pdf"  # 버킷을 뗀 객체 키
+    assert fake.calls[0][0] == f"{CASE}/estimates/estimate 1.pdf"  # 버킷을 뗀 객체 키
     docs = fx.record(ACTOR, CASE).documents
     estimate = next(d for d in docs if d["kind"] == "repair_estimate")
     evidence = next(d for d in docs if d["kind"] == "evidence")
@@ -241,6 +241,11 @@ def test_access_is_checked_before_path_and_download(service, monkeypatch, actor,
     "path",
     [
         "case-files/other-case/estimates/x.pdf",  # 다른 사건
+        # 비ASCII: Supabase Storage가 400 InvalidKey로 거절하므로 미리 422
+        f"case-files/{CASE}/estimates/견적서.pdf",
+        f"case-files/{CASE}/estimates/estimate\u00a0.pdf",  # 줄바꿈 없는 공백
+        f"case-files/{CASE}/estimates/ｅstimate.pdf",  # 전각 문자
+        f"case-files/{CASE}/estimates/é.pdf",
         f"case-files/{CASE}/estimates/../../other-case/estimates/x.pdf",
         f"case-files/{CASE}/estimates/..",
         f"case-files/{CASE}/estimates/a..pdf",  # '..'는 어디에도 두지 않는다

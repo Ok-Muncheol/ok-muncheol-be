@@ -55,7 +55,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
 | 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
 | 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_documents`·`invalid_agreed_fault` 같은 처리 불가 상태 |
-| 422 | `invalid_storage_path`·`estimate_too_large`·`estimate_not_pdf` | 견적서 경로가 그 사건의 `estimates/` 폴더가 아님(다른 사건·`..` 등)·10MB 초과·PDF가 아니거나 읽을 수 없음 |
+| 422 | `invalid_storage_path`·`estimate_too_large`·`estimate_not_pdf` | 견적서 경로가 그 사건의 `estimates/` 폴더가 아님(다른 사건·`..`·비ASCII 이름 등)·10MB 초과·PDF가 아니거나 읽을 수 없음 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
 | 502 | `qa_failed` | 질의응답 모델 호출·응답 오류. 다시 질문할 수 있다 |
 | 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable`·`reports_db_not_ready`·`storage_not_configured`·`storage_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패·보고서 테이블 미적용·서버 Storage 키(`SUPABASE_URL`·`SUPABASE_SECRET_KEY`) 없음·Storage 연결 실패나 오류 |
