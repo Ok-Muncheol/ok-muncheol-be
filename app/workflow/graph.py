@@ -86,14 +86,16 @@ MAX_LISTED_UNREVIEWED = 3
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.11.3"
+RULE_VERSION = "judgment-rules-2026.11.11.4"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
+# 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
 FIELD_LABELS = {
     "accident_type": "사고 당사자 유형", "location_type": "교차로 종류",
-    "road_priority": "도로 관계(동일폭·대로소로·일시정지)",
+    "road_priority": "도로 관계(동일폭·대로·일시정지가 어느 차 쪽인지)",
     "movement_A": "A 차량의 진행 방향", "movement_B": "B 차량의 진행 방향",
     "signal_A": "A 차량의 신호", "signal_B": "B 차량의 신호",
+    "relative_position": "상대 위치(B가 가는 방향에서 볼 때 A가 있던 쪽)",
     "entry_order": "교차로 진입 순서(A 기준)", "night": "야간 여부",
 }
 
@@ -221,11 +223,13 @@ def build_question(
 
     값 답은 질문의 칸 이름·값 그대로 A의 카드 수정으로 가므로 카드와 형식이 같아야 한다.
     question_id는 도표 선택 칸으로 만든다(카드 형식과 상관없이 같은 실행·같은 칸이면 같다).
+    문구는 카드 쪽 칸으로 쓴다. v1 맞바꿈이면 도표 `movement_A`를 카드 `movement_B`로 묻는다.
     """
+    card_key = card_field_key(field_key, card) if card else field_key
     return {
         "question_id": question_id(thread_id, field_key),
-        "field_key": card_field_key(field_key, card) if card else field_key,
-        "text": f"{FIELD_LABELS.get(field_key, field_key)}을(를) 확인해 주세요.",
+        "field_key": card_key,
+        "text": f"{FIELD_LABELS.get(chart_key(card_key), field_key)}을(를) 확인해 주세요.",
         "options": question_options(field_key, card) if card
         else list(FIELD_OPTIONS.get(field_key, ())),
         "allow_unknown": True,

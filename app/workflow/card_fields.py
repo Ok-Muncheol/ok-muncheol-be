@@ -8,18 +8,19 @@
 - `v1_ko`: 11/11 오전 한국어 안(#119가 읽던 형식). 칸 이름 둘이 다르다
   (`accident_object`·`time_condition`). 확정본이 대체했지만 이미 만든 카드를 읽을 수 있게 둔다.
 - `legacy`: 11/6 영어 값 카드. 그대로 통과한다.
-C의 도표 레코드와 `chart_scope`는 11/6 영어 값이다. 그래서 B가 카드를 읽을 때 바꾼다.
+`chart_scope`(도표 선택 값, C 도표 레코드 값)는 11/11부터 v1 확정본 값이다. 그래서 v1 카드는 값을
+그대로 쓰고, 한국어 안 카드만 값을 바꿔 읽는다.
 
 - 담당자가 확인한 모름(v1 `null`, 한국어 안 `불명`)은 '모른다' 응답과 같다. 다시 묻지 않고,
   그 칸이 `*`인 도표만 남는다. 안에서는 `UNKNOWN`(`불명`) 표시 하나로 다룬다.
-- `해당없음`·`none`과 대응하는 도표 값이 없는 값은 그대로 둔다(예: `lane_change`, `other`).
-  도표 값과 맞지 않으므로 그 칸으로 갈리는 도표는 빠진다(fail-closed).
-- `major_A`·`stop_B`처럼 쪽이 붙은 도로 관계도 그대로 둔다. 도표 값 `major_minor`·
-  `stop_sign`에는 쪽이 없어서, 대응시키면 A/B가 뒤집힌 도표를 고를 수 있다.
-  C 레코드에 쪽을 적는 방법을 정한 뒤 대응한다.
+- v1 값(`major_A`·`stop_B`·`relative_position`·`none`·`lane_change` 등)은 도표 레코드가 같은 값이나
+  `*`를 적었을 때만 맞는다. 도로 관계는 우선 도로가 어느 쪽인지까지 맞아야 한다.
+- 한국어 안의 `해당없음`과 대응하는 도표 값이 없는 한국어 값은 그대로 둬서 `*`과만 맞는다
+  (fail-closed). 11/6 카드의 `major_minor`·`stop_sign`은 쪽이 없어 어떤 도표 값과도 맞지 않는다.
 - v1 2절: 카드의 B는 촬영 차량이다. 도표 A가 카드 B(`chart_party_A_id` = `video_ego_party_id`)면
   A/B를 뒤집어 읽는다. `_A`·`_B` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`,
-  `first`↔`second`를 바꾼다. 질문의 칸 이름도 카드 쪽 이름으로 되돌린다(`card_field_key`).
+  `first`↔`second`, `left`↔`right`, `same_direction_front`↔`same_direction_rear`를 바꾼다
+  (`opposite`는 그대로). 질문의 칸 이름도 카드 쪽 이름으로 되돌린다(`card_field_key`).
 """
 
 from collections.abc import Mapping
@@ -77,8 +78,16 @@ _V1_KO_ONLY_KEYS = frozenset({
 })
 # 확정본에서 생긴 칸·값(도표 선택 칸별). 11/6 카드에는 없다
 _V1_ONLY_KEYS = frozenset({"relative_position", "collision_time_ms", "narrative"})
+# 11/6 도표 선택 값. 지금 `chart_scope`는 v1 값이라, 형식 판정은 이 값과 견준다
+# (여기 없는 v1 값이 있으면 확정본 카드다). 나머지 칸은 11/6과 지금 값이 같다
+_LEGACY_OPTIONS: dict[str, frozenset[str]] = {
+    "road_priority": frozenset({"same_width", "major_minor", "stop_sign"}),
+    "movement_A": frozenset({"straight", "left_turn", "right_turn", "u_turn"}),
+    "movement_B": frozenset({"straight", "left_turn", "right_turn", "u_turn"}),
+    "entry_order": frozenset({"first", "second", "simultaneous"}),
+}
 _V1_ONLY_VALUES: dict[str, frozenset[str]] = {
-    key: frozenset(values) - frozenset(FIELD_OPTIONS[key])
+    key: frozenset(values) - _LEGACY_OPTIONS.get(key, frozenset(FIELD_OPTIONS[key]))
     for key, values in FACT_FIELD_OPTIONS.items() if key in FIELD_OPTIONS
 }
 
@@ -92,6 +101,11 @@ _SWAP_VALUES: dict[str, dict[str, str]] = {
         "major_A": "major_B", "major_B": "major_A", "stop_A": "stop_B", "stop_B": "stop_A",
     },
     "entry_order": {"first": "second", "second": "first"},
+    "relative_position": {
+        "left": "right", "right": "left",
+        "same_direction_front": "same_direction_rear",
+        "same_direction_rear": "same_direction_front",
+    },
 }
 
 _LIGHTS = {"녹색": "green", "황색": "yellow", "적색": "red", "녹색좌회전": "green_left_arrow"}

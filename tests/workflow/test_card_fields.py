@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.schemas.chart_scope import FIELD_OPTIONS
+from app.schemas.facts import FACT_FIELD_OPTIONS
 from app.workflow.candidates import build_search_query, confirmed_values
 from app.workflow.card_fields import (
     card_field_key,
@@ -23,8 +24,11 @@ EXAMPLE = Path(__file__).resolve().parents[2] / "docs/contracts/fact-card-v1.exa
 
 
 def test_v1_card_reads_as_the_same_chart_values_as_the_old_card():
-    # 같은 사고(신호 교차로, A 녹색 직진 대 B 적색 좌회전, 주간)를 두 형식으로 쓰면 같은 값이다
-    assert confirmed_values(v1_card()) == confirmed_values(card()) == {
+    # 같은 사고(신호 교차로, A 녹색 직진 대 B 적색 좌회전, 주간)를 두 형식으로 쓰면 같은 값이다.
+    # 한국어 안의 상대 위치(맞은편)는 도표 값으로 바꾸지 않아 `*`과만 맞는다(11/6 카드엔 없다)
+    values = confirmed_values(v1_card())
+    assert values.pop("relative_position") == "맞은편"
+    assert values == confirmed_values(card()) == {
         "accident_type": "car_to_car", "location_type": "signalized_intersection",
         "movement_A": "straight", "movement_B": "left_turn",
         "signal_A": "green", "signal_B": "red", "night": "false",
@@ -159,9 +163,14 @@ def test_card_formats():
 
 
 def test_en_v1_card_reads_as_the_same_chart_values_as_the_old_card():
-    assert confirmed_values(en_v1_card()) == confirmed_values(card())
-    # 도표 A = 카드 B(촬영 차량)여도 같은 사고면 같은 도표 선택 값이다(v1 2절)
-    assert confirmed_values(en_v1_card(swapped=True)) == confirmed_values(card())
+    # 상대 위치는 v1에서 생긴 도표 선택 칸이다(11/6 카드에는 없다)
+    values = confirmed_values(en_v1_card())
+    assert values.pop("relative_position") == "opposite"
+    assert values == confirmed_values(card())
+    # 도표 A = 카드 B(촬영 차량)여도 같은 사고면 같은 도표 선택 값이다(v1 2절). 맞은편은 그대로다
+    swapped = confirmed_values(en_v1_card(swapped=True))
+    assert swapped.pop("relative_position") == "opposite"
+    assert swapped == confirmed_values(card())
 
 
 def test_en_v1_questions_use_chart_field_names_and_v1_values():
@@ -235,8 +244,34 @@ def test_example_card_from_the_vision_pipeline():
     assert confirmed_values(c) == {
         "accident_type": "car_to_car", "location_type": "unsignalized_intersection",
         "road_priority": "same_width", "signal_A": "no_signal", "signal_B": "no_signal",
-        "movement_A": "straight", "movement_B": "straight", "night": "true",
+        "movement_A": "straight", "movement_B": "straight", "relative_position": "right",
+        "night": "true",
     }
     # 진입 순서는 모델이 몰랐고(null) 담당자가 그대로 확정했다 → '모름'
     assert confirmed_unknown_fields(c) == ["entry_order"]
     assert "불명" not in build_search_query(c)["text"]
+
+
+def test_chart_values_follow_the_v1_card():
+    """도표 선택 값(C 레코드 값)은 카드 v1 확정본 값과 같다. 범위 판정 칸(사고 유형)만 좁다."""
+    for key in ("road_priority", "signal_A", "signal_B", "movement_A", "movement_B",
+                "relative_position", "entry_order"):
+        assert FIELD_OPTIONS[key] == FACT_FIELD_OPTIONS[key], key
+    assert set(FIELD_OPTIONS["accident_type"]) < set(FACT_FIELD_OPTIONS["accident_type"])
+
+
+def test_swapped_v1_card_flips_position_and_priority_side():
+    """도표 A가 촬영 차량이면 상대 위치 좌우·앞뒤와 우선 도로 쪽도 뒤집는다(맞은편은 그대로)."""
+    c = en_v1_card(swapped=True, relative_position=field("left"), road_priority=field("stop_B"))
+    values = confirmed_values(c)
+    assert (values["relative_position"], values["road_priority"]) == ("right", "stop_A")
+    assert to_card_terms("relative_position", "right", c) == ("relative_position", "left")
+    front = en_v1_card(swapped=True, relative_position=field("same_direction_front"))
+    assert confirmed_values(front)["relative_position"] == "same_direction_rear"
+
+
+def test_v1_value_alone_still_marks_a_v1_card():
+    """도표 선택 값이 v1 값으로 바뀌어도 11/6 값에 없던 값(major_A 등)이 있으면 확정본 카드다."""
+    c = card()
+    c["fields"]["road_priority"] = field("major_A")
+    assert card_format(c) == "v1"

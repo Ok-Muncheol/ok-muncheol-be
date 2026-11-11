@@ -1,7 +1,10 @@
 """전원: MVP 도표 범위 상수. 근거는 docs/contracts/mvp-chart-scope.md (2026-11-06 결정).
 
 A 카드 옵션, B 질문 분기·도표 선택, C 도표 레코드 속성, D 검색 필터가 같은 값을 쓴다.
-값 이름은 제안이며 A가 facts 칸을 확정하면 여기와 문서를 함께 바꾼다.
+도로 관계·신호·진행 방향·상대 위치·진입 순서 값은 사실 카드 v1 확정본 8절대로다(2026-11-11,
+`docs/contracts/fact-card-v1.md`, A `facts.FACT_FIELD_OPTIONS`). C 도표 레코드는 이 값을
+도표 A 기준으로 적는다. 사고 유형·장소는 범위 판정용이라 v1 값 중 범위 안 값만 둔다
+(직선도로·고속도로는 판단이 `other`로 읽는다).
 """
 
 from typing import Literal
@@ -18,14 +21,22 @@ IN_SCOPE_LOCATION_TYPES: tuple[LocationType, ...] = (
 PENDING_DECISION_LOCATION_TYPES: tuple[LocationType, ...] = ("roundabout",)
 
 # 도표 선택 칸과 허용값. 일방통행·속도 칸은 없으므로 범위에 넣지 않는다.
-RoadPriority = Literal["same_width", "major_minor", "stop_sign"]
-Movement = Literal["straight", "left_turn", "right_turn", "u_turn"]
+# 도로 관계는 우선 도로가 어느 당사자 쪽인지까지 적는다: `major_A` = A가 대로, `stop_A` = A 쪽에
+# 일시정지 표지. `other`는 한쪽만 신호등, `none`은 해당 없음이다(v1 4절).
+RoadPriority = Literal["same_width", "major_A", "major_B", "stop_A", "stop_B", "other", "none"]
+Movement = Literal["straight", "left_turn", "right_turn", "u_turn", "lane_change", "other"]
 Signal = Literal["green", "yellow", "red", "green_left_arrow", "no_signal"]
-EntryOrder = Literal["first", "second", "simultaneous"]
+# 상대 위치: B가 가는 방향에서 볼 때 A가 충돌 직전 있던 쪽(어디서 왔나). `left` = A가 B의
+# 왼쪽 도로에서 진입, `opposite` = 마주 오는 차(v1 4절). 맞은편·측면·좌우로 갈리는 도표에 쓴다
+RelativePosition = Literal[
+    "same_direction_front", "same_direction_rear", "opposite", "left", "right",
+]
+EntryOrder = Literal["first", "second", "simultaneous", "none"]
 
 ChartFieldKey = Literal[
     "accident_type", "location_type", "road_priority",
-    "movement_A", "movement_B", "signal_A", "signal_B", "entry_order", "night",
+    "movement_A", "movement_B", "signal_A", "signal_B", "relative_position", "entry_order",
+    "night",
 ]
 FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     "accident_type": ("car_to_car",),
@@ -35,6 +46,7 @@ FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     "movement_B": Movement.__args__,
     "signal_A": Signal.__args__,
     "signal_B": Signal.__args__,
+    "relative_position": RelativePosition.__args__,
     "entry_order": EntryOrder.__args__,
     "night": ("true", "false"),
 }

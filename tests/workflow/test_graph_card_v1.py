@@ -174,6 +174,8 @@ def test_swapped_en_v1_question_names_the_card_field():
     (question,) = out["__interrupt__"][0].value["questions"]
     assert question["field_key"] == "movement_A"
     assert question["question_id"] == question_id("run-en-swap", "movement_B")
+    # 문구도 담당자가 고칠 카드 칸(카드 A)으로 쓴다
+    assert question["text"] == "A 차량의 진행 방향을(를) 확인해 주세요."
     answer = {"question_id": question["question_id"], "expected_card_version": 3,
               "value": None, "unknown": True}
     out = asyncio.run(graph.ainvoke(Command(resume=[answer]), thread_config("run-en-swap")))
@@ -212,3 +214,62 @@ def test_what_if_on_a_swapped_v1_card_assumes_the_chart_party():
     # 가정 값은 도표 B의 진행 방향이다. 맞바꾼 카드에서는 카드 A 칸(상대 차량)에 들어가야 한다
     outcomes = {(r["status"], r["chart_id"], r["fault_A"]) for r in results}
     assert outcomes == {("completed", "S-2", 50)}
+
+
+SIGNALIZED_V1 = {"location_type": "signalized_intersection", "movement_A": "straight",
+                 "movement_B": "left_turn", "signal_A": "green", "signal_B": "red"}
+
+
+def test_relative_position_separates_opposite_and_side_charts():
+    """맞은편·측면만 다른 도표를 상대 위치로 가른다. 확인하지 않았으면 그 칸을 묻는다."""
+    opposite = candidate("P-1", {**SIGNALIZED_V1, "relative_position": "opposite"}, 20,
+                         score=0.9)
+    # 측면 도표는 왼쪽·오른쪽 변형으로 나눠 적는다(값이 여럿이면 변형 분리)
+    side = candidate("P-2", SIGNALIZED_V1, 30, score=0.8, base_variants=[
+        {"variant": "가", "base_A": 30, "base_B": 70, "conditions": {"relative_position": "left"}},
+        {"variant": "나", "base_A": 30, "base_B": 70, "conditions": {"relative_position": "right"}},
+    ])
+    _, out, _, _ = start(en_v1_card(relative_position=field("right")), cands=[opposite, side])
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("P-2", 30)
+    _, out, _, _ = start(en_v1_card(), cands=[opposite, side], thread="run-opposite")
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("P-1", 20)
+    unconfirmed = en_v1_card(relative_position=field("left", confirmed=False))
+    _, out, _, _ = start(unconfirmed, cands=[opposite, side], thread="run-ask-position")
+    (question,) = out["__interrupt__"][0].value["questions"]
+    assert question["field_key"] == "relative_position"
+    assert question["options"] == [
+        "same_direction_front", "same_direction_rear", "opposite", "left", "right"]
+
+
+def test_swapped_card_flips_relative_position_before_choosing():
+    """같은 사고를 도표 A = 촬영 차량으로 적으면 카드의 좌우가 반대로 적힌다. 같은 도표를 고른다."""
+    left = candidate("P-3", {**SIGNALIZED_V1, "relative_position": "left"}, 30, score=0.9)
+    right = candidate("P-4", {**SIGNALIZED_V1, "relative_position": "right"}, 60, score=0.8)
+    _, out, _, _ = start(en_v1_card(relative_position=field("left")), cands=[left, right])
+    assert out["result"]["chart_id"] == "P-3"
+    swapped = en_v1_card(swapped=True, relative_position=field("right"))
+    _, out, _, _ = start(swapped, cands=[left, right], thread="run-swap-position")
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("P-3", 30)
+
+
+def unsignalized_v1(swapped: bool = False, **fields):
+    base = {"location_type": field("unsignalized_intersection"),
+            "movement_A": field("straight"), "movement_B": field("straight"),
+            "signal_A": field("no_signal"), "signal_B": field("no_signal")}
+    return en_v1_card(swapped=swapped, **{**base, **fields})
+
+
+def test_priority_side_separates_charts():
+    """누가 일시정지 쪽인지만 다른 도표(차9-1/9-2 같은 쌍)를 우선 도로 쪽으로 가른다."""
+    base = {"location_type": "unsignalized_intersection", "movement_A": "straight",
+            "movement_B": "straight", "entry_order": ANY_VALUE}
+    a_stop = candidate("Q-1", {**base, "road_priority": "stop_A"}, 70, score=0.9)
+    b_stop = candidate("Q-2", {**base, "road_priority": "stop_B"}, 30, score=0.8)
+    c = unsignalized_v1(road_priority=field("stop_B"), entry_order=field("first"))
+    _, out, _, _ = start(c, cands=[a_stop, b_stop])
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("Q-2", 30)
+    # 도표 A = 촬영 차량이면 카드의 stop_A가 도표의 stop_B다
+    swapped = unsignalized_v1(swapped=True, road_priority=field("stop_A"),
+                              entry_order=field("second"))
+    _, out, _, _ = start(swapped, cands=[a_stop, b_stop], thread="run-swap-stop")
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("Q-2", 30)
