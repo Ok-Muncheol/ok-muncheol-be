@@ -324,4 +324,49 @@ update public.judgment_runs set stage = 'check_chart_scope' where id = '20000000
 select test_helpers.assert_equal((select count(*) from public.judgment_runs
   where id = '20000000-0000-0000-0000-000000000003' and updated_at > created_at), 1, 'updated_at 트리거');
 
+-- 8. 사실 카드 버전(A): 담당자만 읽기·브라우저 쓰기 금지·버전 유일·카드와 행 일치·확정 기록·만든 사람·Realtime
+create function test_helpers.card(case_id uuid, version integer, status text, confirmed_by uuid) returns json
+language sql immutable as $$
+  select json_build_object('case_id', case_id, 'version', version, 'status', status, 'fields', '{}'::json,
+    'confirmed_by', confirmed_by, 'confirmed_at', case when confirmed_by is null then null else '2026-11-11T15:00:00Z' end)
+$$;
+insert into public.fact_cards (case_id, version, card, origin) values
+  ('10000000-0000-0000-0000-000000000001', 1,
+   test_helpers.card('10000000-0000-0000-0000-000000000001', 1, 'draft', null), 'vision');
+insert into public.fact_cards (case_id, version, card, origin, reason, created_by) values
+  ('10000000-0000-0000-0000-000000000001', 2,
+   test_helpers.card('10000000-0000-0000-0000-000000000001', 2, 'confirmed', '00000000-0000-0000-0000-00000000000a'),
+   'edit', '영상 다시 봄', '00000000-0000-0000-0000-00000000000a');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000a',
+  'select count(*) from public.fact_cards'), 2, 'A는 자기 사건의 카드 버전을 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000b',
+  'select count(*) from public.fact_cards'), 0, 'B는 A 사건의 카드를 못 본다');
+select test_helpers.assert_equal((select count(*) from public.fact_cards where status = 'confirmed'), 1,
+  'status는 card.status에서 만든다');
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a', $sql$
+  update public.fact_cards set reason = 'x'
+$sql$, '42501', '브라우저 역할은 카드를 고칠 수 없다');
+select test_helpers.expect_error('service_role', null, $sql$
+  insert into public.fact_cards (case_id, version, card, origin) values ('10000000-0000-0000-0000-000000000001', 1,
+    test_helpers.card('10000000-0000-0000-0000-000000000001', 1, 'draft', null), 'vision')
+$sql$, '23505', '같은 사건의 같은 카드 버전은 하나');
+select test_helpers.expect_error('service_role', null, $sql$
+  insert into public.fact_cards (case_id, version, card, origin) values ('10000000-0000-0000-0000-000000000001', 3,
+    test_helpers.card('10000000-0000-0000-0000-000000000001', 4, 'draft', null), 'vision')
+$sql$, '23514', 'card.version은 행의 버전과 같다');
+select test_helpers.expect_error('service_role', null, $sql$
+  insert into public.fact_cards (case_id, version, card, origin, reason, created_by) values ('10000000-0000-0000-0000-000000000001', 3,
+    test_helpers.card('10000000-0000-0000-0000-000000000001', 3, 'confirmed', null), 'edit', 'r',
+    '00000000-0000-0000-0000-00000000000a')
+$sql$, '23514', '확정 카드는 확정한 사람·시각이 있다');
+select test_helpers.expect_error('service_role', null, $sql$
+  insert into public.fact_cards (case_id, version, card, origin) values ('10000000-0000-0000-0000-000000000001', 3,
+    test_helpers.card('10000000-0000-0000-0000-000000000001', 3, 'draft', null), 'edit')
+$sql$, '23514', '담당자 수정은 만든 사람과 사유가 있다');
+select test_helpers.assert_equal((select count(*) from (values ('insert'), ('update'), ('delete'), ('truncate')) p(priv)
+  where has_table_privilege('authenticated', 'public.fact_cards', p.priv)), 0, 'authenticated는 카드를 쓸 수 없다');
+select test_helpers.assert_equal((select count(*) from pg_publication_tables
+  where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'fact_cards'), 1,
+  'Realtime은 카드 생성·확정을 알린다');
+
 select 'MIGRATION_BEHAVIOR_OK' as result;
