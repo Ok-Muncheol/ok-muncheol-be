@@ -33,6 +33,32 @@
 정확도는 10건 기준 참고값이며 평가 결과가 아니다. AI Hub 영상 438건 기준 측정값(gpt-5.4-mini)은 `evals/vision/README.md` 결과 절에 있다. 모든 칸의 `model_confidence`는 참고용이고, 도표 선택은 `verification_status="human_confirmed"`인 값만 사용한다.
 칸 허용값(enum)·보류 사유·필수 확인 칸은 `app/schemas/chart_scope.py`에 코드로 둔다. A가 칸 이름을 확정하면 이 모듈과 문서를 함께 바꾸고 `make contracts`로 견본을 재생성한다. 범위 게이트는 `app/workflow/graph.py`의 `scope_gate`가 담당한다. C의 도표 레코드는 같은 enum으로 속성을 기록해야 필터 검색이 맞물린다.
 
+### 카드 v1 값 읽기 (11/11, B)
+
+정지원의 카드 v1 안(`vision/1111-integrate` 브랜치 `docs/contracts/fact-card-v1.md`, 팀 확정 요청 중)은 한국어 값을 쓰고, 칸 이름 둘이 바뀌었다(`accident_object`·`time_condition`).
+`chart_scope` enum과 C 도표 레코드는 위 영어 값 그대로 두고, B가 카드를 읽을 때 `app/workflow/card_fields.py`로 바꾼다. 영어 값 카드도 그대로 받는다.
+
+| 카드 v1 | 도표 선택 값 |
+| --- | --- |
+| `accident_object` 차대차 | `accident_type` `car_to_car` (차대이륜차·기타는 범위 밖) |
+| `party_count` 3 이상(확인) | 범위 밖 |
+| 사거리_신호있음 · 사거리_신호없음 · 회전교차로 | `signalized_intersection` · `unsignalized_intersection` · `roundabout` |
+| T자형교차로 | `unsignalized_intersection`. 신호(녹색·황색·적색·녹색좌회전)가 확인되면 `signalized_intersection` |
+| 직선도로 · 고속도로 · 주차장 · 차도와비차도 | `other`(범위 밖) |
+| 동일폭 | `same_width` |
+| 직진 · 좌회전 · 우회전 · 유턴 | `straight` · `left_turn` · `right_turn` · `u_turn` |
+| 녹색 · 황색 · 적색 · 녹색좌회전 · 신호없음 | `green` · `yellow` · `red` · `green_left_arrow` · `no_signal` |
+| 녹색직진좌회전 | 그 차의 확인한 진행 방향이 좌회전이면 `green_left_arrow`, 직진이면 `green` |
+| A먼저 · B먼저 · 동시 | `first` · `second` · `simultaneous` |
+| `time_condition` 야간 · 주간 | `night` `true` · `false` |
+
+- `불명`(담당자 확인)은 '모른다' 응답과 같다. 다시 묻지 않고, 그 칸이 `*`인 도표만 남는다. 사고 유형·장소가 `불명`이면 검색 전에 보류한다.
+- `해당없음`과 대응이 없는 값은 그대로 두어 `*`과만 맞는다(그 칸으로 갈리는 도표는 빠진다).
+  - 대응이 없는 값: 진로변경 등 범위 밖 진행, `A쪽만_신호등`, 쪽이 붙은 도로 관계(`A대로`·`B대로`·`A쪽_일시정지`·`B쪽_일시정지`)
+  - `major_minor`·`stop_sign`에는 쪽이 없어서, 쪽이 붙은 값을 그대로 대응시키면 A/B가 뒤집힌 도표를 고를 수 있다. 대로·소로, 일시정지 도표를 검수할 때 C·B가 레코드 값에 쪽을 적는 방법을 정한다.
+- 카드 v1의 A/B는 도표 A/B와 같다고 본다. 카드는 B = 블랙박스 차이고, 도표와 반대면 담당자가 확정 때 맞바꾼다(카드 v1 2절).
+- 구분 질문은 카드 형식(v1이면 v1 칸 이름·값)으로 낸다(계약 문서 「구분 질문과 재개」).
+
 ## 도표 레코드 값 규칙
 
 판단 그래프가 C의 도표 레코드(`scope_attributes`·`scope_variants`·`scope_modifiers`)를 읽는 규칙이다. 2026-11-10 B·C가 합의했다.

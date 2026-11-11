@@ -55,6 +55,14 @@ from app.workflow.candidates import (
     confirmed_values,
     retrieve_from_corpus,
 )
+from app.workflow.card_fields import (
+    UNKNOWN,
+    card_field_key,
+    chart_fields,
+    chart_key,
+    confirmed_unknown_fields,
+    question_options,
+)
 from app.workflow.state import ChartSelection, JudgmentState, Outcome
 
 STAGES = (
@@ -73,7 +81,7 @@ MAX_REBUTTAL_RETRIES = 1
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.10.2"
+RULE_VERSION = "judgment-rules-2026.11.11.1"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 FIELD_LABELS = {
@@ -103,19 +111,31 @@ def scope_gate(fields: dict[str, dict[str, object]]) -> tuple[str | None, list[s
     """(보류 사유, 질문할 칸). 범위 밖이면 보류, 범위 안이면 미확인 칸을 질문으로 넘긴다.
 
     docs/contracts/mvp-chart-scope.md 범위. 값은 human_confirmed 인 것만 본다.
+    카드 v1 칸·값은 도표 선택 칸·값으로 바꿔 본다(`card_fields`). 당사자 3명 이상(`party_count`)은
+    범위 밖이다. 사고 유형·장소를 `불명`으로 확인했으면 다시 묻지 않고 보류한다.
     """
-    def confirmed(key: str) -> object:
-        f = fields.get(key, {})
+    def confirmed(source: dict, key: str) -> object:
+        f = source.get(key, {})
         return f.get("value") if f.get("verification_status") == "human_confirmed" else None
 
-    accident_type, location_type = confirmed("accident_type"), confirmed("location_type")
+    parties = confirmed(fields, "party_count")
+    if isinstance(parties, int) and not isinstance(parties, bool) and parties >= 3:
+        return REASON_OUT_OF_SCOPE, []
+    chart = chart_fields(fields)  # type: ignore[arg-type]
+    accident_type = confirmed(chart, "accident_type")
+    location_type = confirmed(chart, "location_type")
     if accident_type is None or location_type is None:
-        return None, unconfirmed_fields(fields, "other")
+        return None, unconfirmed_fields(chart, "other")  # type: ignore[arg-type]
     if location_type in PENDING_DECISION_LOCATION_TYPES:
         return REASON_PENDING_DECISION, []
-    if accident_type not in IN_SCOPE_ACCIDENT_TYPES or location_type not in IN_SCOPE_LOCATION_TYPES:
+    scope = ((accident_type, IN_SCOPE_ACCIDENT_TYPES), (location_type, IN_SCOPE_LOCATION_TYPES))
+    if any(value != UNKNOWN and value not in allowed for value, allowed in scope):
         return REASON_OUT_OF_SCOPE, []
-    return None, unconfirmed_fields(fields, str(location_type))
+    unknown = [key for key, value in (("accident_type", accident_type),
+                                      ("location_type", location_type)) if value == UNKNOWN]
+    if unknown:
+        return REASON_FIELD_NOT_CONFIRMED.format(field_key=", ".join(unknown)), []
+    return None, unconfirmed_fields(chart, str(location_type))  # type: ignore[arg-type]
 
 
 def initial_state(
@@ -125,7 +145,9 @@ def initial_state(
         "case_id": card["case_id"], "card": card, "criteria_version": criteria_version,
         "rule_version": rule_version, "judgment_version": judgment_version,
         "rebuttal_retry_count": 0, "evidence": [], "questions": [], "checks": [],
-        "candidates": [], "unknown_fields": [], "excluded_chart_ids": [],
+        # 카드에서 `불명`으로 확인한 칸은 처음부터 '모름' 답처럼 다룬다
+        "candidates": [], "unknown_fields": confirmed_unknown_fields(card),
+        "excluded_chart_ids": [],
         "selection": None, "outcome": None,
     }
 
@@ -184,11 +206,21 @@ def question_id(thread_id: str, field_key: str) -> str:
     return str(uuid.uuid5(QUESTION_NAMESPACE, f"{thread_id}:{field_key}"))
 
 
-def build_question(thread_id: str, field_key: str) -> ConfirmationQuestion:
+def build_question(
+    thread_id: str, field_key: str, card: FactCard | None = None
+) -> ConfirmationQuestion:
+    """field_key는 도표 선택 칸이다. 카드가 v1 형식이면 v1 칸 이름·값으로 묻는다.
+
+    값 답은 질문의 칸 이름·값 그대로 A의 카드 수정으로 가므로 카드와 형식이 같아야 한다.
+    question_id는 도표 선택 칸으로 만든다(카드 형식과 상관없이 같은 실행·같은 칸이면 같다).
+    """
     return {
-        "question_id": question_id(thread_id, field_key), "field_key": field_key,
+        "question_id": question_id(thread_id, field_key),
+        "field_key": card_field_key(field_key, card) if card else field_key,
         "text": f"{FIELD_LABELS.get(field_key, field_key)}을(를) 확인해 주세요.",
-        "options": list(FIELD_OPTIONS.get(field_key, ())), "allow_unknown": True,
+        "options": question_options(field_key, card) if card
+        else list(FIELD_OPTIONS.get(field_key, ())),
+        "allow_unknown": True,
     }
 
 
@@ -431,15 +463,16 @@ def build_graph(
         if not fields:
             return {"stage": "ask_or_resume", "questions": []}
         thread_id = str(config.get("configurable", {}).get("thread_id") or state["case_id"])
-        questions = [build_question(thread_id, key) for key in fields]
+        questions = [build_question(thread_id, key, state["card"]) for key in fields]
         answers: list[QuestionAnswer] = interrupt({"questions": questions})
         unknown_ids = {
             a["question_id"] for a in answers
             if isinstance(a, dict) and a.get("unknown") and a.get("value") is None
         }
         unknown = list(state.get("unknown_fields", []))
-        unknown += [q["field_key"] for q in questions
-                    if q["question_id"] in unknown_ids and q["field_key"] not in unknown]
+        # 질문의 칸 이름은 카드 형식이다(v1이면 accident_object). 그래프는 도표 선택 칸으로 센다
+        unknown += [chart_key(q["field_key"]) for q in questions
+                    if q["question_id"] in unknown_ids and chart_key(q["field_key"]) not in unknown]
         return {"stage": "ask_or_resume", "questions": questions, "unknown_fields": unknown}
 
     def select_chart_and_modifiers(state: JudgmentState) -> dict:
@@ -542,8 +575,9 @@ def build_graph(
         reasons = outcome["reasons"] if outcome else (selection["reasons"] if selection else [])
         fault = state.get("fault") if status == "draft_ready" else None
         log = state.get("calculation_log", []) if status == "draft_ready" else []
-        questions = [build_question(state["case_id"], k) for k in open_fields(state)] \
-            if status == "needs_confirmation" else []
+        questions = [
+            build_question(state["case_id"], k, state["card"]) for k in open_fields(state)
+        ] if status == "needs_confirmation" else []
         result = _result(state, status, reasons, fault, log, questions)
         return {"stage": "build_judgment_result", "result": result}
 
