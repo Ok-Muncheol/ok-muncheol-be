@@ -3,13 +3,11 @@
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Literal
 
 from app import db, storage
 from app.api.errors import forbidden, not_found, unprocessable
+from app.schemas.common import UploadKind
 from app.workflow import runs
-
-UploadKind = Literal["video", "estimate"]
 
 # 올릴 수 있는 형식 → 확장자. 버킷(case-files)도 PDF와 video/*만 받는다
 UPLOAD_TYPES: dict[str, dict[str, str]] = {

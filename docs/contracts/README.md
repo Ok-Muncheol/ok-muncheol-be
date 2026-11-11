@@ -10,7 +10,7 @@ FE 전달본의 `src/lib/api/types.ts`는 이 타입의 수동 대응 초안이�
 | SearchChunk·EmbeddedChunk·SearchRequest·EvidenceHit | 김지은, 옥석현 공동 검토 | 구준휘 판단/QA·옥석현 산정/보고서·김지은 FE |
 | JudgmentState·JudgmentResult·QuestionAnswer·JudgmentRunView | 구준휘 | 정지원 카드 재확인·옥석현 보고서·구준휘 FE |
 | CalculationResult·RecoveryAmounts·ReviewReport | 옥석현 | 구준휘 가정 실행·옥석현 FE |
-| TaskView·VersionRef·ApiError | 구준휘 통합, 전원 검토 | 전원 |
+| TaskView·VersionRef·ApiError·UploadTicket | 구준휘 통합, 전원 검토 | 전원 |
 
 `model_confidence=null`은 수동 입력에서 해당 없음을 뜻한다. 미확정 비율/금액도 `null`로 표시하고 0으로 채우지 않는다.
 카드·판단·보고서 버전, 도표/약관 적용판과 규칙 버전은 별도로 추적한다.
@@ -30,7 +30,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 메서드 | 경로 | 담당 | 비고 |
 | --- | --- | --- | --- |
 | POST | `/cases` | A | 201 |
-| POST | `/cases/{id}/uploads` | A | 서명 URL |
+| POST | `/cases/{id}/uploads` | A | `{kind, content_type}` → `UploadTicket` `{storage_path, upload_url, expires_in}`. kind가 `estimate`·`video`가 아니면 422 `invalid_request`, 형식이 kind와 안 맞으면 422 `invalid_upload_type`. 경로 본문 연결 전에는 501. 아래 「파일 업로드」 |
 | POST | `/cases/{id}/analysis` | A | `{storage_path}`, `Idempotency-Key` 필수, 202 |
 | GET | `/cases/{id}` | A | 상태 복원 |
 | GET·PATCH | `/cases/{id}/fact-card` | A | PATCH 본문은 `FactPatch` |
@@ -43,7 +43,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/reports/{version}/confirm` | D | 본문 `{counterparty?}`, 응답 `ConfirmResult`. 최신 아님 409, 추가 확인·보류 422 `confirm_blocked` |
 | GET | `/cases/{id}/reports/{version}/claim` | D | 응답 `ClaimResult`. 청구서가 없으면 404 |
 | POST | `/cases/{id}/documents` | D | `{documents, case_facts?}` → 재산정한 `ReviewReport` 또는 null. 1차 확장 |
-| POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}` → 재산정한 `ReviewReport` 또는 null. `storage_path`는 버킷을 포함한 `case-files/{id}/estimates/<파일>`(버킷은 `app/storage.py` `STORAGE_BUCKET`, 미확정). 권한 → 경로 확인 → 서버 키로 Storage에서 내려받기(10MB 이하 PDF). 1차 확장 |
+| POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}` → 재산정한 `ReviewReport` 또는 null. `storage_path`는 `/uploads`(kind=estimate)가 준 버킷 포함 경로 `case-files/{id}/estimates/<파일>`(버킷은 `app/storage.py` `STORAGE_BUCKET`). 권한 → 경로 확인 → 서버 키로 Storage에서 내려받기(10MB 이하 PDF). 1차 확장 |
 | PATCH | `/cases/{id}/agreed-fault` | D | `{agreed_counterparty_fault?, fault_change_reason, clear?}` → 새 `ReviewReport`. 1차 확장 |
 
 | 상태 | `code` | 뜻 |
@@ -55,6 +55,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
 | 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
 | 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_documents`·`invalid_agreed_fault` 같은 처리 불가 상태 |
+| 422 | `invalid_upload_type` | 업로드 형식이 kind의 허용 목록에 없음(견적서 `application/pdf`, 영상 mp4·mov·avi·webm·mkv) |
 | 422 | `invalid_storage_path`·`estimate_too_large`·`estimate_not_pdf` | 견적서 경로가 그 사건의 `estimates/` 폴더가 아님(다른 사건·`..`·비ASCII 이름 등)·10MB 초과·PDF가 아니거나 읽을 수 없음 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
 | 502 | `qa_failed` | 질의응답 모델 호출·응답 오류. 다시 질문할 수 있다 |
@@ -63,6 +64,26 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |
 
 담당 서비스는 `app/api/errors.py`의 `forbidden()`·`not_found()`·`version_conflict()`·`unprocessable()`을 던진다.
+
+### 파일 업로드
+
+11/11 정지원·옥석현·구준휘가 합의했다. 견적서·영상 파일은 API 본문으로 받지 않는다(Vercel 요청 본문 한도 4.5MB).
+
+1. `POST /cases/{id}/uploads` `{kind, content_type}` → `UploadTicket`
+2. FE가 `upload_url`에 키 없이 파일 본문과 `Content-Type`만 넣어 `PUT` → 200 `{"Key": "<storage_path>"}`
+3. 견적서는 `POST /cases/{id}/estimates` `{storage_path, party_id}`, 영상은 `POST /cases/{id}/analysis` `{storage_path}`
+
+- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`만 받는다.
+- 무료 플랜이라 파일 하나 50MB가 고정 한도다. 영상은 사고 구간만 잘라 올리는 것을 권한다(정지원: 지금 영상 중앙값 6.3MB, 최대 24MB).
+- 경로는 `case-files/{case_id}/estimates/{uuid}.pdf`·`case-files/{case_id}/videos/{uuid}.{확장자}`이고, 이름은 BE가 만든다. Supabase는 한글 객체 이름을 거절한다(400 `InvalidKey`).
+- 서명 업로드 URL은 7200초 유효하고 한 번만 쓸 수 있다. Storage는 아래 두 경우 모두 HTTP 400과 본문 `statusCode`로 응답한다.
+  - 같은 URL로 다시 올리면 `statusCode` 409(`Duplicate`)
+  - 허용하지 않은 형식이면 `statusCode` 415(`invalid_mime_type`)
+- 서버 키(`SUPABASE_SECRET_KEY`)는 RLS를 건너뛴다. 그래서 발급과 내려받기 모두 사건 권한 확인과 경로 확인을 먼저 한다. Storage 호출(서명 발급·내려받기)은 공용 `app/storage.py`에 둔다.
+- 영상 분석(Modal)에는 서버 키를 두지 않는다.
+  - 분석 접수 때 BE가 짧게 유효한 서명 내려받기 URL을 만들어 Modal에 넘긴다.
+  - Modal 쪽(구준휘, 인프라)이 그 URL로 영상을 받아 로컬 경로로 `workers/vision/pipeline.py` `analyze_video`를 부른다. 그래서 `analyze_video`는 Storage를 직접 읽지 않고 로컬 영상 경로를 받는다(정지원).
+  - 호출 모양은 구준휘가 정리한다.
 
 ## 구분 질문과 재개
 

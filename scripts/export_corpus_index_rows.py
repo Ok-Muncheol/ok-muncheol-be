@@ -9,6 +9,7 @@
 
 import argparse
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -28,6 +29,9 @@ DOCUMENT_COLUMNS = (
     "document_id", "source_uri", "source_name", "edition", "effective_from", "effective_to",
     "effective_period_status", "content_hash", "parser_version", "usage_review", "reviewed_by",
 )
+# manifest에 없을 수 있는 칼럼. 없으면 null로 적재한다
+OPTIONAL_DOCUMENT_COLUMNS = ("published_month",)
+MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 CHUNK_COLUMNS = ("chunk_id", "parent_id", "page_start", "page_end", "text", "metadata")
 
 
@@ -70,9 +74,13 @@ def document_row(corpus: str, meta: dict) -> dict:
         raise ValueError(f"{meta['document_id']}: source_uri differs from storage_object path")
     if storage["relation"] == "original" and storage["sha256"] != meta["content_hash"]:
         raise ValueError(f"{meta['document_id']}: original upload must keep content_hash")
+    month = meta.get("published_month")
+    if month is not None and not MONTH.fullmatch(month):
+        raise ValueError(f"{meta['document_id']}: published_month must be YYYY-MM")
     return {
         "corpus": corpus,
         **{key: meta[key] for key in DOCUMENT_COLUMNS},
+        **{key: meta.get(key) for key in OPTIONAL_DOCUMENT_COLUMNS},
         "storage_sha256": storage["sha256"],
         "storage_bytes": storage["bytes"],
         "storage_relation": storage["relation"],

@@ -23,7 +23,9 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | 기본 가정 | 견적서만 넣어도 산정한다. 계약 없음 → 자차 가입·보험기간 안·운전자 범위 안(전손·가입금액 한도 검사 생략), 자기부담금 → `rules.py` 기본 규칙, 면책 사실 미입력 → 해당 없음. 8번·청구서에 표시하고 막지 않는다 |
 | 3. 확인 완료 | `confirm_report` 한 번. 막는 경우는 **최신 버전 아님(`StaleVersion`)·`draft_ready` 아님(`ConfirmBlocked`)** 두 가지뿐. 그 밖에는 확인 기록(`approval_status="approved"`, `approved_by`, `approved_at`)을 남기고, 조건이 맞으면 청구서(패키지) 생성 |
 | 청구서 없음 | 확인 완료는 되고 `package=None` + `claim_blocked_reasons`(해당 사유 **전부**, 아래 순서) + `claim_blocked_reason`(첫 번째 값). `not_payable` 뒤에 견적서, 산정 불가, 0원, 상대 과실 0% 순서. 견적서 없음 → "견적서 필요 — 견적서 추가 후 청구서 생성", `not_payable` → "지급 불가 — 구상할 보험금 없음", 보험금 0원 → "자기부담금이 손해액 이상이라 지급액 0원 — 구상할 보험금 없음", 금액 `null`(매핑 불명·가입금액 없음 등) → "보험금 산정 불가 — {사유}", 상대 과실 0%(협의 0% 포함) → "상대 과실 0% — 구상 대상 아님" |
-| 예시 규칙 | 막지 않는다. 산정 상태는 `needs_contract_review`로 두고, 패키지 JSON·HTML에 "예시 규칙 기준 — 약관 검수 전 초안"(`rule_notice`) 표시 |
+| 예시 규칙 | 막지 않는다. 산정 상태는 `needs_contract_review`로 두고, 패키지 JSON·HTML에 "예시 규칙 기준 — 약관 검수 전 초안"(`rule_notice`) 표시. 8·9번에 검증된 약관 조항이 붙었으면 "예시 규칙 기준 — 약관 조항 원문 연결(실무 검수 전) 초안"(보고서 8번 `근거 상태`와 같은 문구) |
+| 8·9번 약관 근거 (#99) | 계산은 그대로, 근거만 붙인다(LLM 없음). 조항 선택은 `app/reports/clauses.py` `select_report_clauses` 하나 — 8번 보통약관 제24조(지급보험금의 계산), 9번 주 근거 제34조(보험회사의 대위)·제24조 ① 제4호(자기부담금 확정 부담 조건 선지급 후 상대방에 대한 권리 취득 — 발췌는 "이 경우 「자기차량손해」 보험금을 지급한 보험회사는"부터)·상법 제682조(약관 코퍼스에 없어 이름만), 참고 근거 별표3 1. 과실상계(사고일 2022-12-31 이전 `until-2022-12-31` / 2023-01-01 이후 `from-2023-01-01`, 사고일 없으면 빼기)·별표2 1. 수리비용·제24조 ① 제5호(구상금을 받으면 자기부담금 차액을 피보험자에게 지급). 제10조(대인·대물)와 제24조 ④항(전부손해 시 피해물 인수)은 쓰지 않는다(#105에서 "제24조 ④" 표기를 ① 제4호로 바로잡음). 같은 조 안의 호는 발췌 시작 문구로 고르고(공백 무시 — 원문 청크에 줄바꿈 공백이 있음), 문구를 못 찾으면 그 항목만 뺀다. 조항마다 `fetch_by_parent` → `validate_hits`(사고일 포함)를 통과한 것만 본문 `근거 조항`({조항, ID, 적용판, 페이지, 발췌})과 `evidence_ids`에 넣는다. 조항 단위로 실패를 건너뛰고(경고 로그), 하나도 못 붙이면(코퍼스 없음·운영·계약 약관 판이 코퍼스에 없음·EvidenceStore 미등록) `근거 조항: "연결 안 됨"`, 9번은 `법령 근거`에 상법 제682조만. 보고서 생성은 실패하지 않는다 |
+| 청구서 근거 조항 (#99) | 근거서 `basis["근거 조항"]`에는 **이름만**: 제34조가 9번에 붙었으면 `["보통약관 제34조(보험회사의 대위)", "상법 제682조(제3자에 대한 보험대위)"]`, 아니면 `["상법 제682조(제3자에 대한 보험대위)"]`. 발췌·페이지·산정 근거(제24조·별표)는 넣지 않는다. 예전 예시 ID `example:subrogation`은 뺐다 |
 | 확인 후 변경 | 서류 추가로 금액·검증 결과가 바뀌면 새 버전(확인 풀림) → 다시 확인 완료. 증빙만 추가하면 새 버전 없이 같은 버전을 다시 확인해 패키지를 갱신 |
 | 같은 입력 | 같은 서류 재전송은 새 버전 없음. 같은 입력으로 다시 확인하면 같은 패키지(`idempotency_key`) |
 | 협의 과실 | `set_agreed_fault(..., agreed_counterparty_fault, fault_change_reason)` — 이유 필수. `clear=True`(이유 필수)로 판단 과실로 되돌림. 이후 재산정에도 이어 쓰고, 패키지 과실은 항상 9번 과실 |
@@ -40,6 +42,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | `app/calculation/exclusions.py` | **면책 근거 = 조항 ID 직접 조회만**(C의 `validate_hits`로 검증, 벡터 검색 없음). 조항이 색인에 없거나 검증에 실패하면 담당자 입력을 따르고, 입력이 없으면 "면책 확인 필요 — 조항 미확인"(막지 않음). |
 | `app/calculation/insurance.py` | 판단 과실(`draft_ready`) 기반 자차 보험금. 승인 단계 없음. 계약·보험기간·운전자 범위·매핑·면책 확인 후 코드 계산 |
 | `app/claims/package.py` | `compute_recovery`(9번 자동), `check_claimable`(확인 완료 조건), `build_claim_package`(사건 1행, 예시 규칙 표시, 멱등 키) |
+| `app/reports/clauses.py` | 8·9번 약관 근거: `select_report_clauses`(조항 선택 — 바꿀 때 이 함수만), `fetch_report_clauses`(조항별 조회·검증), 본문 칸·청구서 이름 목록·표시 문구 |
 | `app/reports/assembler.py` | 템플릿 1~9항목 조립. 확인/보류 시 4~6 수치 비움, 8~9는 `draft_ready` 판단으로 바로 채움 |
 | `app/reports/render.py` | HTML·Markdown·JSON, PDF(WeasyPrint 설치 시). 확인 전 '검토 초안', 예시 규칙 패키지는 '약관 검수 전 초안' 표시 |
 | `app/reports/repository.py` | 메모리 저장소(사건·보고서 버전·서류·패키지·협의 과실). Supabase로 교체 예정 |
@@ -66,7 +69,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 `app/api/routes.py`·README API 표·FE ApiClient는 구준휘 님이 맞춘다. D는 아래 서비스 함수(`app/api/reports.py`)만 제공한다.
 다만 견적서 경로(`POST /cases/{id}/estimates`)의 Storage 내려받기는 11/10부터 D가 맡는다(구준휘 님에게서 넘겨받음, #95로 연결).
 `upload_estimate_from_storage`가 ① 권한 확인(`repo.get`) ② 경로 확인(`{STORAGE_BUCKET}/{case_id}/estimates/` 아래, `..`·`%`·역슬래시·빈 조각·비ASCII 거절 — Supabase가 비ASCII 객체 이름을 400 InvalidKey로 거절) ③ `app/storage.py`로 임시 파일에 내려받기(10MB, 앞 1024바이트 안에 `%PDF-`) ④ `upload_estimate(…, storage_path=Storage 경로)` 순서로 처리하고 임시 파일은 항상 지운다.
-서버 키(`SUPABASE_SECRET_KEY`)는 RLS를 건너뛰므로 ①·②가 유일한 방어다. 버킷은 `app/storage.py` `STORAGE_BUCKET`(기본 `case-files`, 미확정) 하나만 바꾸면 된다.
+서버 키(`SUPABASE_SECRET_KEY`)는 RLS를 건너뛰므로 ①·②가 유일한 방어다. 버킷은 `app/storage.py` `STORAGE_BUCKET`(`case-files`, 11/11 확정) 하나다. 업로드 경로는 `POST /cases/{id}/uploads`(kind=estimate)가 만든다([계약 문서](contracts/README.md) 「파일 업로드」).
 오류: 키 없음 503 `storage_not_configured`, Storage 실패 503 `storage_unavailable`, 파일 없음 404 `estimate_file_not_found`, 다른 사건 경로 422 `invalid_storage_path`, 10MB 초과 422 `estimate_too_large`, PDF 아님·PDF 파싱 오류 422 `estimate_not_pdf`.
 `…`는 `/cases/{case_id}`.
 

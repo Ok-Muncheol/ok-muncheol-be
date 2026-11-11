@@ -24,6 +24,7 @@ handoff.json)
 
 import copy
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -38,8 +39,10 @@ from app.schemas.retrieval import Corpus, EmbeddedChunk, SearchChunk, SourceDocu
 ROOT = Path(__file__).resolve().parents[2]
 DB_IMPORT = ROOT / "data/private/corpus-db-import/db_import"
 TABLES = ("corpus_documents", "corpus_chunks", "corpus_records", "corpus_source_pages")
-# SourceDocument 8개 필드. corpus_documents의 나머지 칼럼(source_name·usage_review 등)은 넣지 않는다
+# SourceDocument 9개 필드. corpus_documents의 나머지 칼럼(source_name·usage_review 등)은 넣지 않는다
 DOCUMENT_FIELDS: tuple[str, ...] = tuple(SourceDocument.__annotations__)
+# 선택 필드: 이전 적재 파일에 칼럼이 없으면 None으로 채운다(키는 늘 둔다)
+OPTIONAL_DOCUMENT_FIELDS: frozenset[str] = frozenset(SourceDocument.__optional_keys__)
 CORPORA: frozenset[str] = frozenset(get_args(Corpus))
 
 
@@ -109,8 +112,16 @@ def handoff_embedding_spec(root: Path = ROOT) -> EmbeddingSpec:
 
 
 def source_document(row: dict) -> SourceDocument:
-    """corpus_documents 행 → SourceDocument(8개 필드)."""
-    return {name: row[name] for name in DOCUMENT_FIELDS}  # type: ignore[return-value]
+    """corpus_documents 행 → SourceDocument(9개 필드). 선택 필드는 칼럼이 없으면 None."""
+    document = {
+        name: row.get(name) if name in OPTIONAL_DOCUMENT_FIELDS else row[name]
+        for name in DOCUMENT_FIELDS
+    }
+    month = document.get("published_month")
+    if month is not None and not _MONTH.fullmatch(str(month)):
+        name = f"corpus_documents.jsonl {row['document_id']}"
+        raise CorpusDataError(f"{name}: published_month {month!r}는 YYYY-MM이 아니다")
+    return document  # type: ignore[return-value]
 
 
 def search_chunk(row: dict, documents: dict[str, dict]) -> SearchChunk:
@@ -131,6 +142,7 @@ def search_chunk(row: dict, documents: dict[str, dict]) -> SearchChunk:
 
 _INT = "int"
 _OPT_STR = (str, type(None))
+_MONTH = re.compile(r"\d{4}-(0[1-9]|1[0-2])")
 # 표마다 반드시 있어야 하는 칼럼과 타입. 나머지 칼럼은 보지 않는다(C가 칼럼을 늘려도 깨지지 않게)
 _COLUMNS: dict[str, dict[str, object]] = {
     "corpus_documents": {

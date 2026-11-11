@@ -8,7 +8,7 @@ Git에는 코드·`data/corpora/*/manifest.json`·합성 견본만 둔다.
 마이그레이션은 옥석현과 칼럼을 합의한 뒤 별도 PR로 올린다(머지된 마이그레이션은 고칠 수 없으므로). 브라우저 권한은 주지 않고 service_role만 읽는다.
 아래 칼럼은 그 마이그레이션의 제안이다.
 
-- `corpus_documents`: `document_id`(PK), `corpus`, `source_uri`, `source_name`, `edition`, `effective_from`, `effective_to`, `effective_period_status`, `content_hash`, `parser_version`, `storage_sha256`, `storage_bytes`, `storage_relation`(`original`·`lossless_recompressed_copy`), `usage_review`(jsonb), `reviewed_by`
+- `corpus_documents`: `document_id`(PK), `corpus`, `source_uri`, `source_name`, `edition`, `effective_from`, `effective_to`, `effective_period_status`, `published_month`(선택, `YYYY-MM`), `content_hash`, `parser_version`, `storage_sha256`, `storage_bytes`, `storage_relation`(`original`·`lossless_recompressed_copy`), `usage_review`(jsonb), `reviewed_by`
 - `corpus_source_pages`: `document_id`, `page`, `content_hash`
 - `corpus_records`: `corpus`, `kind`, `record_id`, `parent_id`, `is_parent`, `document_id`, `chart_id`, `page_start`, `page_end`, `body`(jsonb)
 - `corpus_chunks`: `corpus`, `chunk_id`, `parent_id`, `document_id`, `page_start`, `page_end`, `text`, `raw_text`, `display_text`, `metadata`(jsonb), `embedding_model`, `embedding_dimensions`, `embedding_version`, `embedding_content_hash` (+ 벡터 칼럼은 옥석현)
@@ -50,7 +50,7 @@ Git에는 코드·`data/corpora/*/manifest.json`·합성 견본만 둔다.
 
 | 메서드 | 조회 | 반환 |
 | --- | --- | --- |
-| `get_chunk(corpus, chunk_id)` | `corpus_chunks` + `corpus_documents` 조인 | `SearchChunk` 모양(`document`는 SourceDocument 8개 필드) |
+| `get_chunk(corpus, chunk_id)` | `corpus_chunks` + `corpus_documents` 조인 | `SearchChunk` 모양(`document`는 SourceDocument 9개 필드, `published_month`는 없으면 null) |
 | `get_parent(corpus, parent_id)` | `corpus_records where is_parent` | `body` |
 | `get_source_page(document_id, page)` | `corpus_source_pages` | `{"content_hash": ...}` |
 | `get_related(corpus, kind, record_id)` | `corpus_records` | `body` |

@@ -228,12 +228,25 @@ class LoaderTest(CorpusFilesCase):
             {"chunk_id", "parent_id", "document", "page_start", "page_end", "text", "metadata"},
         )  # raw_text·display_text·임베딩 칼럼은 뺀다
         self.assertEqual(tuple(found["document"]), DOCUMENT_FIELDS)
-        self.assertEqual(len(DOCUMENT_FIELDS), 8)
+        self.assertEqual(len(DOCUMENT_FIELDS), 9)
+        self.assertIsNone(found["document"]["published_month"])  # 칼럼 없는 이전 파일
         self.assertEqual(
             found["document"]["source_uri"], f"corpus-sources/policy_terms/{TERMS}.pdf"
         )
         self.assertEqual(found["document"]["effective_from"], "2026-11-11")
         self.assertNotIn("source_name", found["document"])
+
+    def test_published_month_is_passed_through_and_checked(self):
+        dated = [{**row, "published_month": "2023-06"} for row in self.rows["corpus_documents"]]
+        self.write(corpus_documents=dated)
+        index = build_index(read_corpus(self.base), tokenizer=SimpleTokenizer())
+        self.assertEqual(index._rows["t1"]["chunk"]["document"]["published_month"], "2023-06")
+        for bad in ("2023-6", "2023-13", "2023-06-30"):
+            with self.subTest(bad=bad):
+                rows = [{**row, "published_month": bad} for row in self.rows["corpus_documents"]]
+                self.write(corpus_documents=rows)
+                with self.assertRaisesRegex(CorpusDataError, "published_month"):
+                    build_index(read_corpus(self.base), tokenizer=SimpleTokenizer())
 
     def test_every_missing_file_is_not_configured(self):
         for name in TABLES:

@@ -4,6 +4,7 @@
 - 1~7: 선행 MVP (과실비율 근거)
 - 8: 손해액·보험금·자기부담금·약관/서류/규칙 버전 (1차 확장)
 - 9: 구상 예정액·실제 청구액·회수액·고객 자기부담금 검토액·필수 서류 (1차 확장)
+- 8·9 약관 근거 조항: 검증된 조항만(app/reports/clauses.py). 없으면 "연결 안 됨"
 확인/보류 상태에서는 4~6의 수치를 비우고, 8~9는 확정 판단(draft_ready) 과실비율로 바로 채운다(단계별
 승인 없음).
 
@@ -15,6 +16,13 @@ from datetime import UTC, datetime
 
 from app.calculation.rules import share
 from app.claims.package import NOT_RECOVERABLE
+from app.reports.clauses import (
+    ReportClauses,
+    clause_ids,
+    clause_notice,
+    payout_basis,
+    recovery_basis,
+)
 from app.schemas.facts import FactCard
 from app.schemas.judgment import JudgmentResult
 from app.schemas.reports import CalculationResult, RecoveryAmounts, ReportSection, ReviewReport
@@ -101,8 +109,11 @@ def assemble_review(
     reason: str = "판단 결과 반영",
     education_mode: bool = False,
     now: str | None = None,
+    clauses: ReportClauses | None = None,
 ) -> ReviewReport:
-    """MVP 1~7항목, 확장 8~9항목. 확인/보류 상태에서 수치를 채워 넣지 않는다."""
+    """MVP 1~7항목, 확장 8~9항목. 확인/보류 상태에서 수치를 채워 넣지 않는다.
+
+    clauses: 검증된 8·9번 약관 근거(app/reports/clauses.py). None이면 "연결 안 됨"."""
     j = judgment
     ready = j["status"] == "draft_ready" and j["fault_A"] is not None
     if card is not None and card["case_id"] != j["versions"]["case_id"]:
@@ -318,8 +329,19 @@ def assemble_review(
                     "사유": c["reasons"],
                     "약관 적용판": c.get("terms_edition"),
                     "규칙 버전": c["rule_version"],
+                    "근거 상태": clause_notice(
+                        str(c["rule_version"]).startswith("example-"),
+                        clauses is not None and clauses.connected,
+                    ),
+                    "근거 조항": payout_basis(clauses),
                 },
-                list(dict.fromkeys(c["source_document_ids"] + c.get("clause_ids", []))),
+                list(
+                    dict.fromkeys(
+                        c["source_document_ids"]
+                        + c.get("clause_ids", [])
+                        + clause_ids(clauses.selection.payout if clauses else (), clauses)
+                    )
+                ),
             )
         )
 
@@ -344,13 +366,21 @@ def assemble_review(
             ),
             "주의": "1차 판정 초안 — 예정액은 단순 산식(원 미만 버림). 실제 청구·회수는 정산 조건 "
             "확인 후",
+            **recovery_basis(clauses),
         }
+        recovery_refs = (
+            clauses.selection.recovery_main + clauses.selection.recovery_reference
+            if clauses
+            else ()
+        )
         sections.append(
             _sec(
                 9,
                 "구상",
                 body9,
-                ["calculation"] + ([calculation["rule_version"]] if calculation else []),
+                ["calculation"]
+                + ([calculation["rule_version"]] if calculation else [])
+                + clause_ids(recovery_refs, clauses),
             )
         )
 
