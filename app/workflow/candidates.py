@@ -11,7 +11,7 @@
 적용판·유효기간은 레코드 안의 문서 사본(파싱 시점 값)이 아니라 검증을 통과한 검색 결과의
 `chunk.document`에서 읽는다. `validate_hits`가 이 값을 DB 색인(`corpus_documents` 조인)과
 대조하므로, manifest를 고치면 레코드를 다시 만들지 않아도 반영된다.
-레코드 사본은 같은 원문인지 확인하는 데만 쓴다.
+발행월(`published_month`)도 같다. 레코드 사본은 같은 원문인지 확인하는 데만 쓴다.
 """
 
 from typing import Literal, NotRequired, TypedDict
@@ -19,6 +19,12 @@ from typing import Literal, NotRequired, TypedDict
 from app.schemas.facts import FactCard
 from app.schemas.retrieval import EvidenceHit, SearchQuery
 from app.workflow.card_fields import UNKNOWN, chart_fields
+
+# 판단 후보를 찾는 검색 깊이(청크 수). 검수한 도표도 이 안에 들어야 후보가 된다.
+# 2026-11-11 시범 실행(RRF, 검수 도표 9개)에서 도표마다 그 도표에 맞는 카드로 검색하니, 대부분
+# 상위 3위 안이었지만 차4-2는 첫 청크가 28위라 10개로는 빠졌다. 검수 도표가 늘어도 여유를 두려고
+# 50으로 둔다. 늘어난 검수 전 도표는 보고서·보류 사유에서 앞쪽만 보여 준다(graph.py)
+CHART_SEARCH_TOP_K = 50
 
 
 class ChartVariant(TypedDict):
@@ -49,6 +55,8 @@ class ChartCandidate(TypedDict):
     edition: str
     effective_from: str
     effective_to: str | None
+    # 원문에서 확인한 발행월 "YYYY-MM"(시행일 아님). 모르면 None. 근거 검증 ①이 사고 일자와 대조한다
+    published_month: NotRequired[str | None]
     title: str
     page_start: int
     page_end: int
@@ -89,7 +97,7 @@ def confirmed_values(card: FactCard) -> dict[str, str]:
     return values
 
 
-def build_search_query(card: FactCard, top_k: int = 10) -> SearchQuery:
+def build_search_query(card: FactCard, top_k: int = CHART_SEARCH_TOP_K) -> SearchQuery:
     """확인한 카드 값으로 인정기준 검색 문장을 만든다. 속성 필터는 검수 전이라 쓰지 않는다.
 
     검색 낱말이 정해진 도표 선택 값만 넣는다. `해당없음`과 대응 없는 카드 값은 넣지 않는다.
@@ -153,6 +161,7 @@ def candidate_from_record(record: dict, hits: list[EvidenceHit]) -> ChartCandida
         "document_id": document["document_id"], "edition": document["edition"],
         "effective_from": document.get("effective_from") or "",
         "effective_to": document.get("effective_to"),
+        "published_month": document.get("published_month"),
         "title": record.get("title", ""), "page_start": record["page_start"],
         "page_end": record["page_end"],
         "attributes": dict(attributes) if reviewed else {},
