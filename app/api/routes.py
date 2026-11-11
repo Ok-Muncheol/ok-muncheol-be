@@ -6,20 +6,27 @@ tests/api/test_app.py가 그 표·계약 문서와 서버 OpenAPI를 대조한�
 이 파일은 경로·인증·요청 모양만 정한다. 권한·상태·버전 판단은 각 담당 서비스 함수가 한다.
 서비스는 모듈 속성으로 호출해(`cases.create_case`) 테스트에서 바꿔 끼울 수 있게 한다.
 미구현 서비스는 `NotImplementedError` → 501 `not_implemented`로 응답한다(app/api/errors.py).
+Modal 콜백(`/internal/analysis/{task_id}`)만 사용자 토큰 대신 작업별 일회용 토큰으로 확인하고
+OpenAPI에서 뺀다.
 """
 
-from fastapi import APIRouter
+import json
+
+from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel, Field
 
-from app.api import cases, facts, judgments, reports
+from app.api import analysis, cases, facts, judgments, reports
 from app.api.deps import ActorId, IdempotencyKey
-from app.api.errors import unprocessable, version_conflict
+from app.api.errors import ApiException, unprocessable, version_conflict
 from app.schemas.common import UploadKind, UploadTicket
 from app.schemas.facts import FactCard, FactPatch
 from app.schemas.judgment import QuestionAnswer
 from app.schemas.reports import ClaimResult, ConfirmResult, CounterpartyInfo, ReviewReport
 
 router = APIRouter()
+
+# Modal 콜백 본문 한도: 카드 + 근거 사진(JPEG base64 12장). Vercel 함수 요청 본문 한도는 4.5MB
+CALLBACK_MAX_BYTES = 3 * 1024 * 1024
 
 
 class UploadRequest(BaseModel):
@@ -88,6 +95,34 @@ async def start_analysis(
     actor_id: ActorId, case_id: str, body: AnalysisRequest, idempotency_key: IdempotencyKey
 ) -> dict[str, object]:
     return await cases.start_analysis(actor_id, case_id, body.storage_path, idempotency_key)
+
+
+@router.post("/internal/analysis/{task_id}", include_in_schema=False)
+async def receive_analysis_result(
+    task_id: str, request: Request, authorization: str | None = Header(default=None)
+) -> dict[str, object]:
+    """Modal 콜백(서버 간, B 인프라). 사용자 토큰이 아니라 작업별 일회용 토큰(Bearer)으로 확인한다.
+
+    토큰 확인·카드 저장·한 번만 반영은 `analysis.receive_result`(A)가 한다. 이 경로는 본문 크기와
+    JSON 모양만 본다. 3MB를 넘으면 413 `callback_too_large`,
+    JSON 객체가 아니면 422 `invalid_callback`.
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > CALLBACK_MAX_BYTES:
+        raise ApiException(413, "callback_too_large", "콜백 본문이 3MB를 넘습니다.", False)
+    raw = await request.body()
+    if len(raw) > CALLBACK_MAX_BYTES:
+        raise ApiException(413, "callback_too_large", "콜백 본문이 3MB를 넘습니다.", False)
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        raise unprocessable("invalid_callback", "콜백 본문은 JSON 객체여야 합니다.")
+    scheme, _, token = (authorization or "").partition(" ")
+    return await analysis.receive_result(
+        task_id, token.strip() if scheme.lower() == "bearer" else None, body
+    )
 
 
 @router.get("/cases/{case_id}", tags=["A cases"])

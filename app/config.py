@@ -4,6 +4,7 @@
 """
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 
@@ -33,6 +34,13 @@ class Settings:
     # 서버 전용 Supabase Storage 키(app/storage.py, apikey 헤더). RLS를 건너뛰므로 BE에만 둔다.
     # 없으면 Storage를 쓰는 경로는 503. repr에서 빼 설정 객체를 출력해도 값이 보이지 않게 한다
     supabase_secret_key: str | None = field(default=None, repr=False)
+    # 영상 분석 Modal 호출(app/modal_dispatch.py). 넷이 다 있어야 분석 접수가 Modal을 부른다.
+    # 프록시 인증 키·비밀은 repr에서 뺀다.
+    # 콜백 주소는 PUBLIC_BACKEND_URL, 없으면 Vercel 운영 도메인
+    modal_analyze_url: str | None = None
+    modal_proxy_key: str | None = field(default=None, repr=False)
+    modal_proxy_secret: str | None = field(default=None, repr=False)
+    public_backend_url: str | None = None
 
     @property
     def jwks_url(self) -> str | None:
@@ -52,6 +60,15 @@ class Settings:
         return self.app_env == "local" and not self.on_vercel and bool(self.dev_actor_id)
 
 
+def _public_backend_url(env: Mapping[str, str]) -> str | None:
+    """Modal이 콜백할 BE 주소. PUBLIC_BACKEND_URL이 먼저고, 없으면 Vercel 운영 도메인."""
+    explicit = env.get("PUBLIC_BACKEND_URL", "").strip().rstrip("/")
+    if explicit:
+        return explicit
+    host = env.get("VERCEL_PROJECT_PRODUCTION_URL", "").strip().rstrip("/")
+    return f"https://{host}" if host else None
+
+
 @lru_cache
 def get_settings() -> Settings:
     env = os.environ
@@ -66,4 +83,8 @@ def get_settings() -> Settings:
         load_knowledge_base=_flag(env.get("LOAD_KNOWLEDGE_BASE", "")),
         database_url=env.get("DATABASE_URL") or None,
         supabase_secret_key=env.get("SUPABASE_SECRET_KEY") or None,
+        modal_analyze_url=env.get("MODAL_ANALYZE_URL") or None,
+        modal_proxy_key=env.get("MODAL_PROXY_KEY") or None,
+        modal_proxy_secret=env.get("MODAL_PROXY_SECRET") or None,
+        public_backend_url=_public_backend_url(env),
     )

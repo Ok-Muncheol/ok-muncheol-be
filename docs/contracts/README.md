@@ -57,6 +57,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_documents`·`invalid_agreed_fault` 같은 처리 불가 상태 |
 | 422 | `invalid_upload_type` | 업로드 형식이 kind의 허용 목록에 없음(견적서 `application/pdf`, 영상 mp4·mov·avi·webm·mkv) |
 | 422 | `invalid_storage_path`·`estimate_too_large`·`estimate_not_pdf` | 견적서 경로가 그 사건의 `estimates/` 폴더가 아님(다른 사건·`..`·비ASCII 이름 등)·10MB 초과·PDF가 아니거나 읽을 수 없음 |
+| 413 | `callback_too_large` | Modal 콜백(`/internal/analysis/{task_id}`) 본문이 3MB를 넘음 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
 | 502 | `qa_failed` | 질의응답 모델 호출·응답 오류. 다시 질문할 수 있다 |
 | 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable`·`reports_db_not_ready`·`storage_not_configured`·`storage_unavailable` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패·보고서 테이블 미적용·서버 Storage 키(`SUPABASE_URL`·`SUPABASE_SECRET_KEY`) 없음·Storage 연결 실패나 오류 |
@@ -64,6 +65,19 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |
 
 담당 서비스는 `app/api/errors.py`의 `forbidden()`·`not_found()`·`version_conflict()`·`unprocessable()`을 던진다.
+
+### 영상 분석(Modal)
+
+11/11 정지원·구준휘 합의. 접수·결과 반영은 정지원 `app/api/analysis.py`, Modal 호출·콜백 경로는 구준휘(인프라)다.
+
+1. `POST /cases/{id}/analysis` → `start_analysis`가 작업 행을 만들고 `app/modal_dispatch.py`로 Modal 웹 엔드포인트를 부른다.
+   넘기는 값은 `{task_id, case_id, video_url, callback_url, callback_token}`이고 Modal에는 서버 키를 두지 않는다. 엔드포인트는 프록시 인증(`Modal-Key`·`Modal-Secret`)으로 막는다.
+2. Modal이 `POST /internal/analysis/{task_id}`에 `Authorization: Bearer <callback_token>`으로 결과를 보낸다. 이 경로는 OpenAPI·위 표에 넣지 않는 서버 간 경로다.
+   - 본문은 `{"status": "completed", "card": FactCard v1}` 또는 `{"status": "failed", "error": {stage?, code, message, retryable}}`이다. 근거 사진(`frames`, JPEG base64)은 정지원과 합의 중이다.
+   - 경로는 본문 3MB 초과면 413 `callback_too_large`, JSON 객체가 아니면 422 `invalid_callback`을 돌려준다. 토큰이 틀리면 401 `invalid_callback_token`(서비스)이다.
+   - 같은 작업에 다시 오면 바꾸지 않는다(한 번만 반영). 15분 안에 오지 않으면 조회 때 `analysis_timeout`(retryable)이다.
+3. 설정(`MODAL_ANALYZE_URL`·`MODAL_PROXY_KEY`·`MODAL_PROXY_SECRET`, 콜백 주소 `PUBLIC_BACKEND_URL` 또는 Vercel 운영 도메인)이 없으면 접수는 `analysis_not_configured`로 실패한다.
+   Modal 호출 실패는 `analysis_dispatch_failed`이고 연결 실패·5xx·429만 다시 접수할 수 있다(`retryable`).
 
 ### 파일 업로드
 
