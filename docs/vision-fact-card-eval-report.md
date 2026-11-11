@@ -1,8 +1,10 @@
 # 사고 사실 카드 비전 추출 평가 보고서 (2026-11-09, 11-10 갱신)
 
 블랙박스 영상에서 VLM이 사고 사실 카드의 칸을 얼마나 정확히 채우는지 잰 결과와, 그에 따른 제품 규칙 제안이다.
-실험 일지와 명령은 `evals/vision/README.md`, 원본 숫자는 `evals/results/exp_report_human_*.json`(로컬),
-정답셋은 `data/private/aihub/vision_gt_human.jsonl`(로컬)에 있다.
+원본 숫자는 `evals/results/exp_report_human_*.json`(로컬), 정답셋은 `data/private/aihub/vision_gt_human.jsonl`(로컬)에 있다.
+
+> 11/9 초기 평가(키프레임 + VLM만) 기록이다. 이 평가 코드(`evals/vision/run_vlm.py` 등)와 실험 일지는 11/11 정리 때 지웠다(git 기록에 남음).
+> 지금 파이프라인과 칸별 정확도는 `workers/vision/README.md`, `docs/contracts/fact-card-v1.md`. 사람 라벨은 `evals/vision/labels/`에 그대로 있다.
 
 ## 1. 한 줄 결론
 

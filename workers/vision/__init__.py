@@ -1,1 +1,1 @@
-"""A: 로컬/Modal 공통 비전 패키지 초안."""
+"""A: 블랙박스 영상 → 사실 카드 v1. 진입점은 pipeline.analyze_video, 파일 지도는 README.md."""

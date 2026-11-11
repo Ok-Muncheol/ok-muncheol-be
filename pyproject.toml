@@ -38,13 +38,19 @@ dev = [
     "ruff>=0.6",
     "uvicorn>=0.30",
 ]
-# 비전 평가(evals/vision/): AI Hub 설명서 코드표 추출·키프레임·VLM 호출. API 런타임에는 넣지 않는다
+# 비전 파이프라인·평가(workers/vision/, evals/vision/): YOLO·영상 모델·작은 분류기·VLM 호출.
+# API 런타임에는 넣지 않는다. Modal 일꾼과 노트북 평가가 같은 묶음을 쓴다(workers/vision/README.md)
 vision-eval = [
     "anthropic>=1",
+    "joblib>=1.4",
     "numpy>=2",
     "openai>=1",
     "opencv-python-headless>=4.10",
-    "pdfplumber>=0.11",
+    "openpyxl>=3.1",
+    "requests>=2",
+    "scikit-learn>=1.5",
+    "torch>=2.5",
+    "transformers>=5",
     "ultralytics>=8.3",
 ]
 
