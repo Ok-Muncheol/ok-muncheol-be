@@ -202,10 +202,11 @@ def build_standards(blocks: list[ParsedBlock]) -> dict[str, object]:
         # 속성은 원문에 나타난 표현만 수집. 신호 진입/충돌 시점 및 부정은 추론하지 않는다.
         properties = {}
         for side, raw in party.items():
+            # 참고용 낱말 후보. "후진입"(진입 순서)을 후진으로 잡지 않는다.
             properties[f"movement_{side}"] = [
                 v
                 for v in ("직진", "좌회전", "우회전", "유턴", "후진", "진로변경", "정차", "주차")
-                if raw and v in raw
+                if raw and re.search(rf"{v}(?!입)" if v == "후진" else re.escape(v), raw)
             ]
             properties[f"party_description_{side}"] = raw
         properties["title_terms"] = [

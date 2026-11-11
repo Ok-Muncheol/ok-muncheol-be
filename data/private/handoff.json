@@ -18,20 +18,20 @@
       "record_counts": {
         "charts": 108,
         "modifiers": 835,
-        "attributes": 236
+        "attributes": 232
       },
       "files": [
         {
           "path": "data/private/01_fault_standards/processed/chunks.jsonl",
           "role": "searchable chunks",
-          "bytes": 2813053,
-          "sha256": "8d3d85609fe9114f858dfda25a475237fa58f8a31c365c7bf832d8cc1e349d33"
+          "bytes": 2812673,
+          "sha256": "edbc73c560c6f315f569c59ede477581515175f566ecd84132a5198c87135fc1"
         },
         {
           "path": "data/private/01_fault_standards/processed/embeddings.jsonl",
           "role": "precomputed document vectors",
-          "bytes": 31664403,
-          "sha256": "8eb8b98a0373735c3a62cb913b6b7f9ac784ab444894da609bfcdd92cbb371c5"
+          "bytes": 31664023,
+          "sha256": "bc1e16f7d2f2f901a8a6a2e88d67f877901536060a9547b8d63a2f5bd3acd576"
         },
         {
           "path": "data/private/01_fault_standards/evaluation.jsonl",
@@ -42,20 +42,20 @@
         {
           "path": "data/private/01_fault_standards/processed/charts.jsonl",
           "role": "charts",
-          "bytes": 397303,
-          "sha256": "46db7957e6412eba5ce3cdee9b47847edce043ac53271f03646d660b171d7020"
+          "bytes": 407856,
+          "sha256": "197fb849b23e72e734ecd5f8fefe6ef0ccf4c4c0d33e548036b63d03c2c2b925"
         },
         {
           "path": "data/private/01_fault_standards/processed/modifiers.jsonl",
           "role": "modifiers",
-          "bytes": 381875,
-          "sha256": "adbab861cfff9101d73e3bfd260049e12dd4a867e138e98d5f8dc53ed4dfcc6f"
+          "bytes": 381785,
+          "sha256": "b82a1362640eb4c4300ba2576ac743ecabf472ae160a90f6c1216c477cb014be"
         },
         {
           "path": "data/private/01_fault_standards/processed/attributes.jsonl",
           "role": "attributes",
-          "bytes": 60221,
-          "sha256": "6fc6e467bd6f72adbd361b47ae22063a7edfce683a535ddb53464cb3a10309a1"
+          "bytes": 59101,
+          "sha256": "58bfb86aa9d4a9c4649e8de629696d9fcce78f6624eeca21eaf3bef4ca04c54f"
         }
       ],
       "documents": [
