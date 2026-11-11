@@ -1,6 +1,6 @@
 """C 소유, D 공동 검토: 오프라인 색인과 온라인 검색의 경계."""
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 Corpus = Literal["fault_standards", "dispute_cases", "policy_terms"]
 
@@ -14,6 +14,9 @@ class SourceDocument(TypedDict):
     effective_to: str | None
     content_hash: str
     parser_version: str
+    # 원문에서 확인한 발행월 "YYYY-MM"(판권면 등). 시행일과 다르다. 확인 못 했거나
+    # 이전 파일·합성 행이면 None이거나 키가 없다. 판단 쪽이 발행월 이전 사고를 막는 데 쓴다
+    published_month: NotRequired[str | None]
 
 
 class ParsedBlock(TypedDict):
