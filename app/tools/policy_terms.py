@@ -2,7 +2,7 @@
 
 from app.retrieval import common
 from app.schemas.retrieval import EvidenceHit, SearchQuery
-from app.tools._evidence import validate_hits, within_accident_window
+from app.tools._evidence import validate_hits
 from app.tools._request import prepare_request
 
 
@@ -13,20 +13,9 @@ async def search_policy_terms(query: SearchQuery) -> list[EvidenceHit]:
     substitute. A coverage label is retrieval relevance, not proof of enrollment.
     filters['schedule'] (예: "별표3") narrows to one schedule. Within an edition a schedule
     item may apply only to some accident dates (metadata accident_date_from/to). The common
-    search does not apply that window, so hits outside it are dropped here before validation
-    (the result may then hold fewer than top_k hits). validate_hits still rejects any that slip
-    through. Calculation values (별표4·5) come from schedule_values records, not chunk text.
+    search drops hits outside that window (app/retrieval/index.py); validate_hits rejects any
+    that slip through. Calculation values (별표4·5) come from schedule_values records, not chunk
+    text.
     """
     request = prepare_request(query, "policy_terms")
-    hits = await common.search(request)
-    if isinstance(hits, list):
-        hits = [
-            hit
-            for hit in hits
-            if not isinstance(hit, dict)
-            or not isinstance(hit.get("chunk"), dict)
-            or within_accident_window(
-                request["accident_date"], hit["chunk"].get("metadata") or {}
-            )
-        ]
-    return await validate_hits(request, hits)
+    return await validate_hits(request, await common.search(request))

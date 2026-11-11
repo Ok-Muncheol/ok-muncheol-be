@@ -272,13 +272,14 @@ def test_schedule_filter_and_accident_window(monkeypatch, store):
     q = query({"schedule": "별표3"})
     q["accident_date"] = "2024-03-01"
     assert asyncio.run(search_policy_terms(q)) == [hit]
-    # 2023-01-01 이후 사고용 별표 항목은 2022년 사고 검색 결과에서 도구가 뺀다
+    # 사고일 범위는 공통 검색이 거른다. 범위 밖 항목이 그대로 오면 도구가 빼지 않고 검증이 막는다
     clause = hit_for(store, "policy_terms")
     monkeypatch.setattr(common, "search", AsyncMock(return_value=[hit, clause]))
     q["accident_date"] = "2022-06-01"
     q["filters"] = {}
     q["top_k"] = 2
-    assert asyncio.run(search_policy_terms(q)) == [clause]
+    with pytest.raises(ValueError, match="accident date range"):
+        asyncio.run(search_policy_terms(q))
 
 
 def test_validate_hits_rejects_item_outside_accident_window(store):
