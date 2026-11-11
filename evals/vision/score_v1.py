@@ -24,71 +24,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "evals/results/vision"
 
-LOCATION = {
-    "사거리_신호있음": "signalized_intersection",
-    "사거리_신호없음": "unsignalized_intersection",
-    "T자형교차로": "unsignalized_intersection",
-    "회전교차로": "roundabout",
-    "직선도로": "straight_road",
-    "고속도로": "highway",
-    "주차장": "other",
-    "차도와비차도": "other",
-}
-ROAD = {
-    "동일폭": "same_width",
-    "A대로": "major_A",
-    "B대로": "major_B",
-    "A쪽_일시정지": "stop_A",
-    "B쪽_일시정지": "stop_B",
-    "A쪽만_신호등": "other",
-    "B쪽만_신호등": "other",
-    "해당없음": "none",
-}
-SIGNAL = {
-    "녹색": "green",
-    "황색": "yellow",
-    "적색": "red",
-    "녹색좌회전": "green_left_arrow",
-    "녹색직진좌회전": "green_left_arrow",
-    "신호없음": "no_signal",
-}
-MOVE = {
-    "직진": "straight",
-    "좌회전": "left_turn",
-    "우회전": "right_turn",
-    "유턴": "u_turn",
-    "진로변경": "lane_change",
-    "추월": "lane_change",
-    "합류": "lane_change",
-}
-POSITION = {
-    "같은방향_앞": "same_direction_front",
-    "같은방향_뒤": "same_direction_rear",
-    "맞은편": "opposite",
-    "왼쪽": "side",
-    "오른쪽": "side",
-}
-ENTRY = {"A먼저": "first", "B먼저": "second", "동시": "simultaneous", "해당없음": "none"}
-MAPS = {
-    "location_type": LOCATION,
-    "road_priority": ROAD,
-    "signal_A": SIGNAL,
-    "signal_B": SIGNAL,
-    "movement_A": MOVE,
-    "movement_B": MOVE,
-    "relative_position": POSITION,
-    "entry_order": ENTRY,
-}
+sys.path.insert(0, str(ROOT))
+from workers.vision.contract import CORE_MAPS as MAPS  # noqa: E402  서비스와 같은 변환표
+from workers.vision.contract import to_v1_value as to_v1  # noqa: E402
+
 CORE = list(MAPS)
-
-
-def to_v1(field, value):
-    """우리 카드 값 → v1 값. 불명·빈값 → None. 움직임의 목록 밖 값 → other."""
-    if value in (None, "", "불명"):
-        return None
-    if field.startswith("movement_"):
-        return MOVE.get(value, "other")
-    return MAPS[field].get(value, value)
 
 
 def main():
@@ -128,7 +68,8 @@ def main():
         f"v1 형식 {tot['new']}/{tot['n']} ({tot['new'] / tot['n']:.0%})"
     )
     print(
-        f"표시 없는 핵심 칸 정확도: {tot['clean_ok']}/{tot['clean']} ({tot['clean_ok'] / max(tot['clean'], 1):.0%}), "
+        f"표시 없는 핵심 칸 정확도: {tot['clean_ok']}/{tot['clean']} "
+        f"({tot['clean_ok'] / max(tot['clean'], 1):.0%}), "
         f"카드당 확인할 핵심 칸 {tot['flag'] / videos:.1f}칸, 틀린 칸 중 표시로 잡음 "
         f"{(tot['n'] - tot['new']) - (tot['clean'] - tot['clean_ok'])}/{tot['n'] - tot['new']}"
     )
@@ -182,11 +123,13 @@ def main():
         elif by[name]["n"]:
             f = by[name]
             print(
-                f"| {name} | {f['new'] / f['n']:.0%} ({f['new']}/{f['n']}) | {videos}건 개발 세트(부풀려질 수 있음) |"
+                f"| {name} | {f['new'] / f['n']:.0%} ({f['new']}/{f['n']}) "
+                f"| {videos}건 개발 세트(부풀려질 수 있음) |"
             )
     print(
         f"\n카드 전체({videos}건 개발 세트): 핵심 칸 {tot['new'] / tot['n']:.0%}, "
-        f"표시 없는 핵심 칸 정확도 {tot['clean_ok'] / max(tot['clean'], 1):.0%}, 카드당 확인할 핵심 칸 {tot['flag'] / videos:.1f}칸"
+        f"표시 없는 핵심 칸 정확도 {tot['clean_ok'] / max(tot['clean'], 1):.0%}, "
+        f"카드당 확인할 핵심 칸 {tot['flag'] / videos:.1f}칸"
     )
 
 
