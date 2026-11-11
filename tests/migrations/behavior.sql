@@ -369,4 +369,49 @@ select test_helpers.assert_equal((select count(*) from pg_publication_tables
   where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'fact_cards'), 1,
   'Realtime은 카드 생성·확정을 알린다');
 
+-- 9. 영상 분석 작업(A): 사건 폴더 영상만·진행 중 하나·같은 키 한 번·완료는 카드 버전·실패는 오류·카드 외래키
+insert into public.analysis_tasks (id, case_id, storage_path, idempotency_key, callback_token_hash, requested_by)
+values ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        'case-files/10000000-0000-0000-0000-000000000001/videos/a.mp4', 'analysis-0001', repeat('a', 64),
+        '00000000-0000-0000-0000-00000000000a');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000a',
+  'select count(*) from public.analysis_tasks'), 1, 'A는 자기 사건의 분석 작업을 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000b',
+  'select count(*) from public.analysis_tasks'), 0, 'B는 A 사건의 분석 작업을 못 본다');
+select test_helpers.expect_error('service_role', null, $sql$
+  insert into public.analysis_tasks (case_id, storage_path, idempotency_key, callback_token_hash, requested_by)
+  values ('10000000-0000-0000-0000-000000000001', 'case-files/10000000-0000-0000-0000-000000000001/videos/b.mp4',
+          'analysis-0002', repeat('b', 64), '00000000-0000-0000-0000-00000000000a')
+$sql$, '23505', '사건마다 진행 중인 분석은 하나');
+select test_helpers.expect_error('service_role', null, $sql$
+  insert into public.analysis_tasks (case_id, storage_path, idempotency_key, callback_token_hash, requested_by, status, error, completed_at)
+  values ('10000000-0000-0000-0000-000000000001', 'case-files/10000000-0000-0000-0000-000000000002/videos/b.mp4',
+          'analysis-0003', repeat('b', 64), '00000000-0000-0000-0000-00000000000a', 'failed',
+          '{"code": "x", "message": "m", "retryable": false}', now())
+$sql$, '23514', '다른 사건 폴더의 영상은 분석하지 않는다');
+select test_helpers.expect_error('service_role', null, $sql$
+  update public.analysis_tasks set status = 'completed', completed_at = now()
+  where id = '40000000-0000-0000-0000-000000000001'
+$sql$, '23514', '완료한 작업은 카드 버전이 있다');
+select test_helpers.expect_error('service_role', null, $sql$
+  update public.analysis_tasks set status = 'completed', completed_at = now(), fact_card_version = 9
+  where id = '40000000-0000-0000-0000-000000000001'
+$sql$, '23503', '완료 카드 버전은 실제 카드 버전이다');
+select test_helpers.expect_error('service_role', null, $sql$
+  update public.analysis_tasks set status = 'failed', completed_at = now()
+  where id = '40000000-0000-0000-0000-000000000001'
+$sql$, '23514', '실패한 작업은 오류가 있다');
+update public.analysis_tasks set status = 'completed', completed_at = now(), fact_card_version = 1
+where id = '40000000-0000-0000-0000-000000000001';
+select test_helpers.expect_error('service_role', null, $sql$
+  insert into public.analysis_tasks (case_id, storage_path, idempotency_key, callback_token_hash, requested_by)
+  values ('10000000-0000-0000-0000-000000000001', 'case-files/10000000-0000-0000-0000-000000000001/videos/c.mp4',
+          'analysis-0001', repeat('c', 64), '00000000-0000-0000-0000-00000000000a')
+$sql$, '23505', '같은 사건의 같은 Idempotency-Key는 한 번');
+select test_helpers.assert_equal((select count(*) from (values ('insert'), ('update'), ('delete'), ('truncate')) p(priv)
+  where has_table_privilege('authenticated', 'public.analysis_tasks', p.priv)), 0, 'authenticated는 분석 작업을 쓸 수 없다');
+select test_helpers.assert_equal((select count(*) from pg_publication_tables
+  where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'analysis_tasks'), 1,
+  'Realtime은 분석 작업 상태를 알린다');
+
 select 'MIGRATION_BEHAVIOR_OK' as result;

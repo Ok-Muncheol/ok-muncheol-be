@@ -258,27 +258,38 @@ async def confirm_fact_card(actor_id: str, case_id: str, expected_version: int) 
         return out
 
 
+async def store_vision_card(repo: FactRepo, case_id: str, card: FactCard) -> FactCard:
+    """비전 카드를 새 버전(draft)으로 저장한다. 연결·트랜잭션은 부르는 쪽 것을 쓴다.
+
+    분석 콜백(app/api/analysis.py)이 작업 완료 기록과 같은 트랜잭션에서 부른다.
+    """
+    if not isinstance(card, dict) or not isinstance(card.get("fields"), dict):
+        raise unprocessable("invalid_fact_card", "사실 카드 모양이 아닙니다.")
+    for key, field in card["fields"].items():
+        check_value(key, field.get("value") if isinstance(field, dict) else field)
+    latest = await repo.latest(case_id)
+    new: FactCard = {
+        **copy.deepcopy(card),
+        "case_id": case_id,
+        "version": (latest["version"] + 1) if latest else 1,
+        "status": "draft",
+        "confirmed_by": None,
+        "confirmed_at": None,
+    }
+    if not await repo.insert(new, "vision", None, None):
+        raise version_conflict("같은 사건의 카드가 동시에 저장되었습니다. 다시 시도하세요.")
+    return new
+
+
 async def save_vision_card(case_id: str, card: FactCard) -> FactCard:
     """비전 파이프라인 카드(workers/vision/pipeline.analyze_video 결과)를 새 버전으로 저장한다.
 
-    분석 작업(BE `/analysis` 또는 Modal 결과 수신)이 부른다. 권한 확인은 작업을 접수할 때 한다.
+    권한 확인은 작업을 접수할 때 한다. 로컬 실행·시험용.
+    서비스 흐름은 분석 콜백이 store_vision_card를 쓴다.
     """
     case_id = _case_uuid(case_id)
-    for key, field in card["fields"].items():
-        check_value(key, field.get("value"))
     async with services.connect() as conn:
         repo = services.repo(conn)
         if await repo.assignee(case_id) is None:
             raise not_found("사건을 찾을 수 없습니다.")
-        latest = await repo.latest(case_id)
-        new: FactCard = {
-            **copy.deepcopy(card),
-            "case_id": case_id,
-            "version": (latest["version"] + 1) if latest else 1,
-            "status": "draft",
-            "confirmed_by": None,
-            "confirmed_at": None,
-        }
-        if not await repo.insert(new, "vision", None, None):
-            raise version_conflict("같은 사건의 카드가 동시에 저장되었습니다. 다시 시도하세요.")
-        return new
+        return await store_vision_card(repo, case_id, card)

@@ -32,7 +32,8 @@ def row(**kw) -> dict:
         "card_version": None, "card_at": None, "judgment_version": None,
         "run_card_version": None, "run_status": None, "judgment_status": None, "run_at": None,
         "open_questions": 0, "report_version": None, "report_judgment_version": None,
-        "approval_status": None, "report_at": None,
+        "approval_status": None, "report_at": None, "analysis_status": None,
+        "analysis_at": None, "analysis_updated_at": None,
     }
     return {**base, **kw}
 
@@ -46,6 +47,9 @@ class MemoryCaseRepo:
         self.rows[case_id] = row(id=case_id, assignee_id=actor_id, accident_date=accident_date,
                                  input_path=input_path)
         return case_id
+
+    async def expire_analysis(self, case_id):
+        pass
 
     async def summaries(self, *, case_id=None, assignee_id=None):
         if case_id is not None:
@@ -162,3 +166,23 @@ def test_old_report_not_current():
     out = cases.summarize(row(card_version=2, judgment_version=2, run_card_version=2,
                               run_status="running", report_version=1, report_judgment_version=1))
     assert out["stage"] == "judgment" and out["versions"]["report_version"] is None
+
+
+def test_stage_analysis_running_and_failed():
+    out = cases.summarize(row(analysis_status="running", analysis_at=T0, analysis_updated_at=T0))
+    assert (out["stage"], out["task_status"]) == ("analysis", "running")
+    out = cases.summarize(row(analysis_status="failed", analysis_at=T0))
+    assert (out["stage"], out["task_status"]) == ("analysis", "failed")
+
+
+def test_stage_facts_after_analysis_completed_or_older_failure():
+    later = datetime(2026, 11, 11, 7, 0, tzinfo=UTC)
+    done = cases.summarize(row(analysis_status="completed", analysis_at=T0, card_version=1,
+                               card_at=later))
+    assert done["stage"] == "facts"
+    old_fail = cases.summarize(row(analysis_status="failed", analysis_at=T0, card_version=1,
+                                   card_at=later))
+    assert old_fail["stage"] == "facts"
+    new_fail = cases.summarize(row(analysis_status="failed", analysis_at=later, card_version=1,
+                                   card_at=T0))
+    assert (new_fail["stage"], new_fail["task_status"]) == ("analysis", "failed")
