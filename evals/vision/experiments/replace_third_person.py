@@ -85,10 +85,12 @@ def main():
     for old, new in swaps:
         print(f"[{old['split']}] {old['map_사고장소']}")
         print(
-            f"   빠짐  {old['video_name']}  유형 {old['accident_type']}: {old['map_A진행']} / {old['map_B진행']}"
+            f"   빠짐  {old['video_name']}  유형 {old['accident_type']}: {old['map_A진행']} / "
+            f"{old['map_B진행']}"
         )
         print(
-            f"   들어옴 {new['video_name']}  유형 {new['accident_type']}: {new['map_A진행']} / {new['map_B진행']}"
+            f"   들어옴 {new['video_name']}  유형 {new['accident_type']}: {new['map_A진행']} / "
+            f"{new['map_B진행']}"
         )
 
     if not args.apply:
@@ -117,8 +119,10 @@ def main():
         "",
         "## 3인칭 → 1인칭 교체 (2026-11-09)",
         "",
-        "MVP를 자차 블랙박스(1인칭)만 처리하기로 정해서, 3인칭을 같은 장소·같은 구분의 1인칭으로 바꿨다.",
-        f"`replace_third_person.py`, 시드 {args.seed}. 원래 목록은 `backup/eval_set_before_1st_person.csv`.",
+        "MVP를 자차 블랙박스(1인칭)만 처리하기로 정해서, 3인칭을 같은 장소·같은 구분의 1인칭으로 "
+        "바꿨다.",
+        f"`replace_third_person.py`, 시드 {args.seed}. 원래 목록은 "
+        f"`backup/eval_set_before_1st_person.csv`.",
         "",
         "| 구분 | 장소 | 빠짐 (유형) | 들어옴 (유형) |",
         "| --- | --- | --- | --- |",
@@ -132,7 +136,8 @@ def main():
         f.write("\n".join(md) + "\n")
 
     print(
-        f"\n적용함: {args.eval_set} ({len(out_rows)}건), {RESULTS / 'eval_set_added.csv'} ({len(swaps)}건)"
+        f"\n적용함: {args.eval_set} ({len(out_rows)}건), {RESULTS / 'eval_set_added.csv'} "
+        f"({len(swaps)}건)"
     )
     print(f"원본 백업: {backup}")
 

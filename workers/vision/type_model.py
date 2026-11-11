@@ -49,7 +49,7 @@ def _head():
 
 def marginal(probs, classes, fields_of, field):
     mass, total = Counter(), 0.0
-    for p, c in zip(probs, classes):
+    for p, c in zip(probs, classes, strict=False):
         v = fields_of.get(c, {}).get(field)
         if v:
             mass[v] += float(p)

@@ -43,7 +43,8 @@ def main():
 
     print(f"기준값: {THRESHOLDS}\n")
     print(
-        f"{'영상':26} {'정답B움직임':10} {'계산':8} {'yaw':>6} {'peak':>6} {'전진':>6} {'속도':>5} {'무늬':>4} "
+        f"{'영상':26} {'정답B움직임':10} {'계산':8} {'yaw':>6} {'peak':>6} {'전진':>6} {'속도':>5} "
+        f"{'무늬':>4} "
         f"| {'정답충돌':>6} {'계산충돌':>6}"
     )
     out, mv_ok, ct_ok, ct_n = [], 0, 0, 0
@@ -66,7 +67,8 @@ def main():
             ct_n += 1
         tf = round(truth_ms * 15 / 1000) if truth_ms else None
         print(
-            f"{name:26} {str(truth_mv):10} {ego.movement:8} {ego.yaw:6.2f} {ego.yaw_peak:6.2f} {ego.forward:6.2f} "
+            f"{name:26} {str(truth_mv):10} {ego.movement:8} {ego.yaw:6.2f} {ego.yaw_peak:6.2f} "
+            f"{ego.forward:6.2f} "
             f"{ego.speed:5.2f} {ego.texture:4.1f} | {str(tf):>6} {str(ego.collision_frame):>6} "
             f"{'✓' if mv else '✗'}{'✓' if ct else '✗'}"
         )

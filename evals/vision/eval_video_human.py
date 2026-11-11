@@ -34,7 +34,7 @@ from make_answer_sheet import prefill  # noqa: E402
 from score import load_answers  # noqa: E402
 from silver import ego_cached  # noqa: E402
 
-from workers.vision.video_model import (
+from workers.vision.video_model import (  # noqa: E402
     CACHE,
     MODEL_PATH,
     MOVES,
@@ -159,12 +159,11 @@ def main():
         y = np.array([four(human[n][f]) for n in names])
         for tr, te in folds:
             pca = PCA(16, random_state=0).fit(feats[tr])  # 평가 묶음은 PCA에도 안 씀
-            #  noqa: E731
-            X = lambda idx: np.hstack([np.log(probs[idx] + 1e-6), pca.transform(feats[idx])])
+            X = lambda idx: np.hstack([np.log(probs[idx] + 1e-6), pca.transform(feats[idx])])  # noqa: E731, B023
             clf = make_pipeline(StandardScaler(), LogisticRegression(C=1.0, max_iter=5000)).fit(
                 X(tr), y[tr]
             )
-            for i, cls in zip(te, clf.predict(X(te))):
+            for i, cls in zip(te, clf.predict(X(te)), strict=False):
                 calib[f][names[i]] = with_fallback(f, cls, names[i], human)
 
     # [1] 움직임 분류기 예측(exp_human_mix와 같은 5묶음 교차 검증). 출력이 길어서 앞에 구분선
@@ -191,8 +190,10 @@ def main():
     agree = [n for n in both if video["movement_B"][n] == clf_preds["movement_B"][n]["classifier"]]
     dis = [n for n in both if n not in agree]
     print(
-        f"  (확인 표시 참고) 둘이 같은 {len(agree)}건 정답률 {sum(v_ok[n] for n in agree)}/{len(agree)} | "
-        f"다른 {len(dis)}건: 영상 모델 {sum(v_ok[n] for n in dis)}, 분류기 {sum(c_ok[n] for n in dis)}"
+        f"  (확인 표시 참고) 둘이 같은 {len(agree)}건 정답률 "
+        f"{sum(v_ok[n] for n in agree)}/{len(agree)} | "
+        f"다른 {len(dis)}건: 영상 모델 {sum(v_ok[n] for n in dis)}, 분류기 "
+        f"{sum(c_ok[n] for n in dis)}"
     )
 
     print("\n== [2] 사람 라벨 보정(4묶음 돌려 가며): 보정 전 vs 보정 후")
@@ -203,7 +204,8 @@ def main():
         c = sum(pre[n] and not post[n] for n in names)
         p = mcnemar(b, c)
         print(
-            f"  {f}: 보정 전 {sum(pre.values())}/{len(names)} → 보정 후 {sum(post.values())}/{len(names)} "
+            f"  {f}: 보정 전 {sum(pre.values())}/{len(names)} → 보정 후 "
+            f"{sum(post.values())}/{len(names)} "
             f"| 보정만 맞힘 {b}, 보정 전만 맞힘 {c}, p = {p:.3f} → "
             f"{'보정 채택' if b > c and p < 0.10 else '보정 안 함'}"
         )

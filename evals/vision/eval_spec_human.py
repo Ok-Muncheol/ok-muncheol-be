@@ -68,7 +68,8 @@ def main():
         c_ = sum(a_pred[n] != truth[n][f] and c_pred[n] == truth[n][f] for n in sel)
         p = mcnemar(b_, c_)
         print(
-            f"  {title:26} {args.spec} {a}/{len(sel)} vs {c_name} {c}/{len(sel)} ({args.spec}만 맞힘 {b_}, 반대 {c_}, p={p:.2f})"
+            f"  {title:26} {args.spec} {a}/{len(sel)} vs {c_name} {c}/{len(sel)} ({args.spec}만 "
+            f"맞힘 {b_}, 반대 {c_}, p={p:.2f})"
         )
         return a, c, p
 
@@ -113,7 +114,8 @@ def main():
         sel = [n for n in names if truth[n]["movement_A"] == c_]
         if sel:
             print(
-                f"    A {c_} {len(sel)}건: {args.spec} {sum(alone[n] == c_ for n in sel)} | v2 {sum(a2[n] == c_ for n in sel)}"
+                f"    A {c_} {len(sel)}건: {args.spec} {sum(alone[n] == c_ for n in sel)} | v2 "
+                f"{sum(a2[n] == c_ for n in sel)}"
                 f" | v3 {sum(a3[n] == c_ for n in sel)}"
             )
     verdict.append(
@@ -127,7 +129,8 @@ def main():
         a = sum(new[n][f]["value"] == t[n] for n in sel)
         c = sum(v3[n][f]["value"] == t[n] for n in sel)
         print(
-            f"  {f:26} {args.spec} {a}/{len(sel)} vs v3 {c}/{len(sel)} (정답 카드, 왼쪽·오른쪽은 '옆')"
+            f"  {f:26} {args.spec} {a}/{len(sel)} vs v3 {c}/{len(sel)} (정답 카드, 왼쪽·오른쪽은 "
+            f"'옆')"
         )
         verdict.append(
             f"{f} 확인 표시: {'새 모델 기준으로(30건 재조립 확인)' if a > c else 'v3 유지'}"

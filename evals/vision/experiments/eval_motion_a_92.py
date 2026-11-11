@@ -55,21 +55,25 @@ def compare(title, names, truth, vlm, video):
     N = len(names)
     print(f"\n== {title} ({N}건)")
     print(
-        f"  VLM {sum(v_ok.values())}/{N} ({sum(v_ok.values()) / N:.0%}) | 영상 모델 {sum(m_ok.values())}/{N} "
+        f"  VLM {sum(v_ok.values())}/{N} ({sum(v_ok.values()) / N:.0%}) | 영상 모델 "
+        f"{sum(m_ok.values())}/{N} "
         f"({sum(m_ok.values()) / N:.0%}) | 전부 직진 {sum(truth[n] == '직진' for n in names)}/{N}"
     )
     print(
-        f"  영상 모델만 맞힘 {b} | VLM만 맞힘 {c} | 둘 다 맞힘 {sum(v_ok[n] and m_ok[n] for n in names)} | "
+        f"  영상 모델만 맞힘 {b} | VLM만 맞힘 {c} | 둘 다 맞힘 "
+        f"{sum(v_ok[n] and m_ok[n] for n in names)} | "
         f"둘 다 틀림 {sum(not v_ok[n] and not m_ok[n] for n in names)} | p = {p:.3f}"
     )
     for cl in ("직진", "좌회전", "우회전"):
         sel = [n for n in names if truth[n] == cl]
         print(
-            f"    {cl} {len(sel)}건 맞힘: VLM {sum(vlm[n] == cl for n in sel)}, 영상 모델 {sum(video[n] == cl for n in sel)}"
+            f"    {cl} {len(sel)}건 맞힘: VLM {sum(vlm[n] == cl for n in sel)}, 영상 모델 "
+            f"{sum(video[n] == cl for n in sel)}"
         )
     agree = [n for n in names if vlm[n] == video[n]]
     print(
-        f"  (확인 표시 참고) 둘이 같은 {len(agree)}건 정답률 {sum(v_ok[n] for n in agree)}/{len(agree)} | "
+        f"  (확인 표시 참고) 둘이 같은 {len(agree)}건 정답률 "
+        f"{sum(v_ok[n] for n in agree)}/{len(agree)} | "
         f"다른 {N - len(agree)}건"
     )
     return b, c, p
@@ -90,7 +94,8 @@ def main():
     names = sorted(n for n in human if n in cards and n in video and cards[n][0])
     missing = sorted(n for n in human if n not in names)
     print(
-        f"비교 {len(names)}건 (VLM 답 없음·실패 {len(missing)}건{': ' + ', '.join(missing) if missing else ''})"
+        f"비교 {len(names)}건 (VLM 답 없음·실패 "
+        f"{len(missing)}건{': ' + ', '.join(missing) if missing else ''})"
     )
     truth = {n: human[n]["movement_A"] for n in names}
     vlm = {n: cards[n][0] for n in names}

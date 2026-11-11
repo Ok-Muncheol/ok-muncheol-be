@@ -95,7 +95,8 @@ def main():
         if i % 50 == 0:
             el = time.time() - t0
             print(
-                f"{i}/{len(rows)} {el / 60:.0f}분 (남은 시간 약 {el / i * (len(rows) - i) / 60:.0f}분)",
+                f"{i}/{len(rows)} {el / 60:.0f}분 (남은 시간 약 "
+                f"{el / i * (len(rows) - i) / 60:.0f}분)",
                 flush=True,
             )
     print(f"끝 {(time.time() - t0) / 60:.0f}분", flush=True)

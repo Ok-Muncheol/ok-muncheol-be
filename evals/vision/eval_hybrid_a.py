@@ -68,18 +68,19 @@ def main():
         ("정답 카드 30건(이미 쓴 세트)", [n for n in names if n in vlm]),
     ):
         N = len(sel)
-        ok = lambda pred: sum(pred[n] == truth[n] for n in sel)  # noqa: E731
+        ok = lambda pred: sum(pred[n] == truth[n] for n in sel)  # noqa: E731, B023
         line = f"\n== {title} ({N}건): v2 {ok(v2)} | v3 {ok(v3)} | 섞기 {ok(mix)}"
         if all(n in vlm for n in sel):
             line += f" | VLM {sum(vlm[n] == truth[n] for n in sel)}"
         print(line)
         # 참고 숫자(판정에는 안 씀, 2026-11-10 결과를 본 뒤 추가): 진로변경·추월을 한 묶음으로 볼 때
         m = lambda v: "진로변경" if v == "추월" else v  # noqa: E731
-        okm = lambda pred: sum(m(pred[n]) == m(truth[n]) for n in sel)  # noqa: E731
+        okm = lambda pred: sum(m(pred[n]) == m(truth[n]) for n in sel)  # noqa: E731, B023
         print(f"  (참고) 진로변경·추월 한 묶음: v2 {okm(v2)} | v3 {okm(v3)} | 섞기 {okm(mix)}")
         switched = [n for n in sel if v3[n] in SPECIAL]
         print(
-            f"  v3가 진로변경·추월이라고 한 영상 {len(switched)}건 → 실제 맞음 {sum(mix[n] == truth[n] for n in switched)}, "
+            f"  v3가 진로변경·추월이라고 한 영상 {len(switched)}건 → 실제 맞음 "
+            f"{sum(mix[n] == truth[n] for n in switched)}, "
             f"그중 v2가 맞혔던 것 {sum(v2[n] == truth[n] for n in switched)}"
         )
         for n in switched:

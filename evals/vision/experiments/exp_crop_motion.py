@@ -99,7 +99,8 @@ def main():
             p = cross_val_predict(m, X, y, cv=cv)
             cls_acc = {c: np.mean(p[y == c] == c) for c in ("좌회전", "우회전")}
             print(
-                f"  {label:22} 정확도 {np.mean(p == y) * 100:.1f}% | 좌회전 {cls_acc['좌회전'] * 100:.0f}%"
+                f"  {label:22} 정확도 {np.mean(p == y) * 100:.1f}% | 좌회전 "
+                f"{cls_acc['좌회전'] * 100:.0f}%"
                 f" 우회전 {cls_acc['우회전'] * 100:.0f}%"
             )
 

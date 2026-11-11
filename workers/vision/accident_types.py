@@ -271,4 +271,7 @@ def describe(c: dict) -> str:
     sig = ""
     if c["signal_A"] or c["signal_B"]:
         sig = f" / 신호: A {c['signal_A'] or '-'}, B {c['signal_B'] or '-'}"
-    return f"[{c['id']}] {c['place']}, {c['feature']} / A(상대 차): {c['A']} / B(블랙박스 차): {c['B']}{sig}"
+    return (
+        f"[{c['id']}] {c['place']}, {c['feature']} / A(상대 차): {c['A']}"
+        f" / B(블랙박스 차): {c['B']}{sig}"
+    )

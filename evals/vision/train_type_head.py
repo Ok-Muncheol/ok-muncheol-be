@@ -43,7 +43,7 @@ from eval_video_human import load_human, mcnemar  # noqa: E402
 from make_answer_sheet import label_swapped, prefill  # noqa: E402
 from silver import ego_cached  # noqa: E402
 
-from workers.vision.video_model import (
+from workers.vision.video_model import (  # noqa: E402
     CACHE,
     MODEL_FILES,
     build_model,
@@ -82,7 +82,7 @@ def video_features(spec, names):
     have = {}
     if path.exists():
         d = np.load(path)
-        have = dict(zip(d["names"].tolist(), d["feat"]))
+        have = dict(zip(d["names"].tolist(), d["feat"], strict=False))
     todo = [n for n in names if n not in have]
     if todo:
         net = build_model(spec)
@@ -100,10 +100,11 @@ def video_features(spec, names):
                         .cpu()
                         .numpy()
                     )
-                have.update(zip(chunk, h))
+                have.update(zip(chunk, h, strict=False))
                 if (i // 16) % 50 == 0:
                     print(
-                        f"  {spec} 요약 {i + len(chunk)}/{len(todo)} | {(time.time() - t0) / 60:.1f}분",
+                        f"  {spec} 요약 {i + len(chunk)}/{len(todo)} | "
+                        f"{(time.time() - t0) / 60:.1f}분",
                         flush=True,
                     )
         del net
@@ -120,7 +121,7 @@ def marginal(probs, classes, fields_of, field):
     """칸 값별 확률 = 그 값을 가진 유형들의 확률 합 / 그 칸을 정하는 유형들의 확률 합. (값, 자신감)
     또는 (None, 0)."""
     mass, total = Counter(), 0.0
-    for p, c in zip(probs, classes):
+    for p, c in zip(probs, classes, strict=False):
         v = fields_of.get(c, {}).get(field)
         if v:
             mass[v] += p
@@ -253,7 +254,8 @@ def main():
     }
     names_cur = {"location_type": "v2", "movement_B": "분류기", "movement_A": "v2+v3 섞기"}
     print(
-        f"\n== 사람 정답 {len(hnames)}건: 유형에서 나온 값 vs 지금 값 (유형이 칸을 안 정하면 지금 값을 씀)"
+        f"\n== 사람 정답 {len(hnames)}건: 유형에서 나온 값 vs 지금 값 (유형이 칸을 안 정하면 지금 "
+        f"값을 씀)"
     )
     verdict = []
     for f in ("location_type", "movement_B", "movement_A"):
@@ -265,7 +267,8 @@ def main():
         c_ = sum(t[n] != human[n][f] and current[f][n] == human[n][f] for n in sel)
         p = mcnemar(b_, c_)
         print(
-            f"  {f:16} 유형 {a}/{len(sel)} vs 지금({names_cur[f]}) {cc}/{len(sel)} (유형만 맞힘 {b_}, 반대 {c_}, p={p:.2f})"
+            f"  {f:16} 유형 {a}/{len(sel)} vs 지금({names_cur[f]}) {cc}/{len(sel)} (유형만 맞힘 "
+            f"{b_}, 반대 {c_}, p={p:.2f})"
         )
         ok = a > cc and (p < 0.10 if f != "movement_A" else True)
         if f == "movement_A" and ok:
@@ -280,7 +283,9 @@ def main():
         print(
             "    자신감 구간별 정답률: "
             + " | ".join(
-                f"{lo:.1f}~{min(hi, 1):.1f}: {sum(r for cf, r in rows if lo <= cf < hi)}/{sum(lo <= cf < hi for cf, _ in rows)}"
+                f"{lo:.1f}~{min(hi, 1):.1f}: "
+                f"{sum(r for cf, r in rows if lo <= cf < hi)}/"
+                f"{sum(lo <= cf < hi for cf, _ in rows)}"
                 for lo, hi in bins
             )
         )

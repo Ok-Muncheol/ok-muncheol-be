@@ -200,7 +200,8 @@ def main():
         f"1. 장소별 몫: 후보 수의 제곱근 비율, 장소마다 최소 {MIN_PER_PLACE}건, 합계 {TOTAL}건",
         f"2. 장소마다 약 {int(THIRD_PERSON_SHARE * 100)}%를 3인칭으로 (3인칭이 없으면 1인칭만)",
         "3. 장소 안에서 사고 유형이 겹치지 않게 고름 (유형을 다 쓴 뒤에만 반복)",
-        f"4. 개선용(dev) {DEV}건: 장소마다 1건씩, 남는 몫은 몫이 큰 장소부터 1건씩. 나머지는 최종 평가용(test)",
+        f"4. 개선용(dev) {DEV}건: 장소마다 1건씩, 남는 몫은 몫이 큰 장소부터 1건씩. 나머지는 최종 "
+        f"평가용(test)",
         "",
         "## 장소별 후보 수와 몫",
         "",
@@ -220,7 +221,8 @@ def main():
         table(Counter(f"{r['map_사고장소']} / {r['split']}" for r in selected), "장소 / split"),
         "",
         f"- 사고 유형 종류: {len({r['accident_type'] for r in selected})}개 / {len(selected)}건",
-        f"- 신호 정답(A신호·B신호)이 있는 영상: {sum(bool(r['map_A신호'] or r['map_B신호']) for r in selected)}건",
+        f"- 신호 정답(A신호·B신호)이 있는 영상: "
+        f"{sum(bool(r['map_A신호'] or r['map_B신호']) for r in selected)}건",
         "",
         "## 선정 목록",
         "",
@@ -231,7 +233,8 @@ def main():
         a = r["accidental_negligence_rateA"] or r["map_기본과실A"]
         b = r["accidental_negligence_rateB"] or r["map_기본과실B"]
         md.append(
-            f"| {r['split']} | {r['video_name']} | {r['map_사고장소']} | {r['video_point_of_view']} | "
+            f"| {r['split']} | {r['video_name']} | {r['map_사고장소']} | "
+            f"{r['video_point_of_view']} | "
             f"{r['accident_type']} | {r['map_A진행']} | {r['map_B진행']} | {a}:{b} |"
         )
     out_md = args.out_dir / "eval_set_criteria.md"
@@ -239,7 +242,8 @@ def main():
 
     print(
         f"후보 {len(candidates)}건 → 선정 {len(selected)}건 "
-        f"(dev {sum(r['split'] == 'dev' for r in selected)}, test {sum(r['split'] == 'test' for r in selected)})"
+        f"(dev {sum(r['split'] == 'dev' for r in selected)}, test "
+        f"{sum(r['split'] == 'test' for r in selected)})"
     )
     print("저장:", out_csv, out_md)
 

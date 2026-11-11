@@ -93,7 +93,8 @@ def main():
         if args.set == "dev":
             print(f"{name[:24]} 정답={truth} 계산={got} {res['why']}")
     print(
-        f"\n움직임 A (깊이 궤적, {args.set}): {ok}/{n} ({ok / max(n, 1) * 100:.0f}%), 판단 못 함 {none}건"
+        f"\n움직임 A (깊이 궤적, {args.set}): {ok}/{n} ({ok / max(n, 1) * 100:.0f}%), 판단 못 함 "
+        f"{none}건"
     )
     base = Counter(truth_of[r["video_name"]] for r in rows if truth_of.get(r["video_name"]))
     top, cnt = base.most_common(1)[0]

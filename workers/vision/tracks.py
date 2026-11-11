@@ -23,7 +23,8 @@ def summarize_tracks(
 ) -> str:
     """궤적을 짧은 글로. 위치는 화면 비율(0~1), 크기는 박스 넓이/화면 넓이."""
     lines = [
-        f"[{source}] 화면 좌표 x: 0=왼쪽~1=오른쪽, y: 0=위~1=아래. 크기는 화면 대비 박스 넓이(클수록 가까움)."
+        f"[{source}] 화면 좌표 x: 0=왼쪽~1=오른쪽, y: 0=위~1=아래. 크기는 화면 대비 박스 "
+        f"넓이(클수록 가까움)."
     ]
     for party in ("A", "B"):
         pts = sorted(tracks.get(party, []))
@@ -51,7 +52,8 @@ def summarize_tracks(
             grow = a1 / a0 if a0 > 0 else 0
             near = "다가옴" if grow > 1.3 else "멀어짐" if grow < 0.77 else "거리 비슷"
             lines.append(
-                f"  요약: #{f0}~#{f1} 사이 화면 {_where(x0)}→{_where(x1)}, {move}, 크기 {grow:.1f}배({near})."
+                f"  요약: #{f0}~#{f1} 사이 화면 {_where(x0)}→{_where(x1)}, {move}, 크기 "
+                f"{grow:.1f}배({near})."
             )
     if all(tracks.get(p) for p in ("A", "B")):
         common = sorted({p[0] for p in tracks["A"]} & {p[0] for p in tracks["B"]})

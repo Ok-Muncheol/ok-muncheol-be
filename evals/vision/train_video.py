@@ -182,7 +182,7 @@ def main():
             t = [
                 target(f, src[n].get(f)) if src[n].get(f) else -100 for n in names
             ]  # 정답 없는 칸은 뺌
-            pairs = [(p, y) for p, y in zip(preds[f], t) if y != -100]
+            pairs = [(p, y) for p, y in zip(preds[f], t, strict=False) if y != -100]
             acc[f] = sum(p == y for p, y in pairs) / max(len(pairs), 1)
         return acc, preds
 
@@ -232,7 +232,8 @@ def main():
                 }
     print(f"\n== 사람 정답 평가 ({len(names)}건)")
     print(
-        "  (상대 위치는 왼쪽·오른쪽을 '옆'으로 묶어 비교. 움직임은 '기타'면 B는 카메라 규칙, A는 직진)"
+        "  (상대 위치는 왼쪽·오른쪽을 '옆'으로 묶어 비교. 움직임은 '기타'면 B는 카메라 규칙, A는 "
+        "직진)"
     )
     for f in FIELDS:
         classes = SPECS[SPEC][f]
@@ -252,7 +253,7 @@ def main():
             got.append(c)
         truth = [side(f, human[n][f]) for n, _ in rows]
         N = len(rows)
-        ok = sum(g == t for g, t in zip(got, truth))
+        ok = sum(g == t for g, t in zip(got, truth, strict=False))
         line = f"  {f:18} 영상 모델 {ok}/{N} ({ok / N:.0%})"
         if f.startswith("movement_"):
             line += f" | 전부 직진 {sum(t == '직진' for t in truth)}/{N}"
@@ -266,13 +267,20 @@ def main():
                 for n, _ in rows
             )
             line += f" | 카메라 규칙 {rule}/{N}"
-        sub = [(g, t, side(f, vlm[n].get(f))) for (n, _), g, t in zip(rows, got, truth) if n in vlm]
+        sub = [
+            (g, t, side(f, vlm[n].get(f)))
+            for (n, _), g, t in zip(rows, got, truth, strict=False)
+            if n in vlm
+        ]
         if sub:
-            line += f" | (VLM 답 있는 {len(sub)}건) VLM {sum(v == t for _, t, v in sub)} vs 영상 모델 {sum(g == t for g, t, _ in sub)}"
+            line += (
+                f" | (VLM 답 있는 {len(sub)}건) VLM {sum(v == t for _, t, v in sub)}"
+                f" vs 영상 모델 {sum(g == t for g, t, _ in sub)}"
+            )
         print(line)
         if f.startswith("movement_"):
             for c in ("좌회전", "우회전", "진로변경", "추월", "주정차", "출차"):
-                sel = [g for g, t in zip(got, truth) if t == c]
+                sel = [g for g, t in zip(got, truth, strict=False) if t == c]
                 if sel:
                     print(f"    {c} {len(sel)}건 중 맞힘 {sum(g == c for g in sel)}")
 

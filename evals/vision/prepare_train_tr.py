@@ -98,7 +98,8 @@ def main():
     parser.add_argument(
         "--tag",
         default="tr",
-        help="결과 표 이름: train_set_<tag>.csv, train_answers_<tag>.csv (2026-11-10 v4용 all, 기존 tr은 안 덮음)",
+        help="결과 표 이름: train_set_<tag>.csv, train_answers_<tag>.csv (2026-11-10 v4용 all, "
+             "기존 tr은 안 덮음)",
     )
     parser.add_argument("--no-clips", action="store_true", help="표만 만들고 16장 뽑기는 하지 않음")
     args = parser.parse_args()
@@ -163,7 +164,8 @@ def main():
         if not (CACHE / f"{r['video_name']}.npy").exists()
     ]
     print(
-        f"16장 뽑기: 남은 {len(todo)}건 (이미 있음 {len(rows) - len(todo)}건), 작업자 {args.workers}개",
+        f"16장 뽑기: 남은 {len(todo)}건 (이미 있음 {len(rows) - len(todo)}건), 작업자 "
+        f"{args.workers}개",
         flush=True,
     )
     t0, count, bad = time.time(), Counter(), []
@@ -176,7 +178,8 @@ def main():
             if i % 200 == 0 or i == len(todo):
                 el = time.time() - t0
                 print(
-                    f"  {i}/{len(todo)} | {el / 60:.0f}분 지남, 남은 시간 약 {el / i * (len(todo) - i) / 60:.0f}분",
+                    f"  {i}/{len(todo)} | {el / 60:.0f}분 지남, 남은 시간 약 "
+                    f"{el / i * (len(todo) - i) / 60:.0f}분",
                     flush=True,
                 )
     print("끝:", dict(count))

@@ -75,7 +75,7 @@ def detect_and_track(
             continue
         ids = b.id.int().tolist() if b.id is not None else [None] * len(b)
         for (x1, y1, x2, y2), cls, c, tid in zip(
-            b.xyxy.tolist(), b.cls.int().tolist(), b.conf.tolist(), ids
+            b.xyxy.tolist(), b.cls.int().tolist(), b.conf.tolist(), ids, strict=False
         ):
             box = [n, round(x1, 1), round(y1, 1), round(x2 - x1, 1), round(y2 - y1, 1), round(c, 3)]
             if cls == TRAFFIC_LIGHT:

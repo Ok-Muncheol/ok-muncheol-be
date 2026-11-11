@@ -88,7 +88,8 @@ def main():
         n += 1
         if pick:
             print(
-                f"{card['case_id'][:24]} → 유형 {pick['candidate']['type']} (확신 {pick['confidence']})"
+                f"{card['case_id'][:24]} → 유형 {pick['candidate']['type']} (확신 "
+                f"{pick['confidence']})"
             )
     print(f"\n{n}건 다시 계산 → {out_dir}")
     print(f"채점: .venv\\Scripts\\python evals\\vision\\score.py {out_dir}")

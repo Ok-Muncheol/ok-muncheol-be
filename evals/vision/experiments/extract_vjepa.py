@@ -52,7 +52,8 @@ def main():
         if done % 400 < BATCH or done == len(todo):
             el = time.time() - t0
             print(
-                f"  {done}/{len(todo)} | {el / 60:.0f}분 지남, 남은 시간 약 {el / done * (len(todo) - done) / 60:.0f}분",
+                f"  {done}/{len(todo)} | {el / 60:.0f}분 지남, 남은 시간 약 "
+                f"{el / done * (len(todo) - done) / 60:.0f}분",
                 flush=True,
             )
     print("끝")

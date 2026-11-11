@@ -164,5 +164,5 @@ def predict(field: str, feats: dict, emb=None, extra: list | None = None) -> dic
         "value": str(classes[order[0]]),
         "confidence": round(float(probs[order[0]]), 2),
         "probs": {str(classes[i]): round(float(probs[i]), 2) for i in order[:3]},
-        "all": {str(c): float(p) for c, p in zip(classes, probs)},
+        "all": {str(c): float(p) for c, p in zip(classes, probs, strict=False)},
     }

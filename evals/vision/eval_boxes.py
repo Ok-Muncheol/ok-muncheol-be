@@ -32,7 +32,7 @@ from evals.vision.gt_tracks import load_gt_tracks  # noqa: E402
 from evals.vision.score import load_answers  # noqa: E402
 
 #  noqa: E402
-from workers.vision.box_features import BOX_THRESHOLDS, box_opinions, relative_before_hit
+from workers.vision.box_features import BOX_THRESHOLDS, box_opinions, relative_before_hit  # noqa: E402
 from workers.vision.fields import same_value  # noqa: E402
 
 FIELDS = ("collision_part_B", "relative_position", "collision_time_ms")
@@ -71,7 +71,8 @@ def main():
         "--rel",
         default="first",
         choices=["first", "before_hit"],
-        help="상대 위치 규칙: first=처음 보인 곳(기존), before_hit=충돌 약 1초 전 위치(VLM 충돌 순간 기준)",
+        help="상대 위치 규칙: first=처음 보인 곳(기존), before_hit=충돌 약 1초 전 위치(VLM 충돌 "
+             "순간 기준)",
     )
     parser.add_argument("--split", default="dev", choices=["dev", "test"])
     parser.add_argument("--final", action="store_true")
@@ -94,7 +95,8 @@ def main():
         ]
 
     print(
-        f"박스: {args.boxes}{' + 카메라 충돌 순간' if args.use_ego else ''} | 기준값: {BOX_THRESHOLDS}\n"
+        f"박스: {args.boxes}{' + 카메라 충돌 '
+                           '순간' if args.use_ego else ''} | 기준값: {BOX_THRESHOLDS}\n"
     )
     box_ok = {k: 0 for k in FIELDS}
     vlm_ok = {k: 0 for k in FIELDS}
@@ -136,7 +138,8 @@ def main():
                 )
                 detected_any += best >= MATCH_IOU
                 pick_note = (
-                    f"상대 차 {'✓' if ok else '✗'} (겹침 {m if m is None else round(m, 2)}, {k}프레임"
+                    f"상대 차 {'✓' if ok else '✗'} (겹침 {m if m is None else round(m, 2)}, "
+                    f"{k}프레임"
                     f"{'' if ok else f'; YOLO가 정답 차를 잡은 최대 겹침 {best:.2f}'})"
                 )
             # 신호등(C안): 충돌 순간까지 신호등이 안 보이면 신호 B를 '불명'으로
@@ -189,7 +192,7 @@ def main():
             if vlm_card:
                 vgot = vlm_card["fields"][k]["value"]
                 vlm_ok[k] += same_value(k, vgot, truth if k == "collision_time_ms" else str(truth))
-            show = lambda v: (
+            show = lambda v, k=k: (  # noqa: E731
                 round(v * 15 / 1000)
                 if k == "collision_time_ms" and isinstance(v, (int, float))
                 else v
@@ -211,11 +214,13 @@ def main():
         print(line)
     if args.boxes == "yolo":
         print(
-            f"\n상대 차를 맞게 고름: {picked_right}/{picked_n}  (YOLO가 정답 차를 잡기는 함: {detected_any}/{picked_n})"
+            f"\n상대 차를 맞게 고름: {picked_right}/{picked_n}  (YOLO가 정답 차를 잡기는 함: "
+            f"{detected_any}/{picked_n})"
         )
         if sig["n"]:
             print(
-                f"신호 B (C안: 신호등 안 보이면 불명): VLM 그대로 {sig['before']}/{sig['n']} → 적용 후 {sig['after']}/{sig['n']}"
+                f"신호 B (C안: 신호등 안 보이면 불명): VLM 그대로 {sig['before']}/{sig['n']} → "
+                f"적용 후 {sig['after']}/{sig['n']}"
             )
 
 

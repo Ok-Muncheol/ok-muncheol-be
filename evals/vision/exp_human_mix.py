@@ -149,30 +149,36 @@ def main():
         N = len(hum)
         print(f"\n== {field} (사람 정답 {N}건)")
         print(
-            f"  분류기 AI Hub만(무게 0):   {np.sum(preds[0] == truth)}/{N} ({np.mean(preds[0] == truth) * 100:.0f}%)"
+            f"  분류기 AI Hub만(무게 0):   {np.sum(preds[0] == truth)}/{N} "
+            f"({np.mean(preds[0] == truth) * 100:.0f}%)"
         )
         print(
-            f"  분류기 + 사람 라벨(무게 20): {np.sum(preds[20] == truth)}/{N} ({np.mean(preds[20] == truth) * 100:.0f}%)"
+            f"  분류기 + 사람 라벨(무게 20): {np.sum(preds[20] == truth)}/{N} "
+            f"({np.mean(preds[20] == truth) * 100:.0f}%)"
         )
         print(
-            f"  전부 직진:                  {np.sum(truth == '직진')}/{N} ({np.mean(truth == '직진') * 100:.0f}%)"
+            f"  전부 직진:                  {np.sum(truth == '직진')}/{N} "
+            f"({np.mean(truth == '직진') * 100:.0f}%)"
         )
         if field == "movement_B":
             print(
-                f"  카메라 규칙:                {np.sum(rule == truth)}/{N} ({np.mean(rule == truth) * 100:.0f}%)"
+                f"  카메라 규칙:                {np.sum(rule == truth)}/{N} "
+                f"({np.mean(rule == truth) * 100:.0f}%)"
             )
         has_vlm = np.array([n in vlm for n in hum])
         if has_vlm.any():
             v = np.array([vlm[n][field] if n in vlm else None for n in hum])
             k = has_vlm.sum()
             print(
-                f"  (우리 30건 중 VLM 답 있는 {k}건) VLM {np.sum(v[has_vlm] == truth[has_vlm])}/{k} | "
+                f"  (우리 30건 중 VLM 답 있는 {k}건) VLM "
+                f"{np.sum(v[has_vlm] == truth[has_vlm])}/{k} | "
                 f"분류기+사람 {np.sum(preds[20][has_vlm] == truth[has_vlm])}/{k}"
             )
         for c in ("좌회전", "우회전"):
             sel = truth == c
             print(
-                f"  {c} {sel.sum()}건 맞힘: 무게0 {np.sum(preds[0][sel] == c)} | 무게20 {np.sum(preds[20][sel] == c)}"
+                f"  {c} {sel.sum()}건 맞힘: 무게0 {np.sum(preds[0][sel] == c)} | 무게20 "
+                f"{np.sum(preds[20][sel] == c)}"
             )
     return results
 

@@ -44,7 +44,7 @@ def opponent_tags(
             out.append({"frames": (s, e), "seen": False})
             continue
         a, b = pts[0], pts[-1]
-        cx = lambda p: (p[1] + p[3] / 2) / width
+        cx = lambda p: (p[1] + p[3] / 2) / width  # noqa: E731
         move = cx(b) - cx(a)
         cam = 0.0
         if ego_dx:
@@ -74,7 +74,8 @@ def opponent_tags(
 def describe(tags: list[dict]) -> str:
     """꼬리표를 VLM 질문에 붙일 글로. 결론(움직임 이름)은 쓰지 않는다."""
     lines = [
-        "[상대 차(A) 움직임 기록: 코드 계산(자동 탐지·추적). 카메라(B)가 돈 만큼은 빼고 어림한 값이며 틀릴 수 있다]"
+        "[상대 차(A) 움직임 기록: 코드 계산(자동 탐지·추적). 카메라(B)가 돈 만큼은 빼고 어림한 "
+        "값이며 틀릴 수 있다]"
     ]
     for t in tags:
         s, e = t["frames"]

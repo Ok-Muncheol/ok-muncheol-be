@@ -138,13 +138,15 @@ def fit_motion(feats: dict, answers: dict, columns: list, verbose: bool = True) 
             top, cnt = Counter(y).most_common(1)[0]
             print(f"\n== {field} (라벨 정답 {len(y)}건, 교차 검증)")
             print(
-                f"  정확도 {np.mean(pred == y) * 100:.0f}% | 찍기(전부 '{top}') {cnt / len(y) * 100:.0f}%"
+                f"  정확도 {np.mean(pred == y) * 100:.0f}% | 찍기(전부 '{top}') "
+                f"{cnt / len(y) * 100:.0f}%"
             )
             for t in (0.6, 0.8):
                 m = conf >= t
                 if m.any():
                     print(
-                        f"  확신도 ≥{t}: {m.mean() * 100:.0f}%의 영상, 그 정확도 {np.mean(pred[m] == y[m]) * 100:.0f}%"
+                        f"  확신도 ≥{t}: {m.mean() * 100:.0f}%의 영상, 그 정확도 "
+                        f"{np.mean(pred[m] == y[m]) * 100:.0f}%"
                     )
             for c in classes:
                 m = y == c
@@ -215,7 +217,8 @@ def main():
             ok_m += p["value"] == truth
             ok_v += vlm == truth
             print(
-                f"    dev {name[5:22]} 정답={truth} 모델={p['value']}({p['confidence']}) VLM/카드={vlm}"
+                f"    dev {name[5:22]} 정답={truth} 모델={p['value']}({p['confidence']}) "
+                f"VLM/카드={vlm}"
             )
         print(
             f"  개선용 10건: 모델 {ok_m}/{n}" + (f" | 기존 카드 {ok_v}/{n}" if args.dev_run else "")

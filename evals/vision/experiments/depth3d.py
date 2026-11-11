@@ -69,7 +69,7 @@ def _ego_forward(img0, img1, d0, d1, boxes, H) -> float | None:
         return None
     nxt, st, _ = cv2.calcOpticalFlowPyrLK(g0, g1, pts, None)
     dz = []
-    for p, q, ok in zip(pts.reshape(-1, 2), nxt.reshape(-1, 2), st.reshape(-1)):
+    for p, q, ok in zip(pts.reshape(-1, 2), nxt.reshape(-1, 2), st.reshape(-1), strict=False):
         if not ok or not (0 <= q[0] < g1.shape[1] and 0 <= q[1] < g1.shape[0]):
             continue
         z0, z1 = d0[int(p[1]), int(p[0])], d1[int(q[1]), int(q[0])]

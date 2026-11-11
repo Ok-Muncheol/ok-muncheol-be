@@ -48,7 +48,7 @@ def load_answers(path):
     for row in rows[2:]:
         if not row or not row[0]:
             continue
-        rec = dict(zip(header, row))
+        rec = dict(zip(header, row, strict=False))
         frame = rec.get("collision_frame")
         rec["collision_time_ms"] = (
             frame_to_ms(int(frame)) if isinstance(frame, (int, float)) else None
@@ -185,21 +185,27 @@ def main():
         f"- 채점한 영상: {videos}건 (이 폴더 카드 그대로 채점. 담당자 수정을 가정하지 않음)",
         "",
         "## 대표 숫자 (핵심 칸: 장소·도로 관계·신호 A/B·움직임 A/B·상대 위치·진입 순서)",
-        f"- **핵심 칸 정답률: {pct(core_ok, len(core_rows))}** (찍기 기준 {pct(core_base, len(core_rows))})",
-        f"- **표시 없는 핵심 칸의 정확도(담당자가 안 보는 칸): {pct(sum(r['correct'] for r in core_clean), len(core_clean))}**",
+        f"- **핵심 칸 정답률: {pct(core_ok, len(core_rows))}** (찍기 기준 "
+        f"{pct(core_base, len(core_rows))})",
+        f"- **표시 없는 핵심 칸의 정확도(담당자가 안 보는 칸): "
+        f"{pct(sum(r['correct'] for r in core_clean), len(core_clean))}**",
         f"- **카드당 확인할 핵심 칸: {(len(core_rows) - len(core_clean)) / max(videos, 1):.1f}칸**",
-        f"- 틀린 핵심 칸 중 확인 표시로 잡음: {pct(sum(r['needs_review'] for r in core_wrong), len(core_wrong))}",
+        f"- 틀린 핵심 칸 중 확인 표시로 잡음: "
+        f"{pct(sum(r['needs_review'] for r in core_wrong), len(core_wrong))}",
         f"- 비전 핵심(신호 A/B, 움직임 A/B, 상대 위치): {vis[0]} / 표시 없는 칸 정확도 {vis[1]}",
         f"- 담당자 칸(장소·도로 관계·진입 순서): {staff[0]} / 표시 없는 칸 정확도 {staff[1]}",
-        "- 신호 칸은 신호 교차로(사거리_신호있음) 영상에서만 채점(다른 장소의 유형표에는 신호가 없음)",
+        "- 신호 칸은 신호 교차로(사거리_신호있음) 영상에서만 채점(다른 장소의 유형표에는 신호가 "
+        "없음)",
         "",
         "## 참고 (쉬운 칸 포함 전체 칸)",
         f"- 핵심 칸 중 답한 칸('불명' 아님): {pct(len(answered), len(core_rows))}, "
         f"답한 칸의 정확도: {pct(sum(r['correct'] for r in answered), len(answered))}",
         f"- 표시 없는 칸의 정확도(전체 칸): {pct(sum(r['correct'] for r in clean), len(clean))}",
-        f"- 카드당 확인할 칸(전체 칸): {flagged_n / videos if videos else 0:.1f}칸 (채점 칸 {len(detail_rows) // max(videos, 1)}칸 중)",
+        f"- 카드당 확인할 칸(전체 칸): {flagged_n / videos if videos else 0:.1f}칸 (채점 칸 "
+        f"{len(detail_rows) // max(videos, 1)}칸 중)",
         f"- 전체 정답률: {pct(total_ok, total)}",
-        f"- 찍기 기준과 비교(충돌 순간 제외): 모델 {pct(model_ok_same, base_n)} vs 가장 흔한 답만 냈을 때 {pct(base_ok, base_n)}",
+        f"- 찍기 기준과 비교(충돌 순간 제외): 모델 {pct(model_ok_same, base_n)} vs 가장 흔한 답만 "
+        f"냈을 때 {pct(base_ok, base_n)}",
         *[f"- {v}: {pct(*per_view[v])}" for v in sorted(per_view)],
         *[
             f"- {s} 영상(MVP 범위{'' if s == '교차로' else ' 밖'}): {pct(*per_scope[s])}"

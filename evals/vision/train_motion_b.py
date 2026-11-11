@@ -103,7 +103,8 @@ def main():
     ):  # 움직임 A 분류기는 쓰지 않는다(사람 정답에서 전부 직진과 같음). 지우지 않고 이름만 바꿈
         a.replace(MODEL_DIR / "motion_movement_A.unused_ai_hub_only.joblib")
     print(
-        f"움직임 B 학습: {len(y)}건 (사람 라벨 {int((w > 1).sum())}건, 무게 {HUMAN_WEIGHT}) → {MODEL_DIR / 'motion_movement_B.joblib'}"
+        f"움직임 B 학습: {len(y)}건 (사람 라벨 {int((w > 1).sum())}건, 무게 {HUMAN_WEIGHT}) → "
+        f"{MODEL_DIR / 'motion_movement_B.joblib'}"
     )
 
 

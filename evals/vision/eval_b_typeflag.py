@@ -58,11 +58,12 @@ def main():
     def report(title, flag):
         f = [flag(r) for r in rows]
         flags = sum(f)
-        missed = sum(r["wrong"] and not x for r, x in zip(rows, f))
-        clean = [r for r, x in zip(rows, f) if not x]
+        missed = sum(r["wrong"] and not x for r, x in zip(rows, f, strict=False))
+        clean = [r for r, x in zip(rows, f, strict=False) if not x]
         acc = sum(not r["wrong"] for r in clean) / max(len(clean), 1)
         print(
-            f"  {title:28} 표시 {flags:3}건 | 표시 없이 틀림 {missed:3}건 | 표시 없는 칸 정확도 {acc:.0%}"
+            f"  {title:28} 표시 {flags:3}건 | 표시 없이 틀림 {missed:3}건 | 표시 없는 칸 정확도 "
+            f"{acc:.0%}"
         )
         return flags, missed
 
@@ -77,7 +78,8 @@ def main():
         ok = caught >= 3 and added <= 15
         rate = caught / max(added, 1)
         verdict.append(
-            f"{title}: 새로 잡은 오류 {caught}건 / 늘어난 표시 {added}건 → {'통과' if ok else '탈락'}"
+            f"{title}: 새로 잡은 오류 {caught}건 / 늘어난 표시 {added}건 → "
+            f"{'통과' if ok else '탈락'}"
         )
         if ok and (best is None or rate > best[1]):
             best = (title, rate)

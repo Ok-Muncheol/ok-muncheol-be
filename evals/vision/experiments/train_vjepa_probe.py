@@ -211,7 +211,8 @@ def main():
         c_ = sum(new[n] != truth[n][f] and cur[n] == truth[n][f] for n in sel)
         p = mcnemar(b_, c_)
         print(
-            f"  {title:24} V-JEPA {a}/{len(sel)} vs {cur_name} {c}/{len(sel)} (V-JEPA만 맞힘 {b_}, 반대 {c_}, p={p:.2f})"
+            f"  {title:24} V-JEPA {a}/{len(sel)} vs {cur_name} {c}/{len(sel)} (V-JEPA만 맞힘 {b_}, "
+            f"반대 {c_}, p={p:.2f})"
         )
         return a, c, p
 
@@ -258,11 +259,13 @@ def main():
         sel = [n for n in names if truth[n]["movement_A"] == c_]
         if sel:
             print(
-                f"    A {c_} {len(sel)}건: V-JEPA {sum(alone[n] == c_ for n in sel)} | v2 {sum(a2[n] == c_ for n in sel)}"
+                f"    A {c_} {len(sel)}건: V-JEPA {sum(alone[n] == c_ for n in sel)} | v2 "
+                f"{sum(a2[n] == c_ for n in sel)}"
                 f" | v3 {sum(a3[n] == c_ for n in sel)}"
             )
     verdict.append(
-        f"움직임 A: {best_opt[0].split(': ')[1] + '로 교체' if best_opt else '지금(v2+v3 섞기) 유지'}"
+        f"움직임 A: {best_opt[0].split(': ')[1] + '로 교체' if best_opt else '지금(v2+v3 섞기) '
+                                                                       '유지'}"
     )
     # 상대 위치·도로 관계(정답 카드)
     for f in ("relative_position", "road_priority"):

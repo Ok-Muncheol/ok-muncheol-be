@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 #  noqa: E402
-from workers.vision.scene_embed import MODEL_DIR, embed_video, predict_scene, scene_vector
+from workers.vision.scene_embed import MODEL_DIR, embed_video, predict_scene, scene_vector  # noqa: E402
 
 RESULTS = ROOT / "evals/results/vision"
 VIDEOS = ROOT / "data/private/aihub/videos"
@@ -86,7 +86,8 @@ def main():
             m = conf >= t
             if m.any():
                 print(
-                    f"  확신도 ≥{t}: {m.mean() * 100:.0f}%의 영상, 그 정확도 {np.mean(pred[m] == y[m]) * 100:.0f}%"
+                    f"  확신도 ≥{t}: {m.mean() * 100:.0f}%의 영상, 그 정확도 "
+                    f"{np.mean(pred[m] == y[m]) * 100:.0f}%"
                 )
         for v in cl:
             m = y == v

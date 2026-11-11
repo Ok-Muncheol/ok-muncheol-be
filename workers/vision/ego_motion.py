@@ -66,7 +66,8 @@ class EgoMotion:
             else:
                 act = "곧게 움직임"
             lines.append(
-                f"- {start / FPS:.0f}~{(start + FPS) / FPS:.0f}초(#{start + 1}~#{start + FPS}): {act}"
+                f"- {start / FPS:.0f}~{(start + FPS) / FPS:.0f}초(#{start + 1}~#{start + FPS}): "
+                f"{act}"
                 f" (회전량 {turn:+.2f}, 크기 {speed:.2f})"
             )
         if self.collision_frame:
@@ -125,7 +126,7 @@ def flow_series(gray_frames: list) -> dict:
     r = np.sqrt(rx**2 + ry**2)
     far = r > min(w, h) * 0.1  # 화면 한가운데(소실점 근처)는 퍼짐 계산에서 뺀다
     out = {"dx": [], "dy": [], "mag": [], "radial": [], "texture": [], "diff": []}
-    for a, b in zip(gray_frames[:-1], gray_frames[1:]):
+    for a, b in zip(gray_frames[:-1], gray_frames[1:], strict=False):
         # 앞뒤 프레임 밝기 차이: 충돌 때 화면이 크게 튀면 흐름 계산은 못 따라가도 이 값은 확 커진다
         out["diff"].append(float(np.mean(cv2.absdiff(a[:rows], b[:rows]))))
         flow = cv2.calcOpticalFlowFarneback(a[:rows], b[:rows], None, 0.5, 3, 15, 3, 5, 1.2, 0)
@@ -150,7 +151,6 @@ def analyze_frames(gray_frames: list) -> EgoMotion:
     s = flow_series(gray_frames)
     dx, dy, mag, radial = (np.array(s[k]) for k in ("dx", "dy", "mag", "radial"))
     n = len(dx)
-    w = gray_frames[0].shape[1]
 
     # 충돌 순간: 앞뒤 프레임 차이가 '주변 1초'보다 갑자기 커지는 곳 + 흐름 방향이 갑자기 바뀐 정도
     diff = np.array(s["diff"])
