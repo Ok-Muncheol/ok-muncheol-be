@@ -1,4 +1,7 @@
-"""B: 카드 v1(한국어 값)·이전 형식(영어 값) → 도표 선택 칸·값 변환과 검색 문장."""
+"""B: 카드 v1 확정본(영어 12칸)·한국어 안·이전 형식(영어 값) → 도표 선택 칸·값 변환과 검색 문장."""
+
+import json
+from pathlib import Path
 
 import pytest
 
@@ -6,13 +9,17 @@ from app.schemas.chart_scope import FIELD_OPTIONS
 from app.workflow.candidates import build_search_query, confirmed_values
 from app.workflow.card_fields import (
     card_field_key,
+    card_format,
     chart_fields,
     chart_key,
     confirmed_unknown_fields,
     is_v1_card,
     question_options,
+    to_card_terms,
 )
-from tests.workflow.synthetic import card, field, v1_card
+from tests.workflow.synthetic import card, en_v1_card, field, v1_card
+
+EXAMPLE = Path(__file__).resolve().parents[2] / "docs/contracts/fact-card-v1.example.json"
 
 
 def test_v1_card_reads_as_the_same_chart_values_as_the_old_card():
@@ -137,3 +144,99 @@ def test_search_query_skips_values_without_search_words():
     text = build_search_query(c)["text"]
     assert text == "신호 없는 교차로 A 신호 없음 B 좌회전"
     assert "_" not in text
+
+
+# ── 카드 v1 확정본(영어 12칸, #120) ─────────────────────────────────────
+
+
+def test_card_formats():
+    assert card_format(card()) == "legacy"
+    assert card_format(v1_card()) == "v1_ko"
+    assert card_format(en_v1_card()) == "v1"
+    assert card_format(json.loads(EXAMPLE.read_text(encoding="utf-8"))) == "v1"
+    # #119는 relative_position 칸이 있으면 한국어 안으로 봐서 확정본에 한국어로 물었다
+    assert not is_v1_card(en_v1_card())
+
+
+def test_en_v1_card_reads_as_the_same_chart_values_as_the_old_card():
+    assert confirmed_values(en_v1_card()) == confirmed_values(card())
+    # 도표 A = 카드 B(촬영 차량)여도 같은 사고면 같은 도표 선택 값이다(v1 2절)
+    assert confirmed_values(en_v1_card(swapped=True)) == confirmed_values(card())
+
+
+def test_en_v1_questions_use_chart_field_names_and_v1_values():
+    v1 = en_v1_card()
+    assert card_field_key("accident_type", v1) == "accident_type"
+    assert card_field_key("night", v1) == "night"
+    assert question_options("accident_type", v1) == ["car_to_car", "other"]
+    assert question_options("road_priority", v1) == [
+        "same_width", "major_A", "major_B", "stop_A", "stop_B", "other", "none"]
+    assert question_options("entry_order", v1) == ["first", "second", "simultaneous", "none"]
+    assert question_options("movement_B", v1)[-2:] == ["lane_change", "other"]
+
+
+def test_en_v1_confirmed_null_is_unknown_and_unconfirmed_null_is_not():
+    c = en_v1_card(movement_B=field(None), signal_B=field(None, confirmed=False))
+    # 담당자가 확인한 null만 '모름'이다. 모델이 몰라 needs_review인 칸은 질문 대상이다
+    assert confirmed_unknown_fields(c) == ["movement_B"]
+    values = confirmed_values(c)
+    assert "movement_B" not in values and "signal_B" not in values
+
+
+@pytest.mark.parametrize(("value", "expected"), [
+    ("straight_road", "other"), ("highway", "other"), ("other", "other"),
+    ("roundabout", "roundabout"), ("unsignalized_intersection", "unsignalized_intersection"),
+])
+def test_en_v1_locations(value, expected):
+    # 직선도로·고속도로는 v1에서 따로 내지만 MVP 범위 밖 보류는 그대로다(v1 8절)
+    assert confirmed_values(en_v1_card(location_type=field(value)))["location_type"] == expected
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("road_priority", "major_A"), ("road_priority", "stop_B"), ("road_priority", "none"),
+    ("road_priority", "other"), ("entry_order", "none"), ("movement_A", "lane_change"),
+    ("movement_A", "other"),
+])
+def test_en_v1_values_without_a_chart_value_stay_as_they_are(key, value):
+    # 쪽이 붙은 도로 관계를 major_minor·stop_sign으로 바꾸면 A/B가 뒤집힌 도표를 고를 수 있다
+    assert confirmed_values(en_v1_card(**{key: field(value)}))[key] == value
+
+
+def test_swapped_en_v1_card_reads_chart_A_from_card_B():
+    c = en_v1_card(swapped=True, road_priority=field("major_A"), entry_order=field("first"))
+    values = confirmed_values(c)
+    # 카드 A(상대 차량)가 도표 B다. 도로 관계·진입 순서의 쪽도 뒤집는다
+    assert (values["road_priority"], values["entry_order"]) == ("major_B", "second")
+    # 질문은 카드 쪽 칸 이름으로 낸다. 답이 그 칸 그대로 카드 수정으로 간다
+    assert card_field_key("movement_A", c) == "movement_B"
+    assert card_field_key("road_priority", c) == "road_priority"
+    assert chart_key("movement_B", c) == "movement_A"
+    # 가정 실행은 도표 선택 칸·값을 카드 쪽으로 되돌려 넣는다
+    assert to_card_terms("movement_A", "straight", c) == ("movement_B", "straight")
+    assert to_card_terms("entry_order", "first", c) == ("entry_order", "second")
+    assert to_card_terms("movement_A", "straight", en_v1_card()) == ("movement_A", "straight")
+    assert chart_key("movement_B", card()) == "movement_B"
+
+
+def test_only_v1_cards_are_swapped():
+    # 이전 형식·한국어 안은 카드 A/B를 도표 A/B로 본다. 촬영 차량 표시가 없는 v1도 그대로다
+    old = card()
+    old["party_mapping"] = {**old["party_mapping"], "video_ego_party_id": "p-1"}
+    assert confirmed_values(old) == confirmed_values(card())
+    manual = en_v1_card(swapped=True)
+    manual["party_mapping"] = {**manual["party_mapping"], "video_ego_party_id": None}
+    assert confirmed_values(manual)["movement_A"] == "left_turn"
+
+
+def test_example_card_from_the_vision_pipeline():
+    c = json.loads(EXAMPLE.read_text(encoding="utf-8"))
+    for f in c["fields"].values():  # 담당자가 모델 값을 그대로 확정했다고 본다
+        f["verification_status"] = "human_confirmed"
+    assert confirmed_values(c) == {
+        "accident_type": "car_to_car", "location_type": "unsignalized_intersection",
+        "road_priority": "same_width", "signal_A": "no_signal", "signal_B": "no_signal",
+        "movement_A": "straight", "movement_B": "straight", "night": "true",
+    }
+    # 진입 순서는 모델이 몰랐고(null) 담당자가 그대로 확정했다 → '모름'
+    assert confirmed_unknown_fields(c) == ["entry_order"]
+    assert "불명" not in build_search_query(c)["text"]

@@ -1,33 +1,43 @@
 """B: 사실 카드 칸·값 → 도표 선택 칸·값(`chart_scope`). 판단 그래프는 카드를 이것으로 읽는다.
 
-A의 카드 v1은 한국어 값을 쓰고 칸 이름 둘이 바뀌었다.
-- 문서: 정지원 `docs/contracts/fact-card-v1.md`(11/11 팀 확정 요청, 브랜치 `vision/1111-integrate`)
-- 이름: `accident_type` → `accident_object`, `night` → `time_condition`
-C의 도표 레코드와 `chart_scope`는 아직 11/6 영어 값이다. 그래서 B가 카드를 읽을 때 바꾼다.
-영어 값으로 쓴 카드(이전 형식)는 그대로 통과한다. 도표 레코드를 v1 값으로 바꿀지는 C와 정한다.
+카드 형식은 셋이다(`card_format`).
+- `v1`: 정지원 카드 v1 확정본(`docs/contracts/fact-card-v1.md`, 11/11 #120, 영어 값 12칸).
+  칸 이름은 도표 선택 칸과 같다. 새 값(`major_A`·`straight_road`·`lane_change`·`none` 등)과
+  새 칸(`relative_position`·`collision_time_ms`·`narrative`)이 있다.
+  모름은 `value: null` + `human_confirmed`다. `night`는 11/6 카드처럼 JSON 참거짓이다.
+- `v1_ko`: 11/11 오전 한국어 안(#119가 읽던 형식). 칸 이름 둘이 다르다
+  (`accident_object`·`time_condition`). 확정본이 대체했지만 이미 만든 카드를 읽을 수 있게 둔다.
+- `legacy`: 11/6 영어 값 카드. 그대로 통과한다.
+C의 도표 레코드와 `chart_scope`는 11/6 영어 값이다. 그래서 B가 카드를 읽을 때 바꾼다.
 
-- `불명`은 담당자가 확인한 '모름'이다. 다시 묻지 않고, 그 칸으로 갈리는 도표는 고르지 않는다.
-- `해당없음`은 값 그대로 둔다. 어떤 도표 값과도 맞지 않고 `*`(무관)과만 맞는다.
-- 대응하는 도표 값이 없는 v1 값도 그대로 둔다(예: `진로변경`, `A쪽만_신호등`).
+- 담당자가 확인한 모름(v1 `null`, 한국어 안 `불명`)은 '모른다' 응답과 같다. 다시 묻지 않고,
+  그 칸이 `*`인 도표만 남는다. 안에서는 `UNKNOWN`(`불명`) 표시 하나로 다룬다.
+- `해당없음`·`none`과 대응하는 도표 값이 없는 값은 그대로 둔다(예: `lane_change`, `other`).
   도표 값과 맞지 않으므로 그 칸으로 갈리는 도표는 빠진다(fail-closed).
-- `A대로`·`B쪽_일시정지`처럼 쪽이 붙은 도로 관계도 그대로 둔다. 도표 값 `major_minor`·
+- `major_A`·`stop_B`처럼 쪽이 붙은 도로 관계도 그대로 둔다. 도표 값 `major_minor`·
   `stop_sign`에는 쪽이 없어서, 대응시키면 A/B가 뒤집힌 도표를 고를 수 있다.
   C 레코드에 쪽을 적는 방법을 정한 뒤 대응한다.
+- v1 2절: 카드의 B는 촬영 차량이다. 도표 A가 카드 B(`chart_party_A_id` = `video_ego_party_id`)면
+  A/B를 뒤집어 읽는다. `_A`·`_B` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`,
+  `first`↔`second`를 바꾼다. 질문의 칸 이름도 카드 쪽 이름으로 되돌린다(`card_field_key`).
 """
 
 from collections.abc import Mapping
+from typing import Literal
 
 from app.schemas.chart_scope import FIELD_OPTIONS
-from app.schemas.facts import FactCard, FactField
+from app.schemas.facts import FACT_FIELD_OPTIONS, FactCard, FactField
+
+CardFormat = Literal["v1", "v1_ko", "legacy"]
 
 UNKNOWN = "불명"
 NOT_APPLICABLE = "해당없음"
 
-# 카드 v1 칸 이름 → 도표 선택 칸 이름. 나머지 도표 선택 칸은 이름이 같다
+# 한국어 안 칸 이름 → 도표 선택 칸 이름. 나머지 도표 선택 칸은 이름이 같다
 V1_FIELD_KEYS: dict[str, str] = {"accident_object": "accident_type", "time_condition": "night"}
 _CARD_KEYS: dict[str, str] = {chart: card for card, chart in V1_FIELD_KEYS.items()}
 
-# 카드 v1 값 목록(A `workers/vision/fields.py`와 같은 순서). 질문 선택지로 쓴다
+# 한국어 안 값 목록(A `workers/vision/fields.py`와 같은 순서). 한국어 안 카드의 질문 선택지로 쓴다
 _SIGNALS = ("녹색", "황색", "적색", "녹색좌회전", "녹색직진좌회전", "신호없음", UNKNOWN)
 _MOVEMENTS = (
     "직진", "좌회전", "우회전", "유턴", "진로변경", "합류", "추월",
@@ -51,26 +61,54 @@ V1_OPTIONS: dict[str, tuple[str, ...]] = {
     "time_condition": ("주간", "야간", "새벽황혼", UNKNOWN),
 }
 _V1_VALUE_SET = frozenset(v for values in V1_OPTIONS.values() for v in values)
-# 도표 선택 칸이 아닌 v1 칸. 하나라도 있으면 v1 카드로 본다
-_V1_ONLY_KEYS = frozenset({
-    "accident_object", "time_condition", "relative_position", "lane_change_A", "lane_change_B",
+
+# v1 확정본 값(3절, A `app/schemas/facts.py` `FACT_FIELD_OPTIONS`). v1 카드의 질문 선택지로 쓴다.
+# 모름은 선택지가 아니라 '모른다' 응답이다. night는 참거짓이라 문자열 선택지를 둔다
+V1_EN_OPTIONS: dict[str, tuple[str, ...]] = {
+    **{key: values for key, values in FACT_FIELD_OPTIONS.items() if key in FIELD_OPTIONS},
+    "night": ("true", "false"),
+}
+
+# 한국어 안에만 있는 칸(확정본에서는 비전 안에서만 쓰고 내보내지 않는다, v1 7절)
+_V1_KO_ONLY_KEYS = frozenset({
+    "accident_object", "time_condition", "lane_change_A", "lane_change_B",
     "centerline_cross_A", "centerline_cross_B", "collision_part_A", "collision_part_B",
-    "collision_time_ms", "motion_trend_A", "motion_trend_B", "weather", "narrative",
+    "motion_trend_A", "motion_trend_B", "weather",
 })
+# 확정본에서 생긴 칸·값(도표 선택 칸별). 11/6 카드에는 없다
+_V1_ONLY_KEYS = frozenset({"relative_position", "collision_time_ms", "narrative"})
+_V1_ONLY_VALUES: dict[str, frozenset[str]] = {
+    key: frozenset(values) - frozenset(FIELD_OPTIONS[key])
+    for key, values in FACT_FIELD_OPTIONS.items() if key in FIELD_OPTIONS
+}
+
+# v1 2절: 도표 A가 카드 B면 맞바꾸는 칸·값
+_SWAP_KEYS: dict[str, str] = {
+    "movement_A": "movement_B", "movement_B": "movement_A",
+    "signal_A": "signal_B", "signal_B": "signal_A",
+}
+_SWAP_VALUES: dict[str, dict[str, str]] = {
+    "road_priority": {
+        "major_A": "major_B", "major_B": "major_A", "stop_A": "stop_B", "stop_B": "stop_A",
+    },
+    "entry_order": {"first": "second", "second": "first"},
+}
 
 _LIGHTS = {"녹색": "green", "황색": "yellow", "적색": "red", "녹색좌회전": "green_left_arrow"}
 _MOVES = {"직진": "straight", "좌회전": "left_turn", "우회전": "right_turn", "유턴": "u_turn"}
-# 카드 v1 값 → 도표 선택 값(도표 선택 칸 이름 기준). 표에 없는 값은 그대로 둔다
+# 카드 값 → 도표 선택 값(도표 선택 칸 이름 기준). 표에 없는 값은 그대로 둔다
 V1_VALUES: dict[str, dict[str, str]] = {
     "accident_type": {"차대차": "car_to_car"},
     "location_type": {
         "사거리_신호있음": "signalized_intersection",
         "사거리_신호없음": "unsignalized_intersection",
-        # v1 4절: 신호 없는 교차로로 묶는 도표는 T자형을 사거리_신호없음과 같이 다룬다.
-        # 신호가 확인된 T자형은 신호 교차로로 본다(_location)
+        # 한국어 안 4절: 신호 없는 교차로로 묶는 도표는 T자형을 사거리_신호없음과 같이 다룬다.
+        # 신호가 확인된 T자형은 신호 교차로로 본다(_value)
         "T자형교차로": "unsignalized_intersection",
         "회전교차로": "roundabout",
         "직선도로": "other", "고속도로": "other", "주차장": "other", "차도와비차도": "other",
+        # v1 확정본: 직선도로·고속도로를 따로 내지만 범위 밖 보류는 그대로다(v1 8절)
+        "straight_road": "other", "highway": "other",
     },
     "road_priority": {"동일폭": "same_width"},
     "movement_A": _MOVES,
@@ -83,32 +121,84 @@ V1_VALUES: dict[str, dict[str, str]] = {
 _LIGHT_VALUES = frozenset(_LIGHTS.values())
 
 
-def chart_key(card_key: str) -> str:
-    """카드 칸 이름(v1 또는 이전) → 도표 선택 칸 이름."""
-    return V1_FIELD_KEYS.get(card_key, card_key)
+def card_format(card: FactCard) -> CardFormat:
+    """한국어 안 칸·값이 있으면 `v1_ko`, 확정본 칸·값·키가 있으면 `v1`, 아니면 `legacy`.
+
+    `night` 참거짓은 11/6 카드도 같아서 형식을 가르지 않는다.
+    """
+    fields = card["fields"]
+    chart_values = [(chart, field.get("value")) for key, field in fields.items()
+                    if (chart := V1_FIELD_KEYS.get(key, key)) in FIELD_OPTIONS]
+    if _V1_KO_ONLY_KEYS & fields.keys() or any(
+        isinstance(v, str) and v in _V1_VALUE_SET for _, v in chart_values
+    ):
+        return "v1_ko"
+    if (
+        _V1_ONLY_KEYS & fields.keys()
+        or "parties" in card or "model_info" in card
+        or any(isinstance(v, str) and v in _V1_ONLY_VALUES.get(k, ()) for k, v in chart_values)
+    ):
+        return "v1"
+    return "legacy"
 
 
 def is_v1_card(card: FactCard) -> bool:
-    """v1 칸이 있거나 도표 선택 칸에 v1 값이 있으면 v1 카드다. 질문을 카드와 같은 형식으로 낸다."""
-    fields = card["fields"]
-    if _V1_ONLY_KEYS & fields.keys():
-        return True
-    return any(
-        isinstance(field.get("value"), str) and field["value"] in _V1_VALUE_SET
-        for key, field in fields.items() if chart_key(key) in FIELD_OPTIONS
-    )
+    """한국어 안 카드인가. 질문을 한국어 칸 이름·값으로 낸다(`card_field_key` 등)."""
+    return card_format(card) == "v1_ko"
+
+
+def is_swapped(card: FactCard) -> bool:
+    """v1 2절: 도표 A가 카드 B(촬영 차량)인가. 그러면 판단은 A/B를 뒤집어 읽는다.
+
+    v1 카드만 본다. 한국어 안·11/6 카드는 카드 A/B를 도표 A/B로 본다.
+    """
+    if card_format(card) != "v1":
+        return False
+    mapping = card.get("party_mapping") or {}
+    ego = mapping.get("video_ego_party_id")
+    return ego is not None and mapping.get("chart_party_A_id") == ego
+
+
+def chart_key(card_key: str, card: FactCard | None = None) -> str:
+    """카드 칸 이름 → 도표 선택 칸 이름. 카드를 주면 v1 2절 맞바꿈도 되돌린다."""
+    key = V1_FIELD_KEYS.get(card_key, card_key)
+    if card is not None and is_swapped(card):
+        key = _SWAP_KEYS.get(key, key)
+    return key
 
 
 def card_field_key(key: str, card: FactCard) -> str:
     """도표 선택 칸 → 질문에 쓸 카드 칸 이름. 답은 이 이름으로 카드 수정에 간다."""
-    return _CARD_KEYS.get(key, key) if is_v1_card(card) else key
+    fmt = card_format(card)
+    if fmt == "v1_ko":
+        return _CARD_KEYS.get(key, key)
+    if fmt == "v1" and is_swapped(card):
+        return _SWAP_KEYS.get(key, key)
+    return key
+
+
+def to_card_terms(key: str, value: str, card: FactCard) -> tuple[str, str]:
+    """도표 선택 칸·값 → 카드에 쓸 칸·값. 가정 실행이 카드 사본에 값을 넣을 때 쓴다.
+
+    v1 맞바꿈이면 칸(`movement_A` → `movement_B`)과 쪽이 있는 값(`first` → `second`)을 되돌린다.
+    그 밖의 형식은 도표 선택 칸 이름 그대로 쓴다(한국어 안 카드에서도 이 이름이 앞선다, `_raw`).
+    """
+    if not is_swapped(card):
+        return key, value
+    return _SWAP_KEYS.get(key, key), _SWAP_VALUES.get(key, {}).get(value, value)
 
 
 def question_options(key: str, card: FactCard) -> list[str]:
-    """도표 선택 칸의 질문 선택지. v1 카드는 v1 값(`불명`은 '모름' 응답으로 대신한다)."""
-    if not is_v1_card(card):
-        return list(FIELD_OPTIONS.get(key, ()))
-    return [v for v in V1_OPTIONS.get(_CARD_KEYS.get(key, key), ()) if v != UNKNOWN]
+    """도표 선택 칸의 질문 선택지. 카드와 같은 형식의 값이다(모름은 '모른다' 응답으로 대신한다).
+
+    v1 맞바꿈에서도 선택지는 카드 쪽 값이다. 도로 관계·진입 순서 선택지는 A/B가 대칭이라 같다.
+    """
+    fmt = card_format(card)
+    if fmt == "v1_ko":
+        return [v for v in V1_OPTIONS.get(_CARD_KEYS.get(key, key), ()) if v != UNKNOWN]
+    if fmt == "v1":
+        return list(V1_EN_OPTIONS.get(key, ()))
+    return list(FIELD_OPTIONS.get(key, ()))
 
 
 def _confirmed(field: Mapping[str, object] | None) -> object:
@@ -139,24 +229,35 @@ def _value(fields: Mapping[str, FactField], key: str, value: str) -> str:
     return V1_VALUES.get(key, {}).get(value, value)
 
 
-def chart_fields(fields: Mapping[str, FactField]) -> dict[str, FactField]:
+def chart_fields(
+    fields: Mapping[str, FactField], *, swapped: bool = False
+) -> dict[str, FactField]:
     """카드 칸을 도표 선택 칸 이름·값으로 바꾼 사본. 확인 상태·근거는 그대로 둔다.
 
-    도표 선택 칸(`FIELD_OPTIONS`)만 돌려준다. `불명`·`해당없음`·대응 없는 값은 그대로다.
+    도표 선택 칸(`FIELD_OPTIONS`)만 돌려준다. 확인한 `null`은 `UNKNOWN`이다.
+    `해당없음`·`none`·대응 없는 값은 그대로다. `swapped`면 v1 2절대로 A/B를 뒤집어 읽는다.
     """
     out: dict[str, FactField] = {}
     for key in FIELD_OPTIONS:
-        field = _raw(fields, key)
+        field = _raw(fields, _SWAP_KEYS.get(key, key) if swapped else key)
         if field is None:
             continue
         value = field["value"]
-        if isinstance(value, str):
+        if value is None and field.get("verification_status") == "human_confirmed":
+            value = UNKNOWN
+        elif isinstance(value, str):
+            if swapped:
+                value = _SWAP_VALUES.get(key, {}).get(value, value)
             value = _value(fields, key, value)
         out[key] = {**field, "value": value}
     return out
 
 
+def chart_view(card: FactCard) -> dict[str, FactField]:
+    """카드 전체를 도표 선택 칸·값으로(v1 2절 맞바꿈 포함). 판단은 이것으로 카드를 읽는다."""
+    return chart_fields(card["fields"], swapped=is_swapped(card))
+
+
 def confirmed_unknown_fields(card: FactCard) -> list[str]:
-    """담당자가 `불명`으로 확인한 도표 선택 칸. 판단은 이 칸을 '모름' 답처럼 다룬다."""
-    return [key for key, field in chart_fields(card["fields"]).items()
-            if _confirmed(field) == UNKNOWN]
+    """담당자가 모름으로 확인한 도표 선택 칸. 판단은 이 칸을 '모름' 답처럼 다룬다."""
+    return [key for key, field in chart_view(card).items() if _confirmed(field) == UNKNOWN]

@@ -35,29 +35,27 @@
 
 ### 카드 v1 값 읽기 (11/11, B)
 
-정지원의 카드 v1 안(`vision/1111-integrate` 브랜치 `docs/contracts/fact-card-v1.md`, 팀 확정 요청 중)은 한국어 값을 쓰고, 칸 이름 둘이 바뀌었다(`accident_object`·`time_condition`).
-`chart_scope` enum과 C 도표 레코드는 위 영어 값 그대로 두고, B가 카드를 읽을 때 `app/workflow/card_fields.py`로 바꾼다. 영어 값 카드도 그대로 받는다.
+카드 v1 확정본([fact-card-v1.md](fact-card-v1.md), 정지원 #120, 영어 값 12칸)은 칸 이름이 도표 선택 칸과 같고 값이 늘었다.
+`chart_scope` enum과 C 도표 레코드는 위 영어 값 그대로 두고, B가 카드를 읽을 때 `app/workflow/card_fields.py`로 바꾼다.
+11/6 영어 카드와 오전 한국어 안(`accident_object`·`time_condition`, 한국어 값) 카드도 그대로 받는다(`card_format`).
 
 | 카드 v1 | 도표 선택 값 |
 | --- | --- |
-| `accident_object` 차대차 | `accident_type` `car_to_car` (차대이륜차·기타는 범위 밖) |
-| `party_count` 3 이상(확인) | 범위 밖 |
-| 사거리_신호있음 · 사거리_신호없음 · 회전교차로 | `signalized_intersection` · `unsignalized_intersection` · `roundabout` |
-| T자형교차로 | `unsignalized_intersection`. 신호(녹색·황색·적색·녹색좌회전)가 확인되면 `signalized_intersection` |
-| 직선도로 · 고속도로 · 주차장 · 차도와비차도 | `other`(범위 밖) |
-| 동일폭 | `same_width` |
-| 직진 · 좌회전 · 우회전 · 유턴 | `straight` · `left_turn` · `right_turn` · `u_turn` |
-| 녹색 · 황색 · 적색 · 녹색좌회전 · 신호없음 | `green` · `yellow` · `red` · `green_left_arrow` · `no_signal` |
-| 녹색직진좌회전 | 그 차의 확인한 진행 방향이 좌회전이면 `green_left_arrow`, 직진이면 `green` |
-| A먼저 · B먼저 · 동시 | `first` · `second` · `simultaneous` |
-| `time_condition` 야간 · 주간 | `night` `true` · `false` |
+| `accident_type` `car_to_car` | `car_to_car` (`other`는 범위 밖) |
+| `party_count` 3 이상(확인, 한국어 안) | 범위 밖 |
+| `signalized_intersection` · `unsignalized_intersection` · `roundabout` | 같은 값 |
+| `straight_road` · `highway` · `other` | `other`(범위 밖) |
+| `same_width` | `same_width` |
+| `straight` · `left_turn` · `right_turn` · `u_turn` | 같은 값 |
+| `green` · `yellow` · `red` · `green_left_arrow` · `no_signal` | 같은 값 |
+| `first` · `second` · `simultaneous` | 같은 값 |
+| `night` 참거짓 | `"true"` · `"false"` |
 
-- `불명`(담당자 확인)은 '모른다' 응답과 같다. 다시 묻지 않고, 그 칸이 `*`인 도표만 남는다. 사고 유형·장소가 `불명`이면 검색 전에 보류한다.
-- `해당없음`과 대응이 없는 값은 그대로 두어 `*`과만 맞는다(그 칸으로 갈리는 도표는 빠진다).
-  - 대응이 없는 값: 진로변경 등 범위 밖 진행, `A쪽만_신호등`, 쪽이 붙은 도로 관계(`A대로`·`B대로`·`A쪽_일시정지`·`B쪽_일시정지`)
+- 담당자가 확인한 모름(`value: null` + `human_confirmed`, 한국어 안은 `불명`)은 '모른다' 응답과 같다. 다시 묻지 않고, 그 칸이 `*`인 도표만 남는다. 사고 유형·장소가 모름이면 검색 전에 보류한다. 모델이 몰라 `needs_review`인 `null`은 미확인 칸이라 질문한다.
+- `none`(도로 관계·진입 순서)·`other`·`lane_change`와 쪽이 붙은 도로 관계(`major_A`·`major_B`·`stop_A`·`stop_B`)는 그대로 두어 `*`과만 맞는다(그 칸으로 갈리는 도표는 빠진다).
   - `major_minor`·`stop_sign`에는 쪽이 없어서, 쪽이 붙은 값을 그대로 대응시키면 A/B가 뒤집힌 도표를 고를 수 있다. 대로·소로, 일시정지 도표를 검수할 때 C·B가 레코드 값에 쪽을 적는 방법을 정한다.
-- 카드 v1의 A/B는 도표 A/B와 같다고 본다. 카드는 B = 블랙박스 차이고, 도표와 반대면 담당자가 확정 때 맞바꾼다(카드 v1 2절).
-- 구분 질문은 카드 형식(v1이면 v1 칸 이름·값)으로 낸다(계약 문서 「구분 질문과 재개」).
+- A/B(v1 2절): 카드 B = 촬영 차량이다. 도표 A가 카드 B면(`party_mapping.chart_party_A_id` = `video_ego_party_id`) B가 읽을 때 뒤집는다. `movement_*`·`signal_*` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`, `first`↔`second`를 바꾼다. 11/6 카드·한국어 안은 카드 A/B를 도표 A/B로 본다.
+- 구분 질문은 카드 형식으로 낸다(계약 문서 「구분 질문과 재개」). 가정 실행(질의응답)도 도표 선택 칸·값을 카드 쪽으로 되돌려 넣는다.
 
 ## 도표 레코드 값 규칙
 
