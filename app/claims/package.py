@@ -10,6 +10,10 @@
   불가(not_payable),
   보험금 0원, 보험금 산정 불가(매핑 불명·가입금액 없음 등), 상대 과실 0%(협의 0% 포함).
 - 예시 규칙·기본 가정이어도 만들되 "예시 규칙 기준 — 약관 검수 전 초안"과 가정 항목을 표시한다.
+  보고서에 검증된 약관 조항이 붙었으면 "예시 규칙 기준 — 약관 조항 원문 연결(실무 검수 전) 초안".
+- 근거서 '근거 조항'에는 조항 이름만(보통약관 제34조는 9번에 검증돼 붙었을 때만,
+  상법 제682조는 항상).
+  발췌·페이지·산정 근거(제24조·별표)는 넣지 않는다.
   증빙이 없으면 경고만.
 - 같은 입력이면 같은 idempotency_key가 나온다(중복 생성 방지).
 """
@@ -19,6 +23,12 @@ from datetime import UTC, datetime
 
 from app.calculation.insurance import ZERO_PAYMENT_REASON, insured_and_counterparty_side
 from app.calculation.rules import DEFAULT_RULES, RuleSet, share
+from app.reports.clauses import (
+    EXAMPLE_NOTICE,
+    claim_clause_names,
+    clause_notice,
+    report_clauses_connected,
+)
 from app.schemas.reports import (
     CalculationResult,
     ClaimAmounts,
@@ -29,7 +39,7 @@ from app.schemas.reports import (
     ReviewReport,
 )
 
-EXAMPLE_RULE_NOTICE = "예시 규칙 기준 — 약관 검수 전 초안"
+EXAMPLE_RULE_NOTICE = EXAMPLE_NOTICE
 NEEDS_ESTIMATE = "견적서 필요 — 견적서 추가 후 청구서 생성"
 NOT_RECOVERABLE = "상대 과실 0% — 구상 대상 아님"  # 8번 부담 요약(assembler)도 이 상수를 쓴다
 NOT_PAYABLE = "지급 불가 — 구상할 보험금 없음"
@@ -178,7 +188,7 @@ def build_claim_package(
         "최종 과실비율": sections[6]["body"],
         "유사 결정례": sections[7]["body"].get("유사 결정례", []),
         "기본 가정": list(calc.get("assumptions") or []),
-        "근거 조항": [rules.clause_subrogation],
+        "근거 조항": claim_clause_names(r),
     }
     evid_list = [
         {
@@ -227,6 +237,6 @@ def build_claim_package(
         "confirmed_at": now or datetime.now(UTC).isoformat(timespec="seconds"),
         "idempotency_key": key,
         "rule_version": calc["rule_version"],
-        "rule_notice": EXAMPLE_RULE_NOTICE if is_example else None,
+        "rule_notice": clause_notice(True, report_clauses_connected(r)) if is_example else None,
         "assumptions": list(calc.get("assumptions") or []),
     }
