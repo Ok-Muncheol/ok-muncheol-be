@@ -52,9 +52,9 @@ from app.reports.repository import (
     default_repository,
 )
 from app.retrieval.common import configure_retrieval, fetch_by_parent
-from app.retrieval.embedding import OpenAIEmbedder
-from app.retrieval.evidence_store import register_local_evidence_store
-from app.retrieval.loader import build_index, read_corpus
+from app.retrieval.embedding import EmbeddingSpec, OpenAIEmbedder
+from app.retrieval.evidence_store import local_evidence_store
+from app.retrieval.loader import CorpusDataError, build_index, read_corpus
 from app.schemas.facts import FactCard
 from app.schemas.judgment import JudgmentResult
 from app.schemas.reports import (
@@ -64,6 +64,7 @@ from app.schemas.reports import (
     RecoveryAmounts,
     ReviewReport,
 )
+from app.tools._evidence import configure_evidence_store
 
 __all__ = [
     "AgreedFaultInvalid",
@@ -183,7 +184,9 @@ def configure_with_knowledge_base() -> ReportServices:
     실제 색인 적재(db_import 파일) + OpenAIEmbedder(C 도구 검색용) + fetch_clauses + llm_judge.
     APP_ENV=local이고 Vercel이 아니면 같은 행으로 C의 EvidenceStore 로컬 어댑터도 등록한다
     (운영에서는 등록하지 않으므로 검증은 fail-closed 그대로).
-    키·모델·패키지·코퍼스 파일이 없으면 RetrievalNotConfigured를 내고 아무것도 바꾸지 않는다.
+    키·모델·패키지가 없거나 코퍼스·handoff.json 파일이 없거나 못 쓰면 RetrievalNotConfigured
+    (코퍼스 데이터 문제는 하위 클래스 CorpusDataError)를 내고 아무것도 바꾸지 않는다.
+    모든 준비(읽기·색인·판·임베딩 비교·어댑터)를 끝낸 뒤에만 전역 설정을 바꾼다.
     호출하지 않으면 면책은 담당자 입력으로 판정한다. 색인을 메모리에 올리므로
     시작 시간과 메모리를 쓴다.
     """
@@ -192,8 +195,16 @@ def configure_with_knowledge_base() -> ReportServices:
     corpus = read_corpus()
     index = build_index(corpus)
     edition = corpus.terms_edition()
+    query_spec = EmbeddingSpec(embedder.model, embedder.dimensions, embedder.version)
+    if index.spec != query_spec:  # 검색 때가 아니라 시작 때 드러낸다
+        raise CorpusDataError(
+            f"D: 코퍼스 임베딩 {index.spec}이 질의 임베더 {query_spec}와 다릅니다"
+        )
+    store = local_evidence_store(corpus)
+    # 여기부터 전역 설정. 위에서 실패하면 아무것도 바뀌지 않는다
     configure_retrieval(index=index, embedder=embedder, default_terms_edition=edition)
-    register_local_evidence_store(corpus)
+    if store is not None:
+        configure_evidence_store(lambda: store)
     return configure(fetch_clauses=fetch_by_parent, judge=judge)
 
 

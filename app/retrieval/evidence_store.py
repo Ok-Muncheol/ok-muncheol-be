@@ -64,10 +64,20 @@ def local_store_allowed(env: Mapping[str, str] | None = None) -> bool:
     return env.get("APP_ENV", "production") == "local" and not on_vercel
 
 
+def local_evidence_store(
+    corpus: CorpusRows, env: Mapping[str, str] | None = None
+) -> LocalCorpusEvidenceStore | None:
+    """로컬이면 어댑터를 만들어 돌려주고(등록은 하지 않음), 운영이면 None.
+
+    연결 함수가 다른 준비를 모두 끝낸 뒤 한꺼번에 등록할 수 있게 만들기와 등록을 나눈다.
+    """
+    return LocalCorpusEvidenceStore(corpus) if local_store_allowed(env) else None
+
+
 def register_local_evidence_store(corpus: CorpusRows, env: Mapping[str, str] | None = None) -> bool:
     """로컬이면 어댑터를 등록하고 True. 운영이면 아무것도 바꾸지 않고 False."""
-    if not local_store_allowed(env):
+    store = local_evidence_store(corpus, env)
+    if store is None:
         return False
-    store = LocalCorpusEvidenceStore(corpus)
     configure_evidence_store(lambda: store)
     return True

@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.retrieval.common import configure_retrieval, search
 from app.retrieval.embedding import RetrievalNotConfigured
@@ -22,9 +23,10 @@ from app.retrieval.keyword import SimpleTokenizer
 from app.retrieval.loader import (
     DOCUMENT_FIELDS,
     TABLES,
+    CorpusDataError,
     build_index,
     corpus_terms_edition,
-    load_index,
+    handoff_embedding_spec,
     read_corpus,
 )
 from app.tools import _evidence
@@ -244,35 +246,12 @@ class LoaderTest(CorpusFilesCase):
         with self.assertRaises(RetrievalNotConfigured):
             corpus_terms_edition(self.base)
 
-    def test_broken_rows_rejected(self):
-        chunks = self.rows["corpus_chunks"]
-        cases = {
-            "corpus_documents에 없습니다": {
-                "corpus_chunks": [{**chunks[0], "document_id": "none"}]
-            },
-            "코퍼스가 문서와": {"corpus_chunks": [{**chunks[0], "corpus": "fault_standards"}]},
-            "같은 chunk_id": {"corpus_chunks": [chunks[0], {**chunks[3], "chunk_id": "t1"}]},
-            "같은 document_id": {"corpus_documents": self.rows["corpus_documents"][:1] * 2},
-        }
-        for message, over in cases.items():
-            with self.subTest(message=message):
-                self.write(**over)
-                with self.assertRaisesRegex(ValueError, message):
-                    read_corpus(self.base)
-
-    def test_bad_accident_window_date_rejected_at_load(self):
-        bad = {**self.rows["corpus_chunks"][1]}
-        bad["metadata"] = {**bad["metadata"], "accident_date_to": "2022-13-01"}
-        self.write(corpus_chunks=[bad])
-        with self.assertRaises(ValueError):
-            load_index(base=self.base, tokenizer=SimpleTokenizer())
-
     def test_terms_edition(self):
         self.assertEqual(read_corpus(self.base).terms_edition(), "판-1")
         self.assertEqual(corpus_terms_edition(self.base), "판-1")
         second = document("terms-2", "policy_terms", HASH_T, edition="판-2")
         self.write(corpus_documents=[*self.rows["corpus_documents"], second])
-        with self.assertRaisesRegex(ValueError, "하나로"):
+        with self.assertRaisesRegex(CorpusDataError, "corpus_documents.jsonl.*하나로"):
             corpus_terms_edition(self.base)
 
     def test_corpus_selection_and_keyword_corpora(self):
@@ -281,6 +260,156 @@ class LoaderTest(CorpusFilesCase):
         self.assertEqual(set(index._rows), {"f1"})
         self.assertEqual(index.keyword_corpora, frozenset())
         self.assertEqual(index.spec.dimensions, 2)
+
+
+class CorpusFailureTest(CorpusFilesCase):
+    """코퍼스 파일·데이터 문제는 모두 RetrievalNotConfigured(있는데 못 쓰면 CorpusDataError)."""
+
+    def assert_not_configured(self, pattern, call=None, *, data_error=True):
+        """예외가 RetrievalNotConfigured이고 메시지에 파일·문제가 있는지."""
+        call = call or (lambda: build_index(read_corpus(self.base), tokenizer=SimpleTokenizer()))
+        with self.assertRaisesRegex(RetrievalNotConfigured, pattern) as caught:
+            call()
+        self.assertEqual(isinstance(caught.exception, CorpusDataError), data_error)
+        return caught.exception
+
+    def write_text(self, name, text):
+        self.write()
+        (self.base / f"{name}.jsonl").write_bytes(text.encode("utf-8"))
+
+    def test_folder_missing(self):
+        self.assert_not_configured(
+            "적재 파일이 없습니다",
+            lambda: read_corpus(self.base / "없는 폴더"),
+            data_error=False,
+        )
+
+    def test_only_some_files(self):
+        for name in TABLES:
+            if name != "corpus_chunks":
+                (self.base / f"{name}.jsonl").unlink()
+        error = self.assert_not_configured("적재 파일이 없습니다", data_error=False)
+        self.assertNotIn("corpus_chunks", str(error))  # 있는 파일은 목록에 없다
+        self.assertIn("corpus_documents", str(error))
+
+    def test_empty_file_each_table(self):
+        for name in TABLES:
+            with self.subTest(name=name):
+                self.write_text(name, "\n\n")
+                self.assert_not_configured(f"{name}.jsonl: 행이 없습니다")
+
+    def test_broken_json_line_keeps_cause_and_line(self):
+        good = json.dumps(self.rows["corpus_chunks"][0], ensure_ascii=False)
+        self.write_text("corpus_chunks", good + "\n{깨진 줄\n")
+        error = self.assert_not_configured("corpus_chunks.jsonl 2번째 줄: JSON이 아닙니다")
+        self.assertIsInstance(error.__cause__, json.JSONDecodeError)
+
+    def test_not_utf8(self):
+        self.write()
+        (self.base / "corpus_records.jsonl").write_bytes(b"\xff\xfe\x00 bad")
+        error = self.assert_not_configured("corpus_records.jsonl: UTF-8")
+        self.assertIsInstance(error.__cause__, UnicodeDecodeError)
+
+    def test_row_shape_problems(self):
+        chunk, doc = self.rows["corpus_chunks"][0], self.rows["corpus_documents"][0]
+        record = self.rows["corpus_records"][0]
+        without_text = {k: v for k, v in chunk.items() if k != "text"}
+        cases = {
+            "칼럼 text이 없습니다": {"corpus_chunks": [without_text]},
+            "칼럼 embedding의 타입이 틀렸습니다": {"corpus_chunks": [{**chunk, "embedding": None}]},
+            "칼럼 page_start의 타입": {"corpus_chunks": [{**chunk, "page_start": "1"}]},
+            "벡터에 숫자가 아닌 값": {"corpus_chunks": [{**chunk, "embedding": [1.0, "x"]}]},
+            "벡터 길이 1 ≠ 차원 2": {"corpus_chunks": [{**chunk, "embedding": [1.0]}]},
+            "metadata.accident_date_to가 날짜가 아닙니다": {
+                "corpus_chunks": [
+                    {**chunk, "metadata": {**chunk["metadata"], "accident_date_to": "2022-13-01"}}
+                ]
+            },
+            "모르는 코퍼스": {"corpus_documents": [{**doc, "corpus": "other"}]},
+            "effective_from가 날짜": {"corpus_documents": [{**doc, "effective_from": "2026.11"}]},
+            "행이 JSON 객체가 아닙니다": {"corpus_source_pages": [[1, 2]]},
+            "parent_id가 없습니다": {"corpus_records": [{**record, "parent_id": None}]},
+        }
+        for message, over in cases.items():
+            with self.subTest(message=message):
+                self.write(**over)
+                self.assert_not_configured(message)
+
+    def test_broken_links_and_duplicates(self):
+        chunks = self.rows["corpus_chunks"]
+        other_spec = {**chunks[3], "embedding_version": "v2"}
+        cases = {
+            "corpus_documents에 없습니다": {
+                "corpus_chunks": [{**chunks[0], "document_id": "none"}]
+            },
+            "코퍼스가 문서와": {"corpus_chunks": [{**chunks[0], "corpus": "fault_standards"}]},
+            "같은 chunk_id": {"corpus_chunks": [chunks[0], {**chunks[3], "chunk_id": "t1"}]},
+            "같은 document_id": {"corpus_documents": self.rows["corpus_documents"][:1] * 2},
+            "임베딩 모델·차원·버전이 하나가 아닙니다": {"corpus_chunks": [chunks[0], other_spec]},
+        }
+        for message, over in cases.items():
+            with self.subTest(message=message):
+                self.write(**over)
+                self.assert_not_configured(message)
+
+    def test_unreadable_file_os_error(self):
+        real_open = Path.open
+
+        def deny(path, *args, **kwargs):
+            if path.name == "corpus_chunks.jsonl":
+                raise PermissionError(13, "Permission denied")
+            return real_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", deny):
+            error = self.assert_not_configured("corpus_chunks.jsonl: 읽을 수 없습니다")
+        self.assertIsInstance(error.__cause__, PermissionError)
+
+    def test_code_bugs_are_not_wrapped(self):
+        """파일·데이터가 아닌 문제(TypeError 등)는 감싸지 않는다."""
+        with patch("app.retrieval.loader._row_problem", side_effect=TypeError("버그")):
+            with self.assertRaisesRegex(TypeError, "버그"):
+                read_corpus(self.base)
+
+    def test_terms_edition_problems(self):
+        no_terms = [d for d in self.rows["corpus_documents"] if d["corpus"] != "policy_terms"]
+        self.write(corpus_documents=no_terms, corpus_chunks=[self.rows["corpus_chunks"][3]])
+        self.assert_not_configured("약관 판", lambda: read_corpus(self.base).terms_edition())
+        self.assert_not_configured("약관 판", lambda: corpus_terms_edition(self.base))
+
+
+class HandoffFailureTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
+        (self.root / "data/private").mkdir(parents=True)
+        self.path = self.root / "data/private/handoff.json"
+
+    def test_handoff_problems(self):
+        spec = {"model": "m", "dimensions": 2, "version": "v"}
+        cases = (
+            (None, "파일이 없습니다", False),
+            ("{", "handoff.json: JSON으로 읽을 수 없습니다", True),
+            ("[]", "최상위가 JSON 객체가 아닙니다", True),
+            ("{}", "embedding.model", True),
+            (json.dumps({"embedding": {**spec, "dimensions": "2"}}), "embedding.model", True),
+        )
+        for text, message, data_error in cases:
+            with self.subTest(text=text):
+                self.path.unlink(missing_ok=True)
+                if text is not None:
+                    self.path.write_text(text, encoding="utf-8")
+                with self.assertRaisesRegex(RetrievalNotConfigured, message) as caught:
+                    handoff_embedding_spec(self.root)
+                self.assertEqual(isinstance(caught.exception, CorpusDataError), data_error)
+        self.path.write_text(json.dumps({"embedding": spec}), encoding="utf-8")
+        self.assertEqual(handoff_embedding_spec(self.root).dimensions, 2)
+
+    def test_handoff_os_error(self):
+        self.path.write_text("{}", encoding="utf-8")
+        with patch.object(Path, "read_text", side_effect=PermissionError(13, "denied")):
+            with self.assertRaisesRegex(CorpusDataError, "읽을 수 없습니다") as caught:
+                handoff_embedding_spec(self.root)
+        self.assertIsInstance(caught.exception.__cause__, PermissionError)
 
 
 class EvidenceStoreTest(CorpusFilesCase):
