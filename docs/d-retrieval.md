@@ -80,6 +80,7 @@ register_local_evidence_store(corpus)                 # APP_ENV=local이고 Verc
 ```
 
 보고서 쪽은 `app.api.reports.configure_with_knowledge_base()` 하나가 위를 모두 한다.
+통합 `app/main.py`는 `LOAD_KNOWLEDGE_BASE=1`일 때만 서버 시작(lifespan)에서 이 함수를 부르고, `RetrievalNotConfigured`(하위 클래스 포함)는 경고 로그만 남기고 꺼진 채로 시작한다(`tests/api/test_startup.py`).
 
 ### 로컬 EvidenceStore 어댑터 (#52, C와 합의)
 
