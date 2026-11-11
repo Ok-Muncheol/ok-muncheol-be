@@ -9,7 +9,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api import facts, judgments
+from app.api import cases, facts, judgments
 from app.api.errors import forbidden
 from app.config import Settings, get_settings
 from app.main import app, create_app
@@ -313,6 +313,42 @@ def test_judgment_read_passes_actor_and_case(client, monkeypatch):
     assert (res.status_code, res.json()) == (200, None)
     assert seen == [("user-1", "case-1"), ("user-1", "case-2")]
     assert client.get("/cases/case-1/judgment").status_code == 401
+
+
+def test_upload_passes_kind_and_content_type(client, monkeypatch):
+    seen = {}
+    ticket = {"storage_path": "case-files/case-1/videos/clip.mp4",
+              "upload_url": "https://example.supabase.co/storage/v1/object/upload/sign/x",
+              "expires_in": 7200}
+
+    async def request_upload(actor_id, case_id, kind, content_type):
+        seen.update(actor=actor_id, case=case_id, kind=kind, content_type=content_type)
+        return ticket
+
+    monkeypatch.setattr(cases, "request_upload", request_upload)
+    body = {"kind": "video", "content_type": "video/mp4"}
+    res = client.post("/cases/case-1/uploads", json=body, headers=token(sub="user-9"))
+    # 응답 모델(UploadTicket)을 거쳐도 서비스 결과 그대로다
+    assert (res.status_code, res.json()) == (200, ticket)
+    assert seen == {"actor": "user-9", "case": "case-1", "kind": "video",
+                    "content_type": "video/mp4"}
+
+
+@pytest.mark.parametrize("body", [
+    {"kind": "photo", "content_type": "image/png"},
+    {"content_type": "application/pdf"},
+    {"kind": "video"},
+    {"kind": "video", "content_type": ""},
+    {"kind": "estimate", "content_type": "a" * 101},
+])
+def test_upload_body_errors_are_invalid_request(client, monkeypatch, body):
+    async def request_upload(*args):
+        raise AssertionError("본문이 틀리면 서비스를 부르지 않는다")
+
+    monkeypatch.setattr(cases, "request_upload", request_upload)
+    res = client.post("/cases/case-1/uploads", json=body, headers=token())
+    assert res.status_code == 422
+    assert res.json()["error"]["code"] == "invalid_request"
 
 
 def test_every_route_calls_an_existing_service_function():

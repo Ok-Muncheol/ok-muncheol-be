@@ -30,7 +30,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 메서드 | 경로 | 담당 | 비고 |
 | --- | --- | --- | --- |
 | POST | `/cases` | A | 201 |
-| POST | `/cases/{id}/uploads` | A | `{kind, content_type}` → `UploadTicket` `{storage_path, upload_url, expires_in}`. kind가 `estimate`·`video`가 아니면 422 `invalid_request`, 형식이 kind와 안 맞으면 422 `invalid_upload_type`. 경로 본문 연결 전에는 501. 아래 「파일 업로드」 |
+| POST | `/cases/{id}/uploads` | A | `{kind, content_type}` → `UploadTicket` `{storage_path, upload_url, expires_in}`. kind가 `estimate`·`video`가 아니면 422 `invalid_request`, 형식이 kind와 안 맞으면 422 `invalid_upload_type`. 아래 「파일 업로드」 |
 | POST | `/cases/{id}/analysis` | A | `{storage_path}`, `Idempotency-Key` 필수, 202 |
 | GET | `/cases/{id}` | A | 상태 복원 |
 | GET·PATCH | `/cases/{id}/fact-card` | A | PATCH 본문은 `FactPatch` |
