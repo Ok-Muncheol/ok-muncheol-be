@@ -156,6 +156,7 @@ def make_video(path, fps: float, seconds: float, size=(320, 180)):
 
 
 def test_probe_rejects_missing_and_short(tmp_path):
+    pytest.importorskip("cv2")
     with pytest.raises(pl.VisionPipelineError) as e:
         pl.probe(str(tmp_path / "none.mp4"))
     assert e.value.code == "video_not_found"
