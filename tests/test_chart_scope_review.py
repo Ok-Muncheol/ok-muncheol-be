@@ -47,7 +47,7 @@ def entry(attributes=SIGNALIZED, variants=None, page=10):
     return {
         "source_check": {"pdf_page": page, "checked_at": "2026-11-10"},
         "scope_attributes": dict(attributes),
-        "scope_variants": variants or [ONE_VARIANT],
+        "scope_variants": deepcopy(variants or [ONE_VARIANT]),  # 공용 상수가 바뀌지 않게
     }
 
 
@@ -115,6 +115,43 @@ def test_mismatch_with_source_table_fails_without_partial_apply(change, message)
     with pytest.raises(ValueError, match=message):
         csr.apply_scope_review(records, [modifier()], review({"S-2": good, "S-1": bad}))
     assert records == before
+
+
+def test_one_source_variant_can_split_by_condition_with_same_ratio():
+    records = [record()]
+    sides = [{**ONE_VARIANT, "conditions": {"relative_position": side}}
+             for side in ("left", "right")]
+    csr.apply_scope_review(records, [modifier()], review({"S-1": entry(variants=sides)}))
+    assert [v["conditions"] for v in records[0]["scope_variants"]] == [
+        {"relative_position": "left"}, {"relative_position": "right"}]
+    hits = [{"chunk": {"document": dict(DOC)}, "score": 0.5}]
+    candidate = candidate_from_record(records[0], hits)  # type: ignore[arg-type]
+    assert len(candidate["base_variants"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("variants", "message"),
+    [
+        # 나눈 변형의 비율이 원문과 다르다
+        ([{**ONE_VARIANT, "conditions": {"relative_position": "left"}},
+          {**ONE_VARIANT, "base_A": 30, "base_B": 70,
+           "conditions": {"relative_position": "right"}}], "원문 표 20:80"),
+        # 나눈 변형의 조건이 같다
+        ([{**ONE_VARIANT, "conditions": {"relative_position": "left"}},
+          {**ONE_VARIANT, "conditions": {"relative_position": "left"}}], "다른 변형과 같다"),
+    ],
+)
+def test_split_variants_keep_source_ratio_and_distinct_conditions(variants, message):
+    with pytest.raises(ValueError, match=message):
+        csr.apply_scope_review([record()], [modifier()], review({"S-1": entry(variants=variants)}))
+
+
+def test_every_source_variant_must_be_covered():
+    records = [record(variants=(("가", 40, 60), ("나", 30, 70)))]
+    only_ga = [{"variant": "가", "base_A": 40, "base_B": 60,
+                "conditions": {"entry_order": "simultaneous"}}]
+    with pytest.raises(ValueError, match="원문 표 변형"):
+        csr.apply_scope_review(records, [modifier()], review({"S-1": entry(UNSIGNALIZED, only_ga)}))
 
 
 def test_multiple_variants_need_distinct_conditions():

@@ -6,7 +6,8 @@
 - `scope_attributes`: 도표 전체에 걸리는 카드 칸 값. 칸당 값 하나
   (`chart_scope.FIELD_OPTIONS`).
 - `scope_variants`: 기본 비율 변형. 변형 이름·비율이 추출값과 같아야 하고,
-  변형이 둘 이상이면 조건으로 갈린다.
+  변형이 둘 이상이면 조건으로 갈린다. 원문 변형 하나를 같은 비율로 나눌 수 있다
+  (값이 여럿인 칸, 예: 측면 도표의 `relative_position` left·right).
 - `scope_modifiers`: 표의 수정요소 행 그대로. 자동 적용 코드가 없으므로 `code`·`conditions`는 null.
 - `"*"`: 도표가 그 칸으로 가르지 않는다(무관). 빈 값·미정의와 구분하려고 명시한다.
 """
@@ -49,9 +50,14 @@ def _check_variants(
         errors.append(f"{chart_id}: scope_variants가 비었다")
         return
     extracted = {_variant_label(v["variant"]): v for v in record["base_variants"]}
+    # 원문 변형 하나를 조건별로 나눌 수 있다(예: 측면 도표의 left·right). 원문 변형은 빠짐없이,
+    # 원문에 없는 변형은 없이. 나눈 변형끼리는 비율이 원문과 같고 조건이 달라야 한다(아래 검사)
     labels = [_variant_label(v.get("variant")) for v in variants if isinstance(v, dict)]
-    if sorted(labels, key=str) != sorted(extracted, key=str):
-        errors.append(f"{chart_id}: 변형 {labels}가 원문 표 변형 {list(extracted)}과 다르다")
+    if set(labels) != set(extracted):
+        errors.append(
+            f"{chart_id}: 변형 {sorted(set(labels), key=str)}가 "
+            f"원문 표 변형 {sorted(extracted, key=str)}과 다르다"
+        )
     seen: list[dict] = []
     for variant in variants:
         if not isinstance(variant, dict):
