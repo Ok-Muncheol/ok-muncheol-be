@@ -1,911 +1,552 @@
 {
- "_example": {
-  "note": "실제 생성 카드 1장(2026-11-11 코드, 저장된 gpt-4o 답으로 재조립). AI Hub 개선용 영상 bb_1_161017_vehicle_41_214. 정답: 신호 없는 사거리, 동일폭, A 오른쪽에서 직진(후진입), B 왼쪽에서 직진(선진입), 과실 A70:B30. model_info는 줄였다(실제 카드에는 VLM 원문·프레임 정보가 더 있음).",
-  "answer": {
-   "location_type": "사거리_신호없음",
-   "road_priority": "동일폭",
-   "movement_A": "직진",
-   "movement_B": "직진",
-   "relative_position": "오른쪽",
-   "entry_order": "B먼저",
-   "signal_A": "신호없음",
-   "signal_B": "신호없음"
-  }
- },
- "case_id": "example-aihub-161017",
- "version": 1,
- "accident_date": null,
- "fields": {
-  "accident_object": {
-   "value": "차대차",
-   "model_value": "차대차",
-   "source": "vision",
-   "model_confidence": 0.9,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "차대차",
-     "confidence": 0.9
+  "case_id": "example-aihub-161017",
+  "version": 1,
+  "accident_date": null,
+  "fields": {
+    "accident_type": {
+      "value": "car_to_car",
+      "model_value": "car_to_car",
+      "source": "vision",
+      "model_confidence": 0.9,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": null,
+        "vlm": {
+          "value": "차대차",
+          "confidence": 0.9
+        },
+        "agree": null,
+        "internal_value": "차대차",
+        "eval": {
+          "accuracy": 1.0,
+          "basis": "개발 세트 30건 (30/30)"
+        }
+      }
     },
-    "agree": null
-   }
-  },
-  "party_count": {
-   "value": 2,
-   "model_value": 2,
-   "source": "vision",
-   "model_confidence": 0.9,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": 2,
-     "confidence": 0.9
+    "location_type": {
+      "value": "unsignalized_intersection",
+      "model_value": "unsignalized_intersection",
+      "source": "vision",
+      "model_confidence": 0.8,
+      "verification_status": "needs_review",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": {
+          "value": "사거리_신호없음",
+          "confidence": 0.99,
+          "source": "영상 모델"
+        },
+        "vlm": {
+          "value": "직선도로",
+          "confidence": 0.8
+        },
+        "agree": false,
+        "internal_value": "사거리_신호없음",
+        "eval": {
+          "accuracy": 0.8,
+          "basis": "사람 정답 92건 (74/92, 사람 28 + AI Hub 라벨 64)"
+        }
+      }
     },
-    "agree": null
-   }
-  },
-  "location_type": {
-   "value": "사거리_신호없음",
-   "model_value": "사거리_신호없음",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "needs_review",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": "사거리_신호없음",
-     "confidence": 0.99,
-     "source": "영상 모델",
-     "probs": {
-      "사거리_신호없음": 0.99,
-      "T자형교차로": 0.01,
-      "차도와비차도": 0.0
-     }
+    "road_priority": {
+      "value": "same_width",
+      "model_value": "same_width",
+      "source": "vision",
+      "model_confidence": 0.84,
+      "verification_status": "needs_review",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": {
+          "value": "동일폭",
+          "confidence": 0.84,
+          "source": "장면 분류기"
+        },
+        "vlm": {
+          "value": "해당없음",
+          "confidence": 0.9
+        },
+        "agree": null,
+        "video_j3": "동일폭",
+        "tidy": {
+          "from": "불명",
+          "to": "동일폭"
+        },
+        "internal_value": "동일폭",
+        "eval": {
+          "accuracy": 0.7,
+          "basis": "개발 세트 30건 (21/30)"
+        }
+      }
     },
-    "vlm": {
-     "value": "직선도로",
-     "confidence": 0.8
+    "signal_A": {
+      "value": "no_signal",
+      "model_value": "no_signal",
+      "source": "vision",
+      "model_confidence": 0.9,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": null,
+        "vlm": {
+          "value": "신호없음",
+          "confidence": 0.9
+        },
+        "agree": null,
+        "internal_value": "신호없음",
+        "eval": {
+          "accuracy": 0.0,
+          "basis": "개발 세트 신호 교차로 4건 (0/4), 늘 확인 필요"
+        }
+      }
     },
-    "agree": false
-   }
-  },
-  "road_priority": {
-   "value": "동일폭",
-   "model_value": "동일폭",
-   "source": "vision",
-   "model_confidence": 0.84,
-   "verification_status": "needs_review",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": "동일폭",
-     "confidence": 0.84,
-     "probs": {
-      "동일폭": 0.84,
-      "B대로": 0.15,
-      "A대로": 0.01
-     },
-     "source": "장면 분류기"
+    "signal_B": {
+      "value": "no_signal",
+      "model_value": "no_signal",
+      "source": "vision",
+      "model_confidence": 0.9,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": null,
+        "vlm": {
+          "value": "신호없음",
+          "confidence": 0.9
+        },
+        "agree": null,
+        "internal_value": "신호없음",
+        "eval": {
+          "accuracy": 0.0,
+          "basis": "개발 세트 신호 교차로 4건 (0/4), 늘 확인 필요"
+        }
+      }
     },
-    "vlm": {
-     "value": "해당없음",
-     "confidence": 0.9
+    "movement_A": {
+      "value": "straight",
+      "model_value": "straight",
+      "source": "vision",
+      "model_confidence": 1.0,
+      "verification_status": "needs_review",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": {
+          "value": "직진",
+          "confidence": 1.0,
+          "source": "영상 모델"
+        },
+        "vlm": {
+          "value": "직진",
+          "confidence": 0.8
+        },
+        "agree": true,
+        "internal_value": "직진",
+        "eval": {
+          "accuracy": 0.65,
+          "basis": "사람 정답 92건 (60/92)"
+        }
+      }
     },
-    "agree": null,
-    "video_j3": "동일폭",
-    "tidy": {
-     "from": "불명",
-     "to": "동일폭"
+    "movement_B": {
+      "value": "straight",
+      "model_value": "straight",
+      "source": "vision",
+      "model_confidence": 1.0,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": {
+          "value": "직진",
+          "confidence": 1.0,
+          "source": "분류기",
+          "rule": "직진",
+          "video_model": "직진",
+          "type_confidence": 1.0
+        },
+        "vlm": {
+          "value": "직진",
+          "confidence": 0.8
+        },
+        "agree": true,
+        "internal_value": "직진",
+        "eval": {
+          "accuracy": 0.75,
+          "basis": "사람 정답 92건 (69/92)"
+        }
+      }
+    },
+    "relative_position": {
+      "value": "right",
+      "model_value": "right",
+      "source": "vision",
+      "model_confidence": 0.8,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": null,
+        "vlm": {
+          "value": "오른쪽",
+          "confidence": 0.8
+        },
+        "agree": null,
+        "video_v3": "옆",
+        "internal_value": "오른쪽",
+        "eval": {
+          "accuracy": 0.63,
+          "basis": "개발 세트 30건, 좌·우 구분 (19/30)"
+        }
+      }
+    },
+    "entry_order": {
+      "value": null,
+      "model_value": null,
+      "source": "vision",
+      "model_confidence": 0.9,
+      "verification_status": "needs_review",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": null,
+        "vlm": {
+          "value": "해당없음",
+          "confidence": 0.9
+        },
+        "agree": null,
+        "tidy": {
+          "from": "해당없음",
+          "to": "불명"
+        },
+        "eval": {
+          "accuracy": 0.47,
+          "basis": "개발 세트 30건 (14/30)"
+        }
+      }
+    },
+    "night": {
+      "value": true,
+      "model_value": true,
+      "source": "vision",
+      "model_confidence": 0.9,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": null,
+        "vlm": {
+          "value": "야간",
+          "confidence": 0.9
+        },
+        "agree": null,
+        "internal_value": "야간"
+      }
+    },
+    "collision_time_ms": {
+      "value": 4667,
+      "model_value": 4667,
+      "source": "vision",
+      "model_confidence": 0.78,
+      "verification_status": "needs_review",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": {
+          "value": 4933,
+          "confidence": 0.78
+        },
+        "vlm": {
+          "value": 4667,
+          "confidence": 0.8
+        },
+        "agree": false,
+        "eval": {
+          "accuracy": 0.57,
+          "basis": "개발 세트 30건, ±200ms 이내 (17/30)"
+        }
+      }
+    },
+    "narrative": {
+      "value": "B 차량이 직진 중 A 차량이 오른쪽에서 직진하여 충돌함.",
+      "model_value": "B 차량이 직진 중 A 차량이 오른쪽에서 직진하여 충돌함.",
+      "source": "vision",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [
+        "f001",
+        "f030",
+        "f050",
+        "f058",
+        "f063",
+        "f067",
+        "f070",
+        "f073",
+        "f076",
+        "f080",
+        "f085",
+        "f095"
+      ],
+      "source_document_ids": [],
+      "vision_detail": {
+        "detection": null,
+        "vlm": {
+          "value": "B 차량이 직진 중 A 차량이 오른쪽에서 직진하여 충돌함.",
+          "confidence": null
+        },
+        "agree": null
+      }
     }
-   }
   },
-  "signal_A": {
-   "value": "신호없음",
-   "model_value": "신호없음",
-   "source": "vision",
-   "model_confidence": 0.9,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "신호없음",
-     "confidence": 0.9
+  "parties": [
+    {
+      "party_id": "P1",
+      "role": "촬영 차량",
+      "track_id": null
     },
-    "agree": null
-   }
-  },
-  "signal_B": {
-   "value": "신호없음",
-   "model_value": "신호없음",
-   "source": "vision",
-   "model_confidence": 0.9,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "신호없음",
-     "confidence": 0.9
-    },
-    "agree": null
-   }
-  },
-  "movement_A": {
-   "value": "직진",
-   "model_value": "직진",
-   "source": "vision",
-   "model_confidence": 1.0,
-   "verification_status": "needs_review",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": "직진",
-     "confidence": 1.0,
-     "source": "영상 모델",
-     "probs": {
-      "직진": 1.0,
-      "좌회전": 0.0,
-      "우회전": 0.0
-     }
-    },
-    "vlm": {
-     "value": "직진",
-     "confidence": 0.8
-    },
-    "agree": true
-   }
-  },
-  "movement_B": {
-   "value": "직진",
-   "model_value": "직진",
-   "source": "vision",
-   "model_confidence": 1.0,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": "직진",
-     "confidence": 1.0,
-     "source": "분류기",
-     "probs": {
-      "직진": 1.0,
-      "기타": 0.0,
-      "좌회전": 0.0
-     },
-     "rule": "직진",
-     "video_model": "직진",
-     "type_confidence": 1.0
-    },
-    "vlm": {
-     "value": "직진",
-     "confidence": 0.8
-    },
-    "agree": true,
-    "by_place": {
-     "T자형교차로": {
-      "value": "직진",
-      "confidence": 1.0,
-      "probs": {
-       "직진": 1.0,
-       "좌회전": 0.0,
-       "기타": 0.0
-      }
-     },
-     "고속도로": {
-      "value": "직진",
-      "confidence": 0.98,
-      "probs": {
-       "직진": 0.98,
-       "기타": 0.02,
-       "좌회전": 0.0
-      }
-     },
-     "사거리_신호없음": {
-      "value": "직진",
-      "confidence": 1.0,
-      "probs": {
-       "직진": 1.0,
-       "기타": 0.0,
-       "좌회전": 0.0
-      }
-     },
-     "사거리_신호있음": {
-      "value": "직진",
-      "confidence": 0.99,
-      "probs": {
-       "직진": 0.99,
-       "좌회전": 0.01,
-       "기타": 0.0
-      }
-     },
-     "주차장": {
-      "value": "직진",
-      "confidence": 0.99,
-      "probs": {
-       "직진": 0.99,
-       "기타": 0.01,
-       "좌회전": 0.0
-      }
-     },
-     "직선도로": {
-      "value": "직진",
-      "confidence": 1.0,
-      "probs": {
-       "직진": 1.0,
-       "기타": 0.0,
-       "좌회전": 0.0
-      }
-     },
-     "차도와비차도": {
-      "value": "직진",
-      "confidence": 1.0,
-      "probs": {
-       "직진": 1.0,
-       "기타": 0.0,
-       "좌회전": 0.0
-      }
-     },
-     "회전교차로": {
-      "value": "기타",
-      "confidence": 0.8,
-      "probs": {
-       "기타": 0.8,
-       "직진": 0.2,
-       "좌회전": 0.0
-      }
-     }
+    {
+      "party_id": "P2",
+      "role": "상대 차량",
+      "track_id": null
     }
-   }
+  ],
+  "party_mapping": {
+    "video_ego_party_id": "P1",
+    "insured_party_id": null,
+    "chart_party_A_id": "P2",
+    "chart_party_B_id": "P1"
   },
-  "relative_position": {
-   "value": "오른쪽",
-   "model_value": "오른쪽",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "오른쪽",
-     "confidence": 0.8
+  "evidence_frames": [
+    {
+      "frame_id": "f001",
+      "timestamp_ms": 67,
+      "storage_path": null
     },
-    "agree": null,
-    "video_v3": "옆"
-   }
-  },
-  "entry_order": {
-   "value": "불명",
-   "model_value": "불명",
-   "source": "vision",
-   "model_confidence": 0.9,
-   "verification_status": "needs_review",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "해당없음",
-     "confidence": 0.9
+    {
+      "frame_id": "f030",
+      "timestamp_ms": 2000,
+      "storage_path": null
     },
-    "agree": null,
-    "tidy": {
-     "from": "해당없음",
-     "to": "불명"
+    {
+      "frame_id": "f050",
+      "timestamp_ms": 3333,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f058",
+      "timestamp_ms": 3867,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f063",
+      "timestamp_ms": 4200,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f067",
+      "timestamp_ms": 4467,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f070",
+      "timestamp_ms": 4667,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f073",
+      "timestamp_ms": 4867,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f076",
+      "timestamp_ms": 5067,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f080",
+      "timestamp_ms": 5333,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f085",
+      "timestamp_ms": 5667,
+      "storage_path": null
+    },
+    {
+      "frame_id": "f095",
+      "timestamp_ms": 6333,
+      "storage_path": null
     }
-   }
-  },
-  "lane_change_A": {
-   "value": "없음",
-   "model_value": "없음",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "없음",
-     "confidence": 0.8
+  ],
+  "status": "draft",
+  "confirmed_by": null,
+  "confirmed_at": null,
+  "model_info": {
+    "vlm": "replay:openai:gpt-4o",
+    "prompt_version": "v0.2",
+    "stage": "vlm+ego+yolo+video",
+    "models": {
+      "video": "video_model_tr.pt(v2)",
+      "special_move": "video_model_j3.pt(j3)",
+      "flag_v3": "video_model_v3.pt",
+      "type_head": "type_head.pt",
+      "motion_b": "motion_movement_B.joblib",
+      "yolo": "yolo11s.pt"
     },
-    "agree": null
-   }
-  },
-  "lane_change_B": {
-   "value": "없음",
-   "model_value": "없음",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": "없음",
-     "confidence": 0.56
-    },
-    "vlm": {
-     "value": "없음",
-     "confidence": 0.8
-    },
-    "agree": true
-   }
-  },
-  "centerline_cross_A": {
-   "value": "없음",
-   "model_value": "없음",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "없음",
-     "confidence": 0.8
-    },
-    "agree": null
-   }
-  },
-  "centerline_cross_B": {
-   "value": "없음",
-   "model_value": "없음",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "없음",
-     "confidence": 0.8
-    },
-    "agree": null
-   }
-  },
-  "motion_trend_A": {
-   "value": "일정",
-   "model_value": "일정",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "일정",
-     "confidence": 0.8
-    },
-    "agree": null
-   }
-  },
-  "motion_trend_B": {
-   "value": "가속",
-   "model_value": "가속",
-   "source": "vision",
-   "model_confidence": 0.5,
-   "verification_status": "needs_review",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": "가속",
-     "confidence": 0.5
-    },
-    "vlm": {
-     "value": "감속",
-     "confidence": 0.8
-    },
-    "agree": false
-   }
-  },
-  "collision_part_A": {
-   "value": "앞오른쪽",
-   "model_value": "앞오른쪽",
-   "source": "vision",
-   "model_confidence": 0.8,
-   "verification_status": "needs_review",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "앞오른쪽",
-     "confidence": 0.8
-    },
-    "agree": null
-   }
-  },
-  "collision_part_B": {
-   "value": "앞오른쪽",
-   "model_value": "앞오른쪽",
-   "source": "vision",
-   "model_confidence": 0.6,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": "앞오른쪽",
-     "confidence": 0.6
-    },
-    "vlm": {
-     "value": "앞왼쪽",
-     "confidence": 0.8
-    },
-    "agree": false
-   }
-  },
-  "collision_time_ms": {
-   "value": 4667,
-   "model_value": 4667,
-   "source": "vision",
-   "model_confidence": 0.78,
-   "verification_status": "needs_review",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": {
-     "value": 4933,
-     "confidence": 0.78
-    },
-    "vlm": {
-     "value": 4667,
-     "confidence": 0.8
-    },
-    "agree": false
-   }
-  },
-  "time_condition": {
-   "value": "야간",
-   "model_value": "야간",
-   "source": "vision",
-   "model_confidence": 0.9,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "야간",
-     "confidence": 0.9
-    },
-    "agree": null
-   }
-  },
-  "weather": {
-   "value": "맑음",
-   "model_value": "맑음",
-   "source": "vision",
-   "model_confidence": 0.9,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "맑음",
-     "confidence": 0.9
-    },
-    "agree": null
-   }
-  },
-  "narrative": {
-   "value": "B 차량이 직진 중 A 차량이 오른쪽에서 직진하여 충돌함.",
-   "model_value": "B 차량이 직진 중 A 차량이 오른쪽에서 직진하여 충돌함.",
-   "source": "vision",
-   "model_confidence": null,
-   "verification_status": "unverified",
-   "evidence_frame_ids": [
-    "f001",
-    "f030",
-    "f050",
-    "f058",
-    "f063",
-    "f067",
-    "f070",
-    "f073",
-    "f076",
-    "f080",
-    "f085",
-    "f095"
-   ],
-   "source_document_ids": [],
-   "vision_detail": {
-    "detection": null,
-    "vlm": {
-     "value": "B 차량이 직진 중 A 차량이 오른쪽에서 직진하여 충돌함.",
-     "confidence": null
-    },
-    "agree": null
-   }
+    "pipeline": {
+      "cut": {
+        "mode": "as_is",
+        "offset_ms": 0,
+        "auto_cut": false
+      },
+      "use_j3": true
+    }
   }
- },
- "parties": [
-  {
-   "party_id": "P1",
-   "role": "촬영 차량",
-   "track_id": null
-  },
-  {
-   "party_id": "P2",
-   "role": "상대 차량",
-   "track_id": null
-  }
- ],
- "party_mapping": {
-  "video_ego_party_id": "P1",
-  "insured_party_id": null,
-  "chart_party_A_id": "P2",
-  "chart_party_B_id": "P1"
- },
- "evidence_frames": [
-  {
-   "frame_id": "f001",
-   "timestamp_ms": 67,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f030",
-   "timestamp_ms": 2000,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f050",
-   "timestamp_ms": 3333,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f058",
-   "timestamp_ms": 3867,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f063",
-   "timestamp_ms": 4200,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f067",
-   "timestamp_ms": 4467,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f070",
-   "timestamp_ms": 4667,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f073",
-   "timestamp_ms": 4867,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f076",
-   "timestamp_ms": 5067,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f080",
-   "timestamp_ms": 5333,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f085",
-   "timestamp_ms": 5667,
-   "storage_path": null
-  },
-  {
-   "frame_id": "f095",
-   "timestamp_ms": 6333,
-   "storage_path": null
-  }
- ],
- "status": "draft",
- "confirmed_by": null,
- "confirmed_at": null,
- "model_info": {
-  "vlm": "replay:openai:gpt-4o",
-  "prompt_version": "v0.2",
-  "stage": "vlm+ego+yolo+video",
-  "models": {
-   "video": "video_model_tr.pt(v2)",
-   "special_move": "video_model_j3.pt(j3)",
-   "flag_v3": "video_model_v3.pt",
-   "type_head": "type_head.pt",
-   "motion_b": "motion_movement_B.joblib",
-   "yolo": "yolo11s.pt"
-  }
- }
 }

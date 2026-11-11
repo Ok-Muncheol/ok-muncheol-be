@@ -96,9 +96,10 @@ def image_index(label_zip_dir):
 
 
 def make_ref_image(r, index, video_path, out_path):
+    """충돌 직전 정답 박스 프레임(75 이하 중 가장 가까운 것)과 그 앞 프레임 하나를 나란히
+    그린다."""
     import cv2
 
-    """충돌 직전(가장 가까운 ≤75) 정답 박스 프레임 하나와 그보다 앞선 프레임 하나를 나란히 그린다."""
     frames = [int(f) for f in r["ab_frames"].split(";") if f]
     near = max([f for f in frames if f <= 75] or [min(frames)])
     early = max([f for f in frames if f <= near - 15] or [near])
@@ -266,22 +267,24 @@ def main():
         ws.add_data_validation(dv)
         dv.add(f"{col}{first}:{col}{last}")
         ws.column_dimensions[col].width = 14
-    for col, width in zip("ABCDEFGHI", [32, 6, 7, 6, 8, 20, 26, 26, 9]):
+    for col, width in zip("ABCDEFGHI", [32, 6, 7, 6, 8, 20, 26, 26, 9], strict=False):
         ws.column_dimensions[col].width = width
     ws.freeze_panes = "B3"
 
     help_ws = wb.create_sheet("설명")
     help_lines = [
         "정답 카드 입력 방법",
-        "1. '영상' 열기를 눌러 영상을 본다(10초, 15fps, 충돌은 보통 5초 근처). 프레임 번호 = 초 × 15.",
+        "1. '영상' 열기를 눌러 영상을 본다(10초, 15fps, 충돌은 보통 5초 근처). 프레임 번호 = 초 × "
+        "15.",
         "2. '참고사진'은 라벨 박스로 A(빨강)·B(파랑)를 표시한 사진이다. 1인칭은 촬영 차량이 B다.",
         "3. 노란 칸은 AI Hub 라벨로 미리 채운 값이다. 영상과 다르면 고치고 메모에 이유를 적는다.",
-        "4. 빈 칸은 드롭다운에서 고른다. 영상으로 알 수 없으면 '불명', 그 상황에 없는 칸이면 '해당없음'.",
+        "4. 빈 칸은 드롭다운에서 고른다. 영상으로 알 수 없으면 '불명', 그 상황에 없는 칸이면 "
+        "'해당없음'.",
         "5. 상대 차 신호가 화면에 안 보이면 추측하지 말고 '불명'.",
         "6. relative_position은 B(1인칭이면 내 차) 기준으로 A가 충돌 직전 어느 쪽에 있었는지.",
         "7. motion_trend·time_condition·weather는 채점하지 않는다. 쉬우면 채운다.",
         "",
-        "칸 설명 (docs/contracts/fact-card-v0.md 3절)",
+        "칸 설명 (비전 내부 칸, workers/vision/fields.py)",
     ] + [
         f"- {n}: {d}  [{ {'always': '필수', 'cond': '조건부 필수', 'optional': '선택'}[req] }]"
         + (f"  값: {' / '.join(v)}" if isinstance(v, list) else "")

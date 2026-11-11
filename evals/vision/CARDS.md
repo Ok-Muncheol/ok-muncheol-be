@@ -1,6 +1,6 @@
 # 비전 평가·학습 (정지원, A 담당)
 
-블랙박스 1인칭 영상 → 사실 카드(JSON) 자동 생성의 학습·평가 스크립트. 서비스 코드는 `workers/vision/`.
+블랙박스 1인칭 영상 → 사실 카드(JSON) 자동 생성의 학습·평가 스크립트. 서비스 코드와 파일 지도는 `workers/vision/README.md`.
 데이터·모델·결과는 저장소에 없다(`data/private/`, `evals/results/`는 .gitignore). AI Hub 영상은 외부로 보내지 않는다.
 
 ## 지금 카드 설정 (2026-11-11)
@@ -34,7 +34,8 @@
 | 영상 꺼내기 | `extract_videos.py`(평가 영상), `prepare_train.py`, `prepare_train_tr.py`(Training → 16장 저장) |
 | 카드 만들기 (💰 VLM 유료) | `run_cards.py --ego --yolo --motion --video` |
 | 무료 재조립 | `replay_cards.py <실행 폴더> --ego --yolo --motion --video` (저장된 VLM 답 + 지금 코드) |
-| 채점 | `score.py <폴더>`, `combine_runs.py <폴더1> <폴더2> --out dev30_<이름>` (30건 합산) |
+| 채점 | `score.py <폴더>`(내부 한국어 값), `score_v1.py <폴더>`(팀 계약 v1 값), `combine_runs.py <폴더1> <폴더2> --out dev30_<이름>` (30건 합산) |
+| 파이프라인 확인 | `check_pipeline.py` (저장된 VLM 답으로 `workers/vision/pipeline.py`가 평가와 같은 카드를 내는지, 무료) |
 | 영상 모델 학습 | `train_video.py --spec v2 / v3 / j3 --answers train_answers.csv train_answers_tr.csv --epochs 3 --balance` |
 | 사고 유형 판단부 | `train_type_head.py` → `workers/vision/type_model.py` |
 | 움직임 분류기 | `train_motion.py`, `train_motion_b.py`(사람 라벨 섞음), `train_pick.py`(상대 차 고르기), `train_scene.py` |
@@ -65,4 +66,4 @@
 - 사고 유형 상위 5개 중 VLM이 고르기(💰, 상위 5개 안에 정답 81%)
 - Qwen3-VL LoRA 미세조정(arXiv 2607.03591: 1인칭 과실 비율, LoRA 4B가 GPT-5 zero-shot을 크게 이김)
 - B가 VLM 특수 움직임(주정차 등)일 때도 유형 자신감으로 확인 표시
-- 영상 길이 가정: 영상 모델은 프레임 30~110만 본다(AI Hub 잘린 영상 기준). 실서비스는 충돌 시각 기준으로 잘라야 함
+- 영상 길이 가정: 영상 모델은 프레임 30~110만 본다(AI Hub 잘린 영상 기준). 파이프라인은 20초 넘는 영상을 충돌 앞뒤 10초로 자른다(충돌 시각은 늘 확인 표시)

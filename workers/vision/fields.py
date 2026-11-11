@@ -1,6 +1,7 @@
-"""A: 사실 카드 칸 정의(초안 v0). VLM 질문·정답 입력표·채점이 이 목록 하나를 같이 쓴다.
+"""A: 비전 내부 카드의 칸과 한국어 값. 질문·정답 입력표·채점·학습이 이 목록 하나를 같이 쓴다.
 
-원본 설명: docs/contracts/fact-card-v0.md 3절. 칸을 바꾸면 문서와 함께 고친다.
+팀에 넘기는 카드는 영어 v1(12칸)이고, 바꾸는 표는 contract.py에 있다
+(docs/contracts/fact-card-v1.md 7절). 칸을 바꾸면 그 표와 문서도 함께 고친다.
 required: "always"(●), "cond"(◐ 조건부), "optional"(○, 채점 안 함)
 """
 
@@ -116,7 +117,7 @@ STAFF_FIELDS = ["location_type", "road_priority", "entry_order"]
 FPS = 15
 
 
-REVIEW_THRESHOLD = 0.7  # 임시값. 개선용 10건 평가 후 다시 정한다 (fact-card-v0.md 6절)
+REVIEW_THRESHOLD = 0.7  # VLM 자신감이 이보다 낮으면 확인 표시
 SIGNAL_PLACES = {"사거리_신호있음"}
 INTERSECTIONS = {"사거리_신호있음", "사거리_신호없음", "T자형교차로", "회전교차로"}
 TIME_TOLERANCE_MS = 200  # collision_time_ms가 이만큼 이내면 같은 값으로 본다
