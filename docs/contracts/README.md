@@ -29,10 +29,10 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 
 | 메서드 | 경로 | 담당 | 비고 |
 | --- | --- | --- | --- |
-| POST | `/cases` | A | 201 |
+| POST | `/cases` | A | 201. 본문 `{accident_date?, input_path?: video·manual, accident_type?, party_count?}` → `CaseSummary`(FE `types.ts`). 차대차 2대가 아니면 422 `case_out_of_scope`, 형식 오류 422 `invalid_case` |
 | POST | `/cases/{id}/uploads` | A | `{kind, content_type}` → `UploadTicket` `{storage_path, upload_url, expires_in}`. kind가 `estimate`·`video`가 아니면 422 `invalid_request`, 형식이 kind와 안 맞으면 422 `invalid_upload_type`. 아래 「파일 업로드」 |
 | POST | `/cases/{id}/analysis` | A | `{storage_path}`, `Idempotency-Key` 필수, 202 |
-| GET | `/cases/{id}` | A | 상태 복원 |
+| GET | `/cases/{id}` | A | 상태 복원. `CaseSummary`: `stage`(intake·facts·judgment·report), `task_status`, `judgment_status`, `approval_status`, `open_questions`, `versions`. 최신 카드 버전의 판단·최신 판단의 보고서만 지금 단계로 친다. 시각은 +09:00 |
 | GET·PATCH | `/cases/{id}/fact-card` | A | GET은 최신 버전 `FactCard`(카드 없으면 404). PATCH 본문 `FactPatch` `{expected_version, fields: {칸: {value}}, party_mapping?, reason}` → 새 버전(draft). 고친 칸은 `human_confirmed`(null = 확인한 모름), 모델 원값 보존. 최신 아님 409, v1 밖 값 422 `invalid_fact_value`·`invalid_fact_field`, 사유 없음 422 `invalid_patch`, 도표 A/B 오류 422 `invalid_party_mapping` |
 | POST | `/cases/{id}/fact-card/confirm` | A | `{expected_version}` → 확정 `FactCard`. 값 있는 칸은 모두 `human_confirmed`, 확정한 사람·시각 기록. `needs_review` 칸이나 도표 A/B 오류가 남으면 422 `card_not_confirmable`, 최신 아님 409. 이미 확정이면 그대로 돌려준다 |
 | POST | `/cases/{id}/judgments` | B | `{card_version}`, `Idempotency-Key` 필수, 202. 버전 불일치 409, 미확정 422 |

@@ -95,14 +95,16 @@ def test_no_auth_config_fails_closed(client):
 def test_dev_actor_only_in_local_off_vercel(client):
     app.dependency_overrides[get_settings] = lambda: settings(
         app_env="local", dev_actor_id="dev-1", supabase_jwt_secret=None)
-    assert client.get("/cases/case-1").status_code == 501  # 인증 통과 → A 미구현
+    # 인증 통과 → A 사건 조회가 잘못된 사건 번호로 404(DB 전)
+    assert client.get("/cases/case-1").status_code == 404
     app.dependency_overrides[get_settings] = lambda: settings(
         app_env="local", on_vercel=True, dev_actor_id="dev-1", supabase_jwt_secret=None)
     assert client.get("/cases/case-1").status_code == 503
 
 
 def test_unimplemented_service_is_501(client):
-    res = client.get("/cases/case-1", headers=token())
+    res = client.post("/cases/case-1/analysis", json={"storage_path": "case-files/x/videos/a.mp4"},
+                      headers={**token(), **KEY})
     assert res.status_code == 501
     assert res.json()["error"]["code"] == "not_implemented"
 
@@ -215,7 +217,7 @@ def test_asymmetric_jwks_token_checks_issuer(client, monkeypatch):
                    "exp": int(time.time()) + 600}
         return {"Authorization": "Bearer " + jwt.encode(payload, private, algorithm="ES256")}
 
-    assert client.get("/cases/case-1", headers=es256(f"{url}/auth/v1")).status_code == 501
+    assert client.get("/cases/case-1", headers=es256(f"{url}/auth/v1")).status_code == 404
     assert client.get("/cases/case-1", headers=es256("https://other/auth/v1")).status_code == 401
     # 비밀키 미설정이면 HS256 토큰은 받지 않는다(알고리즘 혼동 방지)
     assert client.get("/cases/case-1", headers=token()).status_code == 401
