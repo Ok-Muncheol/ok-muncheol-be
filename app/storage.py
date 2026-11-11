@@ -106,3 +106,42 @@ async def download_object(
     except httpx.HTTPError:
         # 예외 연결을 끊는다(요청 객체·헤더가 추적 정보에 남지 않게)
         raise _unavailable(retryable=True) from None
+
+
+# Supabase 서명 업로드 URL은 2시간 고정(서버가 정함, 요청으로 바꿀 수 없다)
+UPLOAD_URL_EXPIRES_SECONDS = 7200
+
+
+async def create_signed_upload_url(
+    object_key: str, *, transport: httpx.AsyncBaseTransport | None = None
+) -> str:
+    """`STORAGE_BUCKET`의 `object_key`에 파일을 한 번 올릴 수 있는 서명 URL을 만든다.
+
+    브라우저는 키 없이 이 URL에 파일 본문과 Content-Type을 PUT 한다(같은 URL로 다시 올리면 409).
+    호출하는 쪽이 먼저 사건 권한을 확인하고 객체 키를 만든다(서버 키는 RLS를 건너뛴다).
+    `transport`는 테스트용.
+    """
+    settings = get_settings()
+    if not settings.supabase_url or not settings.supabase_secret_key:
+        raise _not_configured()
+    base = settings.supabase_url.rstrip("/")
+    url = (
+        f"{base}/storage/v1/object/upload/sign/"
+        f"{quote(STORAGE_BUCKET, safe='')}/{quote(object_key, safe='/')}"
+    )
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT_SECONDS, transport=transport, follow_redirects=False
+        ) as client:
+            resp = await client.post(url, headers={"apikey": settings.supabase_secret_key})
+    except httpx.HTTPError:
+        raise _unavailable(retryable=True) from None
+    if resp.status_code != 200:
+        raise _unavailable(retryable=resp.status_code >= 500)
+    try:
+        signed = resp.json()["url"]
+    except (ValueError, KeyError, TypeError):
+        raise _unavailable(retryable=False) from None
+    if not isinstance(signed, str) or not signed.startswith("/"):
+        raise _unavailable(retryable=False)
+    return f"{base}/storage/v1{signed}"
