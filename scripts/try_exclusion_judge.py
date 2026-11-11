@@ -34,7 +34,9 @@ from app.retrieval.embedding import (  # noqa: E402
     EmbeddingRequestFailed,
     RetrievalNotConfigured,
 )
-from app.retrieval.loader import handoff_terms_edition, load_index  # noqa: E402
+from app.retrieval.evidence_store import LocalCorpusEvidenceStore  # noqa: E402
+from app.retrieval.loader import build_index, read_corpus  # noqa: E402
+from app.tools._evidence import configure_evidence_store  # noqa: E402
 from tests import fixtures_d as fx  # noqa: E402
 
 MAX_CALLS = 4
@@ -75,9 +77,12 @@ def cites_item(detail: str, item: str | None) -> str:
 
 
 async def main() -> None:
+    corpus = read_corpus()
     configure_retrieval(
-        index=load_index(["policy_terms"]), default_terms_edition=handoff_terms_edition()
+        index=build_index(corpus, ["policy_terms"]), default_terms_edition=corpus.terms_edition()
     )
+    store = LocalCorpusEvidenceStore(corpus)  # 로컬 시험 스크립트라 환경과 상관없이 등록
+    configure_evidence_store(lambda: store)
     llm = CountingLLM(openai_judge_llm(max_retries=0))
     judge = llm_judge(llm)
     print(f"모델: {os.environ['OPENAI_MODEL']} · 호출 상한 {MAX_CALLS}번")

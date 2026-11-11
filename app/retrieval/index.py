@@ -38,6 +38,9 @@ class SearchFilter:
     # chunk.metadata 비교. 필터 값이 목록이면 그중 하나와 일치, 청크 값이 목록이면 그 안에 포함되면
     # 통과. 키가 없으면 제외, 빈 목록은 아무것도 통과하지 않는다
     metadata: dict[str, object] = field(default_factory=dict)
+    # 청크 metadata의 적용 사고일 범위(accident_date_from/to, 별표3 과실상계 등). None이면 적용하지
+    # 않음. 범위 값이 없는 청크는 통과한다. 문서 적용 기간(accident_date)과 달리 모든 코퍼스에 쓴다
+    accident_window: date | None = None
 
 
 class VectorIndex(Protocol):
@@ -81,6 +84,14 @@ def _metadata_matches(metadata: dict[str, object], key: str, value: object) -> b
     return any(item in actual_values for item in wanted)
 
 
+def within_accident_window(accident_date: date, metadata: dict[str, object]) -> bool:
+    """metadata의 accident_date_from ≤ 사고 일자 ≤ accident_date_to(양끝 포함, 빈 값은 열린 끝)."""
+    start, end = metadata.get("accident_date_from"), metadata.get("accident_date_to")
+    if start and accident_date < date.fromisoformat(start):  # type: ignore[arg-type]
+        return False
+    return not (end and accident_date > date.fromisoformat(end))  # type: ignore[arg-type]
+
+
 def matches(chunk: SearchChunk, search_filter: SearchFilter) -> bool:
     document = chunk["document"]
     if document["corpus"] != search_filter.corpus:
@@ -102,6 +113,10 @@ def matches(chunk: SearchChunk, search_filter: SearchFilter) -> bool:
         ):
             return False
     metadata = chunk["metadata"]
+    if search_filter.accident_window is not None and not within_accident_window(
+        search_filter.accident_window, metadata
+    ):
+        return False
     return all(_metadata_matches(metadata, k, v) for k, v in search_filter.metadata.items())
 
 
@@ -173,6 +188,9 @@ class InMemoryIndex:
                     f"벡터 길이 {len(row['embedding'])} ≠ 차원 {spec.dimensions}"
                 )
             self._check_period(row["chunk"]["document"])
+            for key in ("accident_date_from", "accident_date_to"):  # 잘못된 날짜는 적재 때 드러낸다
+                if row["chunk"]["metadata"].get(key):
+                    date.fromisoformat(row["chunk"]["metadata"][key])  # type: ignore[arg-type]
             self._spec = spec
             self._rows[row["chunk"]["chunk_id"]] = row
             corpus = row["chunk"]["document"]["corpus"]

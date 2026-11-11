@@ -15,7 +15,9 @@ app/retrieval/common.py   search(request), configure_retrieval(...)
                 ▼
            index.py       VectorIndex(Protocol), InMemoryIndex
                 ▲
-           loader.py      data/private/handoff.json이 가리키는 chunks.jsonl·embeddings.jsonl 읽기
+           loader.py      data/private/corpus-db-import/db_import/*.jsonl 읽기(C의 DB 적재 파일)
+                ▼
+           evidence_store.py  같은 행으로 C의 EvidenceStore 로컬 어댑터(APP_ENV=local, Vercel 아님)
 ```
 
 | 파일 | 내용 |
@@ -24,7 +26,8 @@ app/retrieval/common.py   search(request), configure_retrieval(...)
 | `app/retrieval/embedding.py` | `Embedder`(Protocol), `OpenAIEmbedder`, `FakeEmbedder`(테스트용), `embed_query`, `EmbeddingMismatch`, `EmbeddingRequestFailed` |
 | `app/retrieval/hybrid.py` | `build_filter`(코퍼스별 필터), `retrieve`, `RetrievalOptions(mode=…)`, `options_by_corpus`, `keyword_corpora_for`, `reciprocal_rank_fusion` |
 | `app/retrieval/index.py` | `SearchFilter`, `VectorIndex`(Protocol), `InMemoryIndex`, `cosine` |
-| `app/retrieval/loader.py` | `load_index`, `handoff_terms_edition`, `handoff_embedding_spec`. 개수·`chunk_id`·청크 내용이 어긋나면 `ValueError` |
+| `app/retrieval/loader.py` | `read_corpus`(네 파일 읽기, 없으면 `RetrievalNotConfigured`), `build_index`, `load_index`, `corpus_terms_edition`, `search_chunk`(청크 + 문서 조인), `handoff_embedding_spec`(질의 임베더 기대값). 없는 문서·코퍼스 불일치·`chunk_id` 중복은 `ValueError` |
+| `app/retrieval/evidence_store.py` | `LocalCorpusEvidenceStore`(C의 `EvidenceStore` 4개 메서드), `local_store_allowed`, `register_local_evidence_store` |
 | `scripts/try_retrieval.py` | 시연 질문 5개, `--eval` 평가 채점, `--compare` 세 방식 비교, `--short` 짧은 질문 비교. 임베딩 API만 호출 |
 | `scripts/d_short_queries.jsonl` | 담당자 말투의 짧은 질문 30개와 정답 `parent_id`. **Claude 작성, 사람 검수 아님** |
 
@@ -38,7 +41,8 @@ app/retrieval/common.py   search(request), configure_retrieval(...)
 | C 도구 경유 | `search_policy_terms` 등은 요청을 검사하고(`prepare_request`) 결과를 원문과 대조한다(`validate_hits`). 필터 키는 `document_id`, `edition`과 코퍼스별 허용 키만, 값은 비어 있지 않은 문자열만 받는다. **`retrieval_role`, 목록 값, `None`은 도구에서 거절**되고 공통 `search`를 직접 부를 때만 쓸 수 있다 |
 | 기간 모름 | `effective_from`이 빈 문자열이면 기간 모름으로 보고 **날짜 필터를 통과**시킨다. 적재할 때 문서당 한 번 경고 로그. 형식이 틀린 날짜(`2023.6` 등)는 적재 오류 |
 | `dispute_cases` | **사고 일자 필터 없음**(사고 이후 결정도 참고 대상). `chart_id`는 metadata로 거른다(1,130건 모두 값 있음) |
-| `policy_terms` | **사고 일자 필터 없음.** `filters["edition"]`을 `document.edition`과 그대로 비교한다 |
+| `policy_terms` | **문서 적용 기간 필터 없음.** `filters["edition"]`을 `document.edition`과 그대로 비교한다. 별표는 `filters["schedule"]`(예: `"별표3"`)로 `metadata.schedule`과 비교한다 |
+| 항목 사고일 범위 | 청크 `metadata`에 `accident_date_from`·`accident_date_to`가 있으면 사고 일자가 그 안이어야 한다(양끝 포함, 빈 값은 열린 끝). 코퍼스와 상관없이 `matches`에서 거른다. 지금은 약관 별표3 과실상계 두 항목(~2022-12-31, 2023-01-01~)만 값이 있다. 사고 일자가 비면 거르지 않는다. 형식이 틀린 날짜는 적재 오류 |
 | 약관 판 없음 | `edition`이 없거나 `null`이면 `configure_retrieval(default_terms_edition=...)`의 기본 판을 쓴다. 기본 판도 없으면 **빈 목록 + 경고 로그**. 임베딩도 호출하지 않는다 |
 | `document_id` | `chunk.document.document_id`와 비교한다(metadata가 아님) |
 | 그 밖의 필터 | `chunk.metadata`와 비교한다. **필터 값이 목록이면 그중 하나와 일치**, **metadata 값이 목록이면 그 안에 포함되면 통과**. 키가 없는 청크는 제외, 빈 목록은 아무것도 통과하지 않는다 |
@@ -59,25 +63,42 @@ app/retrieval/common.py   search(request), configure_retrieval(...)
 ```python
 from app.retrieval.common import configure_retrieval
 from app.retrieval.embedding import OpenAIEmbedder
+from app.retrieval.evidence_store import register_local_evidence_store
 from app.retrieval.hybrid import RetrievalOptions, keyword_corpora_for
-from app.retrieval.loader import handoff_terms_edition, load_index
+from app.retrieval.loader import build_index, read_corpus
 
 options = RetrievalOptions()                          # 세 코퍼스 모두 RRF(기본값). 생략해도 같다
 # 코퍼스별 예: {"policy_terms": RetrievalOptions(mode="bm25"), "dispute_cases": RetrievalOptions(mode="vector")}
+corpus = read_corpus()                                # db_import 네 파일, 없으면 RetrievalNotConfigured
 configure_retrieval(
-    index=load_index(keyword_corpora=keyword_corpora_for(options)),  # 나중에 SupabaseVectorIndex(...)
+    index=build_index(corpus, keyword_corpora=keyword_corpora_for(options)),  # 나중에 SupabaseVectorIndex
     embedder=OpenAIEmbedder.from_env(),               # .env의 키·모델·차원, handoff와 다르면 오류
     options=options,
-    default_terms_edition=handoff_terms_edition(),    # "2026.11.11"
+    default_terms_edition=corpus.terms_edition(),     # corpus_documents의 약관 판 "2026.11.11"
 )
+register_local_evidence_store(corpus)                 # APP_ENV=local이고 Vercel이 아닐 때만 등록
 ```
+
+보고서 쪽은 `app.api.reports.configure_with_knowledge_base()` 하나가 위를 모두 한다.
+
+### 로컬 EvidenceStore 어댑터 (#52, C와 합의)
+
+| 항목 | 내용 |
+| --- | --- |
+| 읽는 파일 | `data/private/corpus-db-import/db_import/`의 `corpus_documents`·`corpus_chunks`·`corpus_records`·`corpus_source_pages` `.jsonl`. 색인과 어댑터가 같은 `read_corpus` 결과를 쓴다(88MB를 한 번만 읽음) |
+| 같은 조인 | 검색 결과 청크와 `get_chunk`는 같은 `search_chunk`(청크 + `corpus_documents`를 `document_id`로 조인, `document`는 SourceDocument 8개 필드)로 만든다. `validate_hits`가 필드별로 비교하기 때문이다. 객체는 따로 만들어 검색 결과를 고쳐도 검증 기준이 바뀌지 않는다 |
+| 등록 조건 | `APP_ENV=local`이고 `VERCEL`·`VERCEL_ENV`가 없을 때만(`app/config.py`의 로컬 인증 우회와 같은 규칙). 운영에서는 등록하지 않는다 |
+| 파일 없음 | 아무것도 등록하지 않는다. `validate_hits`는 그대로 `RuntimeError("DB evidence store is not configured")`(fail-closed). 빈 결과로 바꾸지 않는다 |
+| 실패 처리 | `configure_with_knowledge_base()`의 코퍼스 실패는 모두 `RetrievalNotConfigured`다. 파일·폴더·`handoff.json`이 없으면 그 클래스, 있는데 못 쓰면 하위 클래스 `CorpusDataError`(읽기 오류(OSError), UTF-8 아님, 빈 파일, 깨진 JSON 줄, 칼럼·타입 오류, 없는 `document_id`, `chunk_id`·`document_id` 중복, 벡터 길이·숫자 아님, 임베딩 값 섞임, 약관 판 하나 아님, 코퍼스 임베딩 ≠ 질의 임베더). 메시지에 파일·줄·문제를 담고 원인은 `__cause__`. `.env`의 `OPENAI_EMBEDDING_MODEL`·`OPENAI_EMBEDDING_DIMENSIONS`가 handoff와 다르거나 숫자가 아니면 `from_env`의 `EmbeddingMismatch`를 연결 함수 안에서만 `EmbeddingSettingsInvalid`(역시 하위 클래스, 키 값은 메시지에 없음)로 감싼다. 코드 버그(TypeError 등)는 감싸지 않는다. 모든 준비가 끝난 뒤에만 전역 설정을 바꾸므로 실패하면 이전 상태 그대로다 |
+| 시작 비용 | 이 PC 기준 파일 읽기 1.0초, 세 코퍼스 BM25 색인 Kiwi 10.7초(간단 토큰화면 합계 1.2초), 어댑터 0.0초, 메모리 약 +230MB |
+| 테스트 | `tests/test_d_corpus_loader.py`(tmp 가짜 행, CI에서 돎), 실제 코퍼스는 `test_d_retrieval_real_data`·`test_d_exclusion_clauses.RealDataTest`(파일 없으면 skip) |
 
 | 교체 대상 | 할 일 |
 | --- | --- |
 | 색인 | `VectorIndex`를 구현한다: `spec`(모델·차원·버전), `search_vector(search_filter, query_vector, limit)`, `fetch_by_parent(corpus, parent_ids, edition=...)`. pgvector에서는 필터와 정렬을 SQL로 처리한다. 점수는 **유사도(클수록 가까움)** 로 돌려준다(pgvector 코사인 거리면 `1 − 거리`). '기간 모름'과 목록 포함 규칙도 같게 구현한다 |
 | 임베더 | `OpenAIEmbedder`가 기본이다. 다른 임베더는 `Embedder`를 구현한다: `model`, `dimensions`, `version`, `async embed(text)`. 색인과 같은 값이어야 한다 |
 | 검색 방식 | `RetrievalOptions(mode="vector"·"bm25"·"rrf")`, 기본 `"rrf"`(`rrf_k=60`, `candidate_limit=50`). `configure_retrieval(options=...)`에 하나를 넘기면 세 코퍼스 공통, `{코퍼스: RetrievalOptions}`를 넘기면 코퍼스별이다. 사전에 빠진 코퍼스는 RRF, 넘길 때마다 세 코퍼스를 모두 새로 정한다. 모르는 코퍼스·잘못된 값은 거절하고 이전 설정을 유지한다. 임베더는 벡터·RRF를 쓰는 코퍼스에만 필요하다. 지금 값은 `retrieval_options(corpus)` |
-| BM25 통계 | `load_index(keyword_corpora=...)`·`InMemoryIndex(keyword_corpora=...)`. `None`이면 전체, 목록에 없는 코퍼스는 적재 때 토큰화하지 않는다(벡터만 쓰는 코퍼스). `keyword_corpora_for(options)`로 설정과 맞춘다. 통계 없는 코퍼스를 BM25·RRF로 검색하면 빈 결과가 아니라 `RetrievalNotConfigured` |
+| BM25 통계 | `build_index(corpus, keyword_corpora=...)`·`InMemoryIndex(keyword_corpora=...)`. `None`이면 전체, 목록에 없는 코퍼스는 적재 때 토큰화하지 않는다(벡터만 쓰는 코퍼스). `keyword_corpora_for(options)`로 설정과 맞춘다. 통계 없는 코퍼스를 BM25·RRF로 검색하면 빈 결과가 아니라 `RetrievalNotConfigured` |
 | 키워드 색인 구현 | 색인은 `keyword_version`, `search_keyword(search_filter, query_text, limit)`를 채운다 |
 | 재순위·trigram | 하지 않았다. `use_rerank`를 켜면 `NotImplementedError` |
 | 토큰화 | `pip install -e ".[keyword]"`(kiwipiepy, Apache-2.0). 없으면 간단 토큰화로 대체. 이름은 `retrieval_version`에 남는다(`bm25-v1:kiwi`) |

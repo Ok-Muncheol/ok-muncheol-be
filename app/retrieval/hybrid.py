@@ -10,7 +10,10 @@
 - policy_terms: filters의 edition = document.edition. 사고 일자로 대체 금지.
   edition이 없거나 None이면 설정한 기본 판(default_terms_edition)을 쓴다.
   기본 판도 없으면 판이 섞이지 않게 빈 결과(경고 로그)
-공통: filters의 document_id는 document.document_id와 비교, 나머지는 metadata와 비교한다
+공통: 청크 metadata에 적용 사고일 범위(accident_date_from/to)가 있으면 사고 일자가 그 안이어야 한다
+(약관 별표3 과실상계처럼 같은 판 안에서 사고일로 나뉘는 항목). 사고 일자가 비면 거르지 않는다.
+filters의 document_id는 document.document_id와 비교,
+나머지(chart_id·schedule 등)는 metadata와 비교한다
 (필터 값이 목록이면 그중 하나와 일치, metadata 값이 목록이면 그 안에 포함되면 통과).
 약관 주 조항만 쓸지는 호출하는 쪽이 정한다(retrieval_role 필터). 여기서 자동으로 거르지 않는다.
 C 도구(app/tools)는 허용한 필터 키와 문자열 값만 받으므로, retrieval_role·목록 값은 이 함수를
@@ -133,10 +136,11 @@ def build_filter(
         _warn_no_edition(corpus)
         return None
     raw_date = request["accident_date"]
-    accident_date = date.fromisoformat(raw_date) if raw_date and corpus in _DATE_FILTERED else None
+    parsed = date.fromisoformat(raw_date) if raw_date else None
     return SearchFilter(
         corpus=corpus,
-        accident_date=accident_date,
+        accident_date=parsed if corpus in _DATE_FILTERED else None,
+        accident_window=parsed,
         edition=edition,  # type: ignore[arg-type]
         document_id=document_id,  # type: ignore[arg-type]
         metadata=filters,

@@ -33,13 +33,16 @@ from app.retrieval.embedding import (  # noqa: E402
     OpenAIEmbedder,
     RetrievalNotConfigured,
 )
+from app.retrieval.evidence_store import LocalCorpusEvidenceStore  # noqa: E402
 from app.retrieval.hybrid import RetrievalOptions, keyword_corpora_for  # noqa: E402
 from app.retrieval.keyword import SimpleTokenizer  # noqa: E402
-from app.retrieval.loader import handoff_terms_edition, load_index, read_handoff  # noqa: E402
+from app.retrieval.loader import CorpusRows, build_index, read_corpus  # noqa: E402
+from app.tools._evidence import configure_evidence_store  # noqa: E402
 from app.tools.dispute_cases import search_dispute_cases  # noqa: E402
 from app.tools.fault_standards import search_fault_standards  # noqa: E402
 from app.tools.policy_terms import search_policy_terms  # noqa: E402
 from evals.retrieval.evaluate import evaluate  # noqa: E402
+from scripts.export_corpus_index_rows import FOLDERS  # noqa: E402
 
 ACCIDENT_DATE = "2026-10-20"
 QUESTIONS = [
@@ -72,18 +75,42 @@ MODES = {
 }
 
 
+_corpus: CorpusRows | None = None
+
+
+def corpus_rows() -> CorpusRows:
+    """db_import 파일을 한 번만 읽는다. C 도구의 validate_hits용 로컬 어댑터도 함께 등록한다."""
+    global _corpus
+    if _corpus is None:
+        started = time.perf_counter()
+        _corpus = read_corpus()
+        print(f"코퍼스 파일 읽기 {time.perf_counter() - started:.1f}초")
+        store = LocalCorpusEvidenceStore(_corpus)
+        configure_evidence_store(lambda: store)
+    return _corpus
+
+
+def local_index(corpora=None, *, tokenizer=None, keyword_corpora=None):
+    return build_index(corpus_rows(), corpora, tokenizer=tokenizer, keyword_corpora=keyword_corpora)
+
+
+def terms_edition() -> str:
+    return corpus_rows().terms_edition()
+
+
 def connect(corpora=None, *, mode: str = "vector", tokenizer=None) -> None:
     options = MODES[mode]
+    rows = corpus_rows()
     started = time.perf_counter()
     keyword = keyword_corpora_for(options)  # 벡터만 쓰면 BM25 통계를 만들지 않는다
-    index = load_index(corpora, tokenizer=tokenizer, keyword_corpora=keyword)
+    index = build_index(rows, corpora, tokenizer=tokenizer, keyword_corpora=keyword)
     used = index.keyword_version if keyword else "없음(벡터만)"
-    print(f"적재 {time.perf_counter() - started:.1f}초 · 키워드 {used}")
+    print(f"색인 {time.perf_counter() - started:.1f}초 · 키워드 {used}")
     configure_retrieval(
         index=index,
         embedder=OpenAIEmbedder.from_env() if options.needs_vector else None,
         options=options,
-        default_terms_edition=handoff_terms_edition(),
+        default_terms_edition=rows.terms_edition(),
     )
 
 
@@ -140,10 +167,13 @@ async def show(corpus: str, text: str) -> None:
         print(f"     {preview(chunk['text'])}")
 
 
-def read_rows(corpus: str, role_prefix: str) -> list[dict]:
-    entry = next(c for c in read_handoff()["corpora"] if c["corpus"] == corpus)
-    path = next(f["path"] for f in entry["files"] if f["role"].startswith(role_prefix))
-    lines = (ROOT / path).read_text(encoding="utf-8").splitlines()
+def read_questions(corpus: str) -> list[dict]:
+    """평가 질문만 C의 폴더(data/private/<폴더>/evaluation.jsonl)에서 읽는다. 코퍼스는 db_import.
+
+    C의 scripts/run_retrieval_evaluation.py와 같은 위치다.
+    """
+    path = ROOT / "data/private" / FOLDERS[corpus] / "evaluation.jsonl"
+    lines = path.read_text(encoding="utf-8").splitlines()
     return [json.loads(line) for line in lines if line.strip()]
 
 
@@ -157,7 +187,7 @@ async def run_evaluation(mode: str, tokenizer) -> None:
     print("| 코퍼스 | 문항 | Top-1 | Recall@3 | Hit@3 | MRR@10 | 이전 | p50 ms |")
     print("| --- | --- | --- | --- | --- | --- | --- | --- |")
     for corpus in EVAL_CORPORA:
-        examples = read_rows(corpus, "evaluation questions")
+        examples = read_questions(corpus)
         result = await evaluate(examples, search_fn=search, allow_machine_reviewed=True)
         metrics = result["metrics"][corpus]
         scores = tuple(
@@ -180,7 +210,7 @@ def overlap(tokenizer, question: str, text: str) -> float:
 
 def parent_texts(corpus: str) -> dict[str, str]:
     by_parent: dict[str, str] = {}
-    for chunk in read_rows(corpus, "searchable chunks"):
+    for chunk in (c for c in corpus_rows().chunks if c["corpus"] == corpus):
         by_parent[chunk["parent_id"]] = by_parent.get(chunk["parent_id"], "") + chunk["text"]
     return by_parent
 
@@ -199,6 +229,16 @@ def overlap_rates(
     return sum(gold) / len(gold), sum(other) / max(len(other), 1)
 
 
+def recall_at(example: dict, predictions: dict, k: int) -> float:
+    """상위 k개 부모(처음 나온 순서, 중복 제거) 안의 정답 비율.
+
+    evals/retrieval/report.py와 같은 정의.
+    """
+    parents = list(dict.fromkeys(predictions.get(example["example_id"], [])))[:k]
+    expected = set(example["expected_parent_ids"])
+    return len(expected.intersection(parents)) / len(expected)
+
+
 def first_correct(example: dict, predictions: dict) -> bool:
     actual = predictions.get(example["example_id"], [])
     return bool(actual) and actual[0] in example["expected_parent_ids"]
@@ -206,19 +246,19 @@ def first_correct(example: dict, predictions: dict) -> bool:
 
 async def run_compare(tokenizer) -> None:
     """세 방식을 같은 색인·같은 질의 벡터로 비교한다(임베더 캐시). 파일에 저장하지 않는다."""
-    index = load_index(EVAL_CORPORA, tokenizer=tokenizer)
+    index = local_index(EVAL_CORPORA, tokenizer=tokenizer)
     configure_retrieval(
         index=index,
         embedder=OpenAIEmbedder.from_env(),
-        default_terms_edition=handoff_terms_edition(),
+        default_terms_edition=terms_edition(),
     )
     names = ("top1_accuracy", "recall_at_3", "mrr_at_10")
     print(f"기계 검수 라벨 기준(전문가 정답 아님). 키워드 {index.keyword_version}. 약관은 기본 판.")
-    print("| 코퍼스 | 방식 | Top-1 | Recall@3 | MRR@10 | Top-1 나아짐/나빠짐(벡터 대비) |")
-    print("| --- | --- | --- | --- | --- | --- |")
+    print("| 코퍼스 | 방식 | Top-1 | Recall@3 | MRR@10 | R@5 | Top-1 나아짐/나빠짐(벡터 대비) |")
+    print("| --- | --- | --- | --- | --- | --- | --- |")
     categories: dict[str, dict[str, dict[str, list[int]]]] = {}
     for corpus in EVAL_CORPORA:
-        examples = read_rows(corpus, "evaluation questions")
+        examples = read_questions(corpus)
         vector_predictions = {}
         for mode, options in MODES.items():
             configure_retrieval(options=options)
@@ -238,10 +278,9 @@ async def run_compare(tokenizer) -> None:
                     for e in examples
                 )
                 change = f"+{better} / -{worse}"
-            print(
-                f"| {corpus} | {mode} | {row(tuple(metrics[n] for n in names))} | {change} |",
-                flush=True,
-            )
+            recall5 = sum(recall_at(e, predictions, 5) for e in examples) / len(examples)
+            values = (*(metrics[n] for n in names), recall5)
+            print(f"| {corpus} | {mode} | {row(values)} | {change} |", flush=True)
             for e in examples:
                 bucket = categories.setdefault(corpus, {}).setdefault(
                     str(e.get("question_category")), {}
@@ -254,7 +293,7 @@ async def run_compare(tokenizer) -> None:
             print(f"  {corpus} · {category}: {scores} ({len(by_mode['vector'])}문항)")
     print("\n질문 내용어가 본문에 그대로 있는 비율(평가셋 영향 가늠)")
     for corpus in EVAL_CORPORA:
-        examples = read_rows(corpus, "evaluation questions")
+        examples = read_questions(corpus)
         questions = [(e["request"]["text"], e["expected_parent_ids"]) for e in examples]
         gold, other = overlap_rates(index.tokenizer, parent_texts(corpus), questions)
         print(f"  {corpus}: 정답 조항 {gold:.2f} · 다른 조항 표본 {other:.2f}")
@@ -271,11 +310,11 @@ async def run_short(tokenizer) -> None:
     """짧은 질문으로 세 방식을 비교한다. 같은 색인·질의 벡터(임베더 캐시), 파일 저장 없음."""
     lines = SHORT_QUERIES.read_text(encoding="utf-8").splitlines()
     queries = [json.loads(line) for line in lines if line.strip()]
-    index = load_index(EVAL_CORPORA, tokenizer=tokenizer)
+    index = local_index(EVAL_CORPORA, tokenizer=tokenizer)
     configure_retrieval(
         index=index,
         embedder=OpenAIEmbedder.from_env(),
-        default_terms_edition=handoff_terms_edition(),
+        default_terms_edition=terms_edition(),
     )
     print("참고용: 질문과 정답 모두 Claude가 작성, 사람 검수 아님. 1문항 = 약 0.1.")
     print(f"키워드 {index.keyword_version}. 약관은 기본 판. 정답 없는 질문은 채점에서 뺀다.")
@@ -320,7 +359,7 @@ async def run_short(tokenizer) -> None:
             for q in queries
             if q["corpus"] == corpus and q["expected_parent_ids"]
         ]
-        examples = read_rows(corpus, "evaluation questions")
+        examples = read_questions(corpus)
         old = [(e["request"]["text"], e["expected_parent_ids"]) for e in examples]
         new_gold, new_other = overlap_rates(index.tokenizer, by_parent, short)
         old_gold, old_other = overlap_rates(index.tokenizer, by_parent, old)
