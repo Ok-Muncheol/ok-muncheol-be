@@ -335,3 +335,17 @@ def test_every_route_calls_an_existing_service_function():
     missing = sorted(f"{module}.{name}" for module, name in called
                      if not callable(getattr(modules[module], name, None)))
     assert len(called) >= 15 and not missing, missing
+
+
+def test_qa_failures_map_to_api_errors_without_internal_details():
+    from app.agents import qa as qa_agent
+
+    timeout = judgments._qa_error(qa_agent.QaTimedOut("budget"), "case-1")
+    assert (timeout.status_code, timeout.error["code"], timeout.error["retryable"]) \
+        == (504, "qa_timeout", True)
+    missing = judgments._qa_error(qa_agent.QaNotConfigured("no key"), "case-1")
+    assert (missing.status_code, missing.error["code"]) == (503, "dependency_not_ready")
+    failed = judgments._qa_error(RuntimeError("secret upstream detail"), "case-1")
+    assert (failed.status_code, failed.error["code"], failed.error["retryable"]) \
+        == (502, "qa_failed", True)
+    assert "secret" not in failed.error["message"]

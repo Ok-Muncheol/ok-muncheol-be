@@ -119,10 +119,16 @@ class JudgmentRunView(TypedDict):
 
 # ── 근거 질의응답·what-if(POST /cases/{id}/qa, 1차 확장) ─────────────────────
 QaToolName = Literal["get_judgment_log", "search_dispute_cases", "search_policy_terms", "simulate"]
+# 인용 근거를 돌려준 도구: official 공식 판단 로그 / search 결정례·약관 검색 / hypothesis 가정 실행.
+# 공식 판단 로그가 돌려준 근거이기도 하면 official이다
+CitationSource = Literal["official", "search", "hypothesis"]
 
 
 class QaCitation(TypedDict):
-    """답에 인용한 근거. 도구가 돌려준 근거만 남는다. ref는 답 본문의 [E1] 같은 표시다."""
+    """답에 인용한 근거. 도구가 돌려준 근거만 남는다. ref는 답 본문의 [E1] 같은 표시다.
+
+    source가 hypothesis면 가정 실행이 고른 도표의 근거라 공식 판정의 근거가 아니다.
+    """
 
     ref: str
     chunk_id: str
@@ -132,6 +138,7 @@ class QaCitation(TypedDict):
     page_start: int
     page_end: int
     excerpt: str
+    source: CitationSource
 
 
 class QaHypothesis(TypedDict):

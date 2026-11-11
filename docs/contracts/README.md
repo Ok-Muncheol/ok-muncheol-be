@@ -55,7 +55,9 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
 | 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_documents`·`invalid_agreed_fault` 같은 처리 불가 상태 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
+| 502 | `qa_failed` | 질의응답 모델 호출·응답 오류. 다시 질문할 수 있다 |
 | 503 | `auth_not_configured`·`auth_unavailable`·`db_not_configured`·`db_unavailable`·`reports_db_not_ready` | 서버 인증 설정 없음·JWKS 조회 실패·서버 DB 설정 없음·DB 연결 실패·보고서 테이블 미적용 |
+| 504 | `qa_timeout` | 질의응답 LLM 호출 시간 상한 초과(질문당 합계 120초, 또는 호출 1회가 재시도 뒤에도 45초 초과). 다시 질문할 수 있다 |
 | 500 | `internal_error` | 내부 오류. 메시지에 세부 내용을 싣지 않는다 |
 
 담당 서비스는 `app/api/errors.py`의 `forbidden()`·`not_found()`·`version_conflict()`·`unprocessable()`을 던진다.
@@ -120,12 +122,17 @@ MVP 도표 범위(사고 유형·카드 칸·수정요소·보류 사유)는 [mv
 | `get_judgment_log` | 공식 판정(`judgment_runs.result`)과 그 판단에 쓴 카드(체크포인트)의 확인한 사실 |
 | `search_dispute_cases` | ② 분쟁심의 결정례 검색(김지은 검색툴, 사건의 사고 일자) |
 | `search_policy_terms` | ③ 약관·보상 지침 검색 |
-| `simulate` | 카드 칸 1~4개를 가정 값(`chart_scope.FIELD_OPTIONS`)으로 바꿔 같은 판단 그래프를 메모리에서 다시 실행 |
+| `simulate` | 카드 칸 1~4개를 가정 값(`chart_scope.FIELD_OPTIONS`)으로 바꿔 같은 판단 그래프를 메모리에서 다시 실행. 질문당 2번까지 |
 
-- 응답 `QaAnswer`는 `answer`·`citations`(답에 쓴 `[E1]` 표시마다 청크·코퍼스·적용판·페이지·발췌)·`hypotheticals`(`QaHypothesis` — 가정한 칸,
+- 응답 `QaAnswer`는 `answer`·`citations`(답에 쓴 `[E1]` 표시마다 청크·코퍼스·적용판·페이지·발췌·`source`)·`hypotheticals`(`QaHypothesis` — 가정한 칸,
   `status` `completed`·`waiting_for_confirmation`(`open_fields`)·`failed`(`error`), 가정 판정·도표·과실)·`tool_calls`·`fact_change_hint`다. 견본은 `qa_answer`다.
+- 인용 `source`는 그 근거를 돌려준 도구다 — `official`(공식 판단 로그)·`search`(결정례·약관 검색)·`hypothesis`(가정 실행이 고른 도표의 근거).
+  공식 판단 로그가 돌려준 근거이기도 하면 `official`이다. `hypothesis` 근거는 공식 판정의 근거가 아니다.
 - 가정 실행은 실행 행·체크포인트·보고서를 만들지 않고 공식 판정을 바꾸지 않는다. 가정 실행을 했으면 `fact_change_hint`가
   공식 반영 경로(사실 카드 수정·확정 → 판단 다시 요청)를 알린다.
 - 수치는 판단 로그(공식)와 가정 실행 결과에서만 인용한다. 도구가 돌려준 적 없는 `[E…]` 표시는 답에서 지운다.
 - 검색 색인이 없으면 그 도구만 실패로 돌려주고 답은 낸다. 모델 키가 없으면 503 `dependency_not_ready`, 모델 호출 오류는 502 `qa_failed`(다시 질문 가능)다.
+- 시간 제한은 LLM 호출에만 둔다(`app/llm.py`, lumi·cure-agent-be 방식). 호출 1회는 45초에서 끊고 SDK 재시도는 끈다. 타임아웃·네트워크·5xx만 1회 다시 시도하고
+  4xx는 다시 보내지 않는다(반박 검토도 같은 정책). 질문 하나의 LLM 호출 시간 합계는 120초이고 검색·가정 실행 같은 도구 시간은 세지 않는다.
+  넘으면 504 `qa_timeout`(다시 질문 가능)이다.
 - 질문·답은 저장하지 않는다(대화 기록 없음, 질문마다 새로 답한다).

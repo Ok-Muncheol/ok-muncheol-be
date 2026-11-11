@@ -443,6 +443,8 @@ def test_qa_reads_the_official_judgment_and_simulates_without_saving(service):
         == (50, 50, {"movement_B": "straight"})
     assert [c["parent_id"] for c in out["citations"]] \
         == ["synthetic-standards:S-1", "synthetic-standards:S-2"]
+    # 공식 판정의 근거와 가정 실행이 고른 도표의 근거를 출처로 나눈다
+    assert [c["source"] for c in out["citations"]] == ["official", "hypothesis"]
     assert out["fact_change_hint"] == qa_agent.FACT_CHANGE_HINT
     assert out["tool_calls"] == [{"name": "get_judgment_log", "ok": True},
                                  {"name": "simulate", "ok": True}]
@@ -478,6 +480,14 @@ def test_qa_needs_a_finished_judgment_the_assignee_and_a_model(service, monkeypa
 
     judgments.configure(qa=qa_agent.QaDependencies(llm=broken))
     assert api_error(lambda: ask(ACTOR, done)) == (502, "qa_failed")
+
+    async def slow(messages, tools, tool_choice):
+        await asyncio.sleep(1)
+        return {"content": "늦은 답", "tool_calls": []}
+
+    # 질문 하나의 LLM 호출 시간 합계를 넘으면 504 qa_timeout(다시 질문 가능)
+    judgments.configure(qa=qa_agent.QaDependencies(llm=slow, llm_budget_seconds=0.05))
+    assert api_error(lambda: ask(ACTOR, done)) == (504, "qa_timeout")
 
 
 def test_qa_http_route_serializes_the_answer(service):
