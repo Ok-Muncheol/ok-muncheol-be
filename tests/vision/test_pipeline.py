@@ -237,3 +237,14 @@ def test_vlm_failure_is_retryable(tmp_path, monkeypatch):
     with pytest.raises(pl.VisionPipelineError) as e:
         pl.analyze_video_sync("case-1", video, options=pl.PipelineOptions(vlm=object()))
     assert (e.value.stage, e.value.code, e.value.retryable) == ("vlm", "vlm_failed", True)
+
+
+def test_v1_tables_only_produce_allowed_values():
+    """변환표가 내는 값이 팀 계약 허용값(app/schemas/facts.py) 안에 있다. 카드 저장 API가 받는다."""
+    from app.schemas.facts import FACT_FIELD_OPTIONS, FACT_FIELDS
+
+    assert tuple(contract.V1_FIELDS) == FACT_FIELDS
+    for v1_name, (_, table) in contract.V1_FIELDS.items():
+        if table is not None and v1_name != "accident_type":
+            assert set(table.values()) <= set(FACT_FIELD_OPTIONS[v1_name]), v1_name
+    assert set(contract.MOVE.values()) | {"other"} <= set(FACT_FIELD_OPTIONS["movement_A"])

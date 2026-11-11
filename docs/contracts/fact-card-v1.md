@@ -136,7 +136,16 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 | `relative_position` | (없음) | 새 칸. 맞은편·측면·좌우로 갈리는 도표용(mvp-chart-scope.md 「지금 카드 칸으로 가를 수 없는 도표」) |
 | `night` | 문자열 `"true"`·`"false"` | JSON 참거짓 |
 
-## 9. 확인 부탁
+## 9. 저장·수정·확정 API
+
+`public.fact_cards`에 카드 한 버전을 한 행으로 쌓는다(`app/api/facts.py`). 비전 카드는 `save_vision_card`로 저장한다.
+- `PATCH /cases/{id}/fact-card`: 고칠 칸의 값만 보낸다(`{"fields": {"movement_A": {"value": "left_turn"}}, "expected_version": 1, "reason": "..."}`).
+  고친 칸은 `human_confirmed`, `model_value`·`vision_detail`은 그대로, 새 버전은 draft. 모름은 `null`로 확인한다.
+- `POST /cases/{id}/fact-card/confirm`: `needs_review` 칸이 없고 도표 A/B가 정해져야 확정된다.
+  **확정하면 값이 있는 칸은 모두 `human_confirmed`**(담당자가 카드 전체를 확인했다는 뜻, 2026-11-11 결정). 화면에 "표시 없는 칸도
+  확정하면 확인한 것으로 처리된다"고 안내한다. 판단 중 구분 질문은 비어 있는(모름) 칸에서만 나온다.
+
+## 10. 확인 부탁
 
 - B(구준휘): `chart_scope.py`에 8절 값 반영, 2절 맞바꾸기 규칙을 도표 선택에 넣기.
 - C(김지은): 도표 레코드 속성을 도표 A 기준 v1 값으로 적기(`*` 무관 표기는 그대로).
