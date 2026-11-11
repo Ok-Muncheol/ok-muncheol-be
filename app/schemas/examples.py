@@ -85,7 +85,7 @@ def contract_examples() -> dict[str, object]:
         "citations": [{
             "ref": "E1", "chunk_id": "synthetic-chunk", "parent_id": "synthetic-parent",
             "corpus": "fault_standards", "edition": "synthetic", "page_start": 1, "page_end": 1,
-            "excerpt": "합성 발췌",
+            "excerpt": "합성 발췌", "source": "official",
         }],
         "hypotheticals": [{
             "changes": {"movement_B": "straight"}, "status": "completed",

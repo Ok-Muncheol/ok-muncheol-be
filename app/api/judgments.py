@@ -400,7 +400,8 @@ async def ask_question(actor_id: str, case_id: str, text: str) -> QaAnswer:
     모델을 부르기 전에 연결을 놓는다.
     공식 판단·보고서·확인 완료 상태는 바꾸지 않는다. 담당이 아니면 403, 사건이 없으면 404,
     판정이 난 판단이 없으면 409 `judgment_required`, 모델 키가 없으면 503 `dependency_not_ready`,
-    모델 호출·응답 오류는 502 `qa_failed`(다시 질문 가능).
+    LLM 호출 시간 상한(질문당 합계·호출 1회)을 넘으면 504 `qa_timeout`,
+    모델 호출·응답 오류는 502 `qa_failed`(둘 다 다시 질문 가능).
     """
     case_id = _uuid(case_id, "사건")
     async with services.connect() as conn:
@@ -420,17 +421,28 @@ async def ask_question(actor_id: str, case_id: str, text: str) -> QaAnswer:
     )
     try:
         return await qa_agent.answer_question(text, context, services.qa)
-    except qa_agent.QaNotConfigured as exc:
-        raise ApiException(
-            503, "dependency_not_ready", "질의응답 모델 연결이 아직 준비되지 않았습니다.", False
-        ) from exc
     except ApiException:
         raise
     except Exception as exc:
-        logger.exception("qa for case %s failed", case_id)
-        raise ApiException(
-            502, "qa_failed", "질의응답 중 오류가 났습니다. 잠시 후 다시 질문하세요.", True
-        ) from exc
+        raise _qa_error(exc, case_id) from exc
+
+
+def _qa_error(exc: Exception, case_id: str) -> ApiException:
+    """질의응답 실패를 FE에 보일 오류로. 내부 메시지는 서버 로그에만 남긴다."""
+    if isinstance(exc, qa_agent.QaNotConfigured):
+        return ApiException(
+            503, "dependency_not_ready", "질의응답 모델 연결이 아직 준비되지 않았습니다.", False
+        )
+    if isinstance(exc, qa_agent.QaTimedOut):
+        logger.warning("qa for case %s timed out: %s", case_id, exc)
+        return ApiException(
+            504, "qa_timeout",
+            "답을 만드는 데 시간이 너무 오래 걸렸습니다. 질문을 짧게 나눠 다시 물어보세요.", True,
+        )
+    logger.error("qa for case %s failed", case_id, exc_info=exc)
+    return ApiException(
+        502, "qa_failed", "질의응답 중 오류가 났습니다. 잠시 후 다시 질문하세요.", True
+    )
 
 
 async def _run_card(conn: AsyncConnection, run_id: str) -> FactCard | None:

@@ -2,6 +2,8 @@
 
 LLM은 "이 도표 선택이 틀렸다는 반박이 성립하는가"만 답한다. 비율·금액은 묻지 않는다.
 응답은 JSON 스키마로 고정하고, 모양이 어긋나면 추측하지 않고 오류로 올린다(실행 실패).
+호출 1회 상한(45초)·재시도(타임아웃·네트워크·5xx만 1회)는 app/llm.py 정책이다 — 공식 판단과
+질의응답의 가정 실행이 같은 검토기를 쓴다.
 """
 
 import json
@@ -9,6 +11,7 @@ import os
 from collections.abc import Awaitable, Callable
 from typing import Literal, TypedDict, get_args
 
+from app import llm as llm_policy
 from app.schemas.facts import FactCard
 from app.schemas.judgment import RebuttalKind, ValidationCheck
 from app.workflow.candidates import ChartCandidate
@@ -118,25 +121,28 @@ def parse_verdict(raw: str, alternatives: list[str]) -> RebuttalVerdict:
 
 async def openai_reviewer(system: str, user: str) -> str:
     """기본 검토기. OPENAI_API_KEY·OPENAI_MODEL을 쓰고 JSON 스키마 출력을 강제한다."""
-    from openai import AsyncOpenAI
-
     if not os.environ.get("OPENAI_API_KEY"):
         raise ReviewerNotConfigured("OPENAI_API_KEY가 없어 반박 검토를 실행할 수 없다")
     model = os.environ.get("OPENAI_MODEL") or "gpt-5"
-    async with AsyncOpenAI(timeout=60, max_retries=2) as client:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {"name": "rebuttal_verdict", "strict": True,
-                                "schema": RESPONSE_SCHEMA},
-            },
-        )
-    content = response.choices[0].message.content
-    if not content:
-        raise RuntimeError("반박 검토 응답이 비었다")
-    return content
+
+    async def attempt() -> str:
+        async with llm_policy.openai_client() as client:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system},
+                          {"role": "user", "content": user}],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {"name": "rebuttal_verdict", "strict": True,
+                                    "schema": RESPONSE_SCHEMA},
+                },
+            )
+        content = response.choices[0].message.content
+        if not content:
+            raise RuntimeError("반박 검토 응답이 비었다")
+        return content
+
+    return await llm_policy.with_retry(attempt, name="rebuttal")
 
 
 async def review_rebuttal(

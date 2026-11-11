@@ -75,3 +75,22 @@ def test_default_reviewer_refuses_without_api_key(monkeypatch):
     with pytest.raises(ReviewerNotConfigured, match="OPENAI_API_KEY"):
         asyncio.run(openai_reviewer("s", "u"))
     assert issubclass(ReviewerNotConfigured, NotImplementedError)
+
+
+def test_default_reviewer_uses_the_llm_call_policy(monkeypatch):
+    # 호출 1회 상한·재시도 1회(app/llm.py) — 공식 판단과 질의응답의 가정 실행이 같은 검토기를 쓴다
+    from app import llm as llm_policy
+    from tests.fake_openai import FakeClients, completion, status_error, timeout_error
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr(llm_policy, "BACKOFF_SECONDS", 0)
+    clients = FakeClients(timeout_error(), completion(verdict()))
+    monkeypatch.setattr(llm_policy, "openai_client", clients)
+    assert asyncio.run(openai_reviewer("s", "u")) == verdict()
+    assert len(clients.requests) == 2
+
+    refused = FakeClients(status_error(429), completion(verdict()))
+    monkeypatch.setattr(llm_policy, "openai_client", refused)
+    with pytest.raises(Exception, match="upstream"):
+        asyncio.run(openai_reviewer("s", "u"))
+    assert len(refused.requests) == 1  # 4xx는 다시 보내지 않는다
