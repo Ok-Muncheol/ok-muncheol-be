@@ -46,6 +46,7 @@ from app.calculation.insurance import calculate_insurance
 from app.calculation.rules import DEFAULT_RULES, RuleSet
 from app.claims.package import ClaimPackageBlocked, build_claim_package, compute_recovery
 from app.reports.assembler import assemble_review
+from app.reports.clauses import ReportClauses, fetch_report_clauses, select_report_clauses
 from app.reports.render import package_html
 from app.reports.repository import (
     CaseRecord,
@@ -309,7 +310,29 @@ async def _draft(
     calc = calculate_insurance(
         base, rec.documents, exclusion_checks=await _exclusions(rec), rules=services.rules
     )
-    return assemble_review(judgment, calc, recovery=_recovery(rec, base, calc), now=_now(), **kw)  # type: ignore[arg-type]
+    return assemble_review(
+        judgment, calc, recovery=_recovery(rec, base, calc), now=_now(),
+        clauses=await _report_clauses(base, calc), **kw,  # type: ignore[arg-type]
+    )
+
+
+def _accident_date(report: ReviewReport) -> str | None:
+    fact = next((s for s in report["sections"] if s["no"] == 2), None)
+    value = (fact or {}).get("body", {}).get("사고 일자")  # type: ignore[union-attr]
+    return str(value) if value else None
+
+
+async def _report_clauses(base: ReviewReport, calc) -> ReportClauses | None:
+    """8·9번 약관 근거. 조항 조회가 없으면(코퍼스 없음·운영) None → 보고서에 "연결 안 됨"."""
+    if services.fetch_clauses is None:
+        return None
+    accident_date = _accident_date(base)
+    return await fetch_report_clauses(
+        select_report_clauses(accident_date),
+        fetch=services.fetch_clauses,  # type: ignore[arg-type]
+        edition=calc.get("terms_edition"),
+        accident_date=accident_date,
+    )
 
 
 def validate_documents(documents: list[dict[str, object]]) -> None:
