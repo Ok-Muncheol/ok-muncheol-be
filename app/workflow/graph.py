@@ -60,6 +60,7 @@ from app.workflow.card_fields import (
     card_field_key,
     chart_fields,
     chart_key,
+    chart_view,
     confirmed_unknown_fields,
     question_options,
 )
@@ -85,7 +86,7 @@ MAX_LISTED_UNREVIEWED = 3
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.11.2"
+RULE_VERSION = "judgment-rules-2026.11.11.3"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 FIELD_LABELS = {
@@ -111,11 +112,14 @@ class Dependencies:
     reviewer: Reviewer | None = None
 
 
-def scope_gate(fields: dict[str, dict[str, object]]) -> tuple[str | None, list[str]]:
+def scope_gate(
+    fields: dict[str, dict[str, object]], card: FactCard | None = None
+) -> tuple[str | None, list[str]]:
     """(보류 사유, 질문할 칸). 범위 밖이면 보류, 범위 안이면 미확인 칸을 질문으로 넘긴다.
 
     docs/contracts/mvp-chart-scope.md 범위. 값은 human_confirmed 인 것만 본다.
-    카드 v1 칸·값은 도표 선택 칸·값으로 바꿔 본다(`card_fields`). 당사자 3명 이상(`party_count`)은
+    카드 칸·값은 도표 선택 칸·값으로 바꿔 본다(`card_fields`, 카드를 주면 v1 2절 맞바꿈 포함).
+    당사자 3명 이상(`party_count`)은
     범위 밖이다. 사고 유형·장소를 `불명`으로 확인했으면 다시 묻지 않고 보류한다.
     """
     def confirmed(source: dict, key: str) -> object:
@@ -125,7 +129,7 @@ def scope_gate(fields: dict[str, dict[str, object]]) -> tuple[str | None, list[s
     parties = confirmed(fields, "party_count")
     if isinstance(parties, int) and not isinstance(parties, bool) and parties >= 3:
         return REASON_OUT_OF_SCOPE, []
-    chart = chart_fields(fields)  # type: ignore[arg-type]
+    chart = chart_view(card) if card is not None else chart_fields(fields)  # type: ignore[arg-type]
     accident_type = confirmed(chart, "accident_type")
     location_type = confirmed(chart, "location_type")
     if accident_type is None or location_type is None:
@@ -465,7 +469,7 @@ def build_graph(
         return update
 
     def check_chart_scope(state: JudgmentState) -> dict:
-        reason, _ = scope_gate(state["card"]["fields"])  # type: ignore[arg-type]
+        reason, _ = scope_gate(state["card"]["fields"], state["card"])  # type: ignore[arg-type]
         update: dict = {"stage": "check_chart_scope"}
         if reason:
             update["outcome"] = _outcome("deferred", [reason])
@@ -496,9 +500,12 @@ def build_graph(
             if isinstance(a, dict) and a.get("unknown") and a.get("value") is None
         }
         unknown = list(state.get("unknown_fields", []))
-        # 질문의 칸 이름은 카드 형식이다(v1이면 accident_object). 그래프는 도표 선택 칸으로 센다
-        unknown += [chart_key(q["field_key"]) for q in questions
-                    if q["question_id"] in unknown_ids and chart_key(q["field_key"]) not in unknown]
+        # 질문의 칸 이름은 카드 형식이다(한국어 안이면 accident_object, v1 맞바꿈이면 B 쪽 칸).
+        # 그래프는 도표 선택 칸으로 센다
+        card = state["card"]
+        unknown += [chart_key(q["field_key"], card) for q in questions
+                    if q["question_id"] in unknown_ids
+                    and chart_key(q["field_key"], card) not in unknown]
         return {"stage": "ask_or_resume", "questions": questions, "unknown_fields": unknown}
 
     def select_chart_and_modifiers(state: JudgmentState) -> dict:

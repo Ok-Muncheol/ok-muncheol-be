@@ -91,12 +91,15 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 `question_id`는 실행 ID와 칸 이름으로 정해지는 UUID라 같은 실행에서 다시 물어도 같다(`judgment_questions.id`).
 
 질문의 `field_key`·`options`는 카드 형식을 따른다. 값 응답이 그 칸 이름·값 그대로 카드 수정으로 가기 때문이다.
-- 카드 v1(한국어 값, 정지원 11/11 안)이면 v1 칸 이름·값으로 묻는다. 예: `accident_object` `["차대차", "차대이륜차", "기타"]`.
-  `불명`은 선택지에 넣지 않고 '모른다' 응답으로 받는다.
-- 이전 형식(영어 값) 카드면 `chart_scope.FIELD_OPTIONS` 그대로다.
+- 카드 v1 확정본(영어 12칸, #120)이면 도표 선택 칸 이름에 v1 값으로 묻는다. 예: `accident_type` `["car_to_car", "other"]`,
+  `road_priority` `["same_width", "major_A", "major_B", "stop_A", "stop_B", "other", "none"]`.
+  도표 A가 카드 B(촬영 차량)면 카드 쪽 칸 이름으로 묻는다(도표 B 진행 방향 → `movement_A`).
+- 한국어 안 카드(11/11 오전, `accident_object`·한국어 값)면 그 칸 이름·값으로 묻는다. 예: `accident_object` `["차대차", "차대이륜차", "기타"]`.
+- 이전 형식(11/6 영어 값) 카드면 `chart_scope.FIELD_OPTIONS` 그대로다.
+- 모름은 선택지에 넣지 않고 '모른다' 응답으로 받는다.
 - `question_id`는 형식과 상관없이 도표 선택 칸 이름(`accident_type`)으로 만든다.
 
-카드에서 담당자가 `불명`으로 확인한 칸은 다시 묻지 않고 처음부터 '모른다' 응답처럼 다룬다. 사고 유형·장소가 `불명`이면 검색 전에 보류한다.
+카드에서 담당자가 모름(v1 `null` + `human_confirmed`, 한국어 안 `불명`)으로 확인한 칸은 다시 묻지 않고 처음부터 '모른다' 응답처럼 다룬다. 사고 유형·장소가 `불명`이면 검색 전에 보류한다.
 카드 값 → 도표 선택 값 대응은 `app/workflow/card_fields.py`, 규칙은 [mvp-chart-scope.md](mvp-chart-scope.md) 「카드 v1 값 읽기」다.
 
 | 응답 | 처리 |

@@ -18,7 +18,7 @@ from typing import Literal, NotRequired, TypedDict
 
 from app.schemas.facts import FactCard
 from app.schemas.retrieval import EvidenceHit, SearchQuery
-from app.workflow.card_fields import UNKNOWN, chart_fields
+from app.workflow.card_fields import UNKNOWN, chart_view
 
 # 판단 후보를 찾는 검색 깊이(청크 수). 검수한 도표도 이 안에 들어야 후보가 된다.
 # 2026-11-11 시범 실행(RRF, 검수 도표 9개)에서 도표마다 그 도표에 맞는 카드로 검색하니, 대부분
@@ -85,7 +85,7 @@ def confirmed_values(card: FactCard) -> dict[str, str]:
     미확인·범위 밖 칸과 `불명`(확인한 모름, `card_fields.confirmed_unknown_fields`)은 뺀다.
     """
     values: dict[str, str] = {}
-    for key, field in chart_fields(card["fields"]).items():
+    for key, field in chart_view(card).items():
         if field["verification_status"] != "human_confirmed":
             continue
         value = field["value"]

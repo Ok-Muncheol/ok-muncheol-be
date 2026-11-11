@@ -56,6 +56,37 @@ def v1_card(**fields: FactField) -> FactCard:
     return card(fields=base)
 
 
+def en_v1_card(swapped: bool = False, **fields: FactField) -> FactCard:
+    """card()와 같은 사고를 카드 v1 확정본(영어 12칸, #120)으로. 카드 B = 촬영 차량(P1).
+
+    기본은 도표 A = 상대 차량(P2) = 카드 A다. `swapped`면 도표 A = 촬영 차량(P1) = 카드 B라서
+    같은 사고를 적으려면 카드의 A/B 값이 맞바뀐다(v1 2절). 넘긴 칸만 바꾼다.
+    """
+    chart_a = {"movement": "straight", "signal": "green"}
+    chart_b = {"movement": "left_turn", "signal": "red"}
+    card_a, card_b = (chart_b, chart_a) if swapped else (chart_a, chart_b)
+    base: dict[str, FactField] = {
+        "accident_type": field("car_to_car"), "location_type": field("signalized_intersection"),
+        "movement_A": field(card_a["movement"]), "movement_B": field(card_b["movement"]),
+        "signal_A": field(card_a["signal"]), "signal_B": field(card_b["signal"]),
+        "relative_position": field("opposite"), "night": field(False),
+        "collision_time_ms": field(4000), "narrative": field("합성 서술"),
+    }
+    base.update(fields)
+    c = card(fields=base)
+    c["parties"] = [  # type: ignore[typeddict-unknown-key]
+        {"party_id": "P1", "role": "촬영 차량", "track_id": None},
+        {"party_id": "P2", "role": "상대 차량", "track_id": None},
+    ]
+    c["party_mapping"] = {
+        "video_ego_party_id": "P1", "insured_party_id": None,
+        "chart_party_A_id": "P1" if swapped else "P2",
+        "chart_party_B_id": "P2" if swapped else "P1",
+    }
+    c["model_info"] = {"pipeline": "synthetic"}  # type: ignore[typeddict-unknown-key]
+    return c
+
+
 def hit(parent_id: str, page: int, score: float) -> EvidenceHit:
     return {
         "chunk": {

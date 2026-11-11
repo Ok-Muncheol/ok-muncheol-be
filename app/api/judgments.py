@@ -49,6 +49,7 @@ from app.schemas.judgment import (
 from app.schemas.retrieval import EvidenceHit
 from app.workflow import runs
 from app.workflow.candidates import confirmed_values
+from app.workflow.card_fields import to_card_terms
 from app.workflow.graph import (
     CRITERIA_VERSION,
     RULE_VERSION,
@@ -484,7 +485,9 @@ async def _simulate(
     """
     hypo = deepcopy(card)
     for key, value in changes.items():
-        hypo["fields"][key] = _assumed(hypo["fields"].get(key), key, value)
+        # 가정 값은 도표 선택 칸·값이다. v1 맞바꿈 카드면 카드 쪽 칸·값으로 되돌려 넣는다
+        card_key, card_value = to_card_terms(key, value, card)
+        hypo["fields"][card_key] = _assumed(hypo["fields"].get(card_key), card_key, card_value)
     view: QaHypothesis = {
         "changes": dict(changes), "status": "failed", "judgment_status": None, "chart_id": None,
         "fault_A": None, "fault_B": None, "reasons": [], "open_fields": [], "error": None,
