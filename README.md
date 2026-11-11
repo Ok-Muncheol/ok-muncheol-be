@@ -249,7 +249,7 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 | 요청 | 목적 |
 | --- | --- |
 | `POST /cases` | 사건 생성·범위 검사 |
-| `POST /cases/{id}/uploads` | 담당 사건 파일의 업로드 서명 URL 발급 |
+| `POST /cases/{id}/uploads` | 견적서·영상 업로드 서명 URL 발급(`kind`·`content_type`) → FE가 받은 URL로 Storage에 직접 업로드 |
 | `POST /cases/{id}/analysis` | 영상 분석 작업 접수 |
 | `GET /cases/{id}` | 진행 상태·확인 질문·현재 버전 복원 |
 | `GET /cases/{id}/fact-card` | 모델 원값·현재 값·근거·확인 상태 조회 |

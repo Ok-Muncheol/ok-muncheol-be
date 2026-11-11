@@ -69,7 +69,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 `app/api/routes.py`·README API 표·FE ApiClient는 구준휘 님이 맞춘다. D는 아래 서비스 함수(`app/api/reports.py`)만 제공한다.
 다만 견적서 경로(`POST /cases/{id}/estimates`)의 Storage 내려받기는 11/10부터 D가 맡는다(구준휘 님에게서 넘겨받음, #95로 연결).
 `upload_estimate_from_storage`가 ① 권한 확인(`repo.get`) ② 경로 확인(`{STORAGE_BUCKET}/{case_id}/estimates/` 아래, `..`·`%`·역슬래시·빈 조각·비ASCII 거절 — Supabase가 비ASCII 객체 이름을 400 InvalidKey로 거절) ③ `app/storage.py`로 임시 파일에 내려받기(10MB, 앞 1024바이트 안에 `%PDF-`) ④ `upload_estimate(…, storage_path=Storage 경로)` 순서로 처리하고 임시 파일은 항상 지운다.
-서버 키(`SUPABASE_SECRET_KEY`)는 RLS를 건너뛰므로 ①·②가 유일한 방어다. 버킷은 `app/storage.py` `STORAGE_BUCKET`(기본 `case-files`, 미확정) 하나만 바꾸면 된다.
+서버 키(`SUPABASE_SECRET_KEY`)는 RLS를 건너뛰므로 ①·②가 유일한 방어다. 버킷은 `app/storage.py` `STORAGE_BUCKET`(`case-files`, 11/11 확정) 하나다. 업로드 경로는 `POST /cases/{id}/uploads`(kind=estimate)가 만든다([계약 문서](contracts/README.md) 「파일 업로드」).
 오류: 키 없음 503 `storage_not_configured`, Storage 실패 503 `storage_unavailable`, 파일 없음 404 `estimate_file_not_found`, 다른 사건 경로 422 `invalid_storage_path`, 10MB 초과 422 `estimate_too_large`, PDF 아님·PDF 파싱 오류 422 `estimate_not_pdf`.
 `…`는 `/cases/{case_id}`.
 
