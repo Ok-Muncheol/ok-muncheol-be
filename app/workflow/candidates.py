@@ -69,12 +69,16 @@ class ChartCandidate(TypedDict):
     reasons: NotRequired[list[str]]
 
 
+# 검색 질의 낱말(원문 표현). 우선 도로의 쪽(A·B)과 측면의 좌우는 원문 제목이 같은 낱말을 써서
+# 낱말로는 가르지 않는다(도표 선택이 칸 값으로 가른다). `major_minor`·`stop_sign`은 11/6 카드용이다
 _KOREAN_VALUES = {
     "signalized_intersection": "신호 교차로", "unsignalized_intersection": "신호 없는 교차로",
     "roundabout": "회전교차로", "same_width": "동일폭", "major_minor": "대로 소로",
-    "stop_sign": "일시정지", "straight": "직진", "left_turn": "좌회전", "right_turn": "우회전",
-    "u_turn": "유턴", "green": "녹색", "yellow": "황색", "red": "적색",
-    "green_left_arrow": "녹색화살표", "no_signal": "신호 없음", "first": "선진입",
+    "major_A": "대로 소로", "major_B": "대로 소로", "stop_sign": "일시정지",
+    "stop_A": "일시정지", "stop_B": "일시정지", "straight": "직진", "left_turn": "좌회전",
+    "right_turn": "우회전", "u_turn": "유턴", "lane_change": "진로변경", "green": "녹색",
+    "yellow": "황색", "red": "적색", "green_left_arrow": "녹색화살표", "no_signal": "신호 없음",
+    "opposite": "맞은편", "left": "측면", "right": "측면", "first": "선진입",
     "second": "후진입", "simultaneous": "동시 진입",
 }
 
@@ -112,6 +116,8 @@ def build_search_query(card: FactCard, top_k: int = CHART_SEARCH_TOP_K) -> Searc
         parts = [w for k in (f"signal_{side}", f"movement_{side}") if (w := word(k))]
         if parts:
             words.append(f"{side} {' '.join(parts)}")
+    if position := word("relative_position"):
+        words.append(position)
     if order := word("entry_order"):
         words.append(order)
     return {

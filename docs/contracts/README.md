@@ -95,7 +95,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
   `road_priority` `["same_width", "major_A", "major_B", "stop_A", "stop_B", "other", "none"]`.
   도표 A가 카드 B(촬영 차량)면 카드 쪽 칸 이름으로 묻는다(도표 B 진행 방향 → `movement_A`).
 - 한국어 안 카드(11/11 오전, `accident_object`·한국어 값)면 그 칸 이름·값으로 묻는다. 예: `accident_object` `["차대차", "차대이륜차", "기타"]`.
-- 이전 형식(11/6 영어 값) 카드면 `chart_scope.FIELD_OPTIONS` 그대로다.
+- 이전 형식(11/6 영어 값) 카드면 `chart_scope.FIELD_OPTIONS` 그대로다(11/11부터 v1 값과 같고 `relative_position`도 묻는다).
 - 모름은 선택지에 넣지 않고 '모른다' 응답으로 받는다.
 - `question_id`는 형식과 상관없이 도표 선택 칸 이름(`accident_type`)으로 만든다.
 

@@ -9,7 +9,7 @@
 | 축 | 결정 | 조건 |
 | --- | --- | --- |
 | 사고 당사자 | 차대차만 | 차대보행자·차대이륜·차대자전거는 MVP 밖 |
-| 장소·상황 | 교차로 전체: 신호 있음, 신호 없음(동일폭·대로소로·일시정지) | 카드 칸 `location_type`, `road_priority`로 판별 |
+| 장소·상황 | 교차로 전체: 신호 있음, 신호 없음(동일폭·대로·일시정지와 그 쪽) | 카드 칸 `location_type`, `road_priority`로 판별 |
 | ↳ 일방통행 | MVP 밖 | 카드에 칸 없음. 넣으려면 A가 칸을 추가한 뒤 재논의 |
 | ↳ 회전교차로 | **미정** | 카드 칸은 있음. 팀 결정 필요 |
 | 진행 조합 | 직진·좌회전·우회전·유턴 전 조합 | `movement_A/B` 자동 판정 정확도 약 40%. **담당자 확인 질문 필수** |
@@ -24,19 +24,20 @@
 | 판단 정보 | 카드 칸 | 자동 정확도 (gpt-4o, 개선용 10건) | 도표 선택 전 요구 상태 |
 | --- | --- | --- | --- |
 | 교차로 종류 | `location_type` | 60% | `human_confirmed` |
-| 도로 관계 (동일폭·대로소로·일시정지) | `road_priority` | 60% | `human_confirmed` (신호 없는 교차로일 때) |
+| 도로 관계 (동일폭·대로·일시정지가 어느 쪽인지) | `road_priority` | 60% | `human_confirmed` (신호 없는 교차로일 때) |
 | 진행 방향 | `movement_A`, `movement_B` | 40% | `human_confirmed` (항상 질문) |
 | 신호 | `signal_A`, `signal_B` | 70% / 30% | `human_confirmed` (신호 있는 교차로) |
+| 상대 위치 (맞은편·측면 좌우·같은 방향 앞뒤) | `relative_position` | — | 그 칸으로 갈리는 도표가 후보에 남으면 질문. B가 가는 방향에서 본 A의 위치 |
 | 진입 순서 | `entry_order` | 60% | 신호 없는 교차로에서만 사용. 도표 당사자 A 기준(`first` = A 선진입) |
 | 야간 | (A가 칸 이름 확정) | — | 도표 선택에 쓰지 않음 (수정요소 자동 적용 안 함) |
 
 정확도는 10건 기준 참고값이며 평가 결과가 아니다. AI Hub 영상 438건 기준 측정값(gpt-5.4-mini)은 `docs/vision-fact-card-eval-report.md`에, 지금 파이프라인의 칸별 정확도는 `docs/contracts/fact-card-v1.md` 3절에 있다. 모든 칸의 `model_confidence`는 참고용이고, 도표 선택은 `verification_status="human_confirmed"`인 값만 사용한다.
-칸 허용값(enum)·보류 사유·필수 확인 칸은 `app/schemas/chart_scope.py`에 코드로 둔다. A가 칸 이름을 확정하면 이 모듈과 문서를 함께 바꾸고 `make contracts`로 견본을 재생성한다. 범위 게이트는 `app/workflow/graph.py`의 `scope_gate`가 담당한다. C의 도표 레코드는 같은 enum으로 속성을 기록해야 필터 검색이 맞물린다.
+칸 허용값(enum)·보류 사유·필수 확인 칸은 `app/schemas/chart_scope.py`에 코드로 둔다. A가 칸 이름을 확정하면 이 모듈과 문서를 함께 바꾸고 `make contracts`로 견본을 재생성한다. 11/11 카드 v1 확정본에 맞춰 도로 관계·진행 방향·상대 위치·진입 순서 값을 v1 값으로 바꿨다. 범위 게이트는 `app/workflow/graph.py`의 `scope_gate`가 담당한다. C의 도표 레코드는 같은 enum으로 속성을 기록해야 필터 검색이 맞물린다.
 
 ### 카드 v1 값 읽기 (11/11, B)
 
 카드 v1 확정본([fact-card-v1.md](fact-card-v1.md), 정지원 #120, 영어 값 12칸)은 칸 이름이 도표 선택 칸과 같고 값이 늘었다.
-`chart_scope` enum과 C 도표 레코드는 위 영어 값 그대로 두고, B가 카드를 읽을 때 `app/workflow/card_fields.py`로 바꾼다.
+`chart_scope` enum과 C 도표 레코드도 도로 관계·진행 방향·상대 위치·진입 순서는 v1 값을 그대로 쓴다(11/11). 카드를 읽을 때(`app/workflow/card_fields.py`)는 장소의 범위 판정 값과 한국어 안 카드만 바꾼다.
 11/6 영어 카드와 오전 한국어 안(`accident_object`·`time_condition`, 한국어 값) 카드도 그대로 받는다(`card_format`).
 
 | 카드 v1 | 도표 선택 값 |
@@ -45,25 +46,27 @@
 | `party_count` 3 이상(확인, 한국어 안) | 범위 밖 |
 | `signalized_intersection` · `unsignalized_intersection` · `roundabout` | 같은 값 |
 | `straight_road` · `highway` · `other` | `other`(범위 밖) |
-| `same_width` | `same_width` |
-| `straight` · `left_turn` · `right_turn` · `u_turn` | 같은 값 |
+| `same_width` · `major_A` · `major_B` · `stop_A` · `stop_B` · `other` · `none` | 같은 값(우선 도로 쪽까지 맞아야 한다) |
+| `straight` · `left_turn` · `right_turn` · `u_turn` · `lane_change` · `other` | 같은 값 |
+| `same_direction_front` · `same_direction_rear` · `opposite` · `left` · `right` | 같은 값 |
 | `green` · `yellow` · `red` · `green_left_arrow` · `no_signal` | 같은 값 |
-| `first` · `second` · `simultaneous` | 같은 값 |
+| `first` · `second` · `simultaneous` · `none` | 같은 값 |
 | `night` 참거짓 | `"true"` · `"false"` |
 
 - 담당자가 확인한 모름(`value: null` + `human_confirmed`, 한국어 안은 `불명`)은 '모른다' 응답과 같다. 다시 묻지 않고, 그 칸이 `*`인 도표만 남는다. 사고 유형·장소가 모름이면 검색 전에 보류한다. 모델이 몰라 `needs_review`인 `null`은 미확인 칸이라 질문한다.
-- `none`(도로 관계·진입 순서)·`other`·`lane_change`와 쪽이 붙은 도로 관계(`major_A`·`major_B`·`stop_A`·`stop_B`)는 그대로 두어 `*`과만 맞는다(그 칸으로 갈리는 도표는 빠진다).
-  - `major_minor`·`stop_sign`에는 쪽이 없어서, 쪽이 붙은 값을 그대로 대응시키면 A/B가 뒤집힌 도표를 고를 수 있다. 대로·소로, 일시정지 도표를 검수할 때 C·B가 레코드 값에 쪽을 적는 방법을 정한다.
-- A/B(v1 2절): 카드 B = 촬영 차량이다. 도표 A가 카드 B면(`party_mapping.chart_party_A_id` = `video_ego_party_id`) B가 읽을 때 뒤집는다. `movement_*`·`signal_*` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`, `first`↔`second`를 바꾼다. 11/6 카드·한국어 안은 카드 A/B를 도표 A/B로 본다.
+- `none`·`other`·`lane_change`와 쪽이 붙은 도로 관계(`major_A`·`stop_B` 등)도 도표 값이다. 도표 레코드가 같은 값이나 `*`를 적었을 때만 맞는다. 11/6 카드의 `major_minor`·`stop_sign`은 쪽이 없어 어떤 도표 값과도 맞지 않는다.
+- A/B(v1 2절): 카드 B = 촬영 차량이다. 도표 A가 카드 B면(`party_mapping.chart_party_A_id` = `video_ego_party_id`) B가 읽을 때 뒤집는다. `movement_*`·`signal_*` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`, `first`↔`second`, `left`↔`right`, `same_direction_front`↔`same_direction_rear`를 바꾼다(`opposite`는 그대로). 질문 문구도 카드 쪽 칸으로 쓴다. 11/6 카드·한국어 안은 카드 A/B를 도표 A/B로 본다.
 - 구분 질문은 카드 형식으로 낸다(계약 문서 「구분 질문과 재개」). 가정 실행(질의응답)도 도표 선택 칸·값을 카드 쪽으로 되돌려 넣는다.
 
 ## 도표 레코드 값 규칙
 
 판단 그래프가 C의 도표 레코드(`scope_attributes`·`scope_variants`·`scope_modifiers`)를 읽는 규칙이다. 2026-11-10 B·C가 합의했다.
 
+- 값은 **도표 A 기준** v1 값이다(카드 v1 2절). 우선 도로는 쪽까지 적는다(`major_A` = 도표 A가 대로, `stop_A` = 도표 A 쪽에 일시정지 표지). 상대 위치는 도표 B가 가는 방향에서 본 도표 A의 위치다. 예: 차12-1은 A가 우측 도로 차라 `right`.
+- 측면 도표처럼 왼쪽·오른쪽이 비율을 가르지 않으면 `left`·`right` 변형으로 나눠 같은 비율을 넣는다(아래 「값이 여럿인 도표」). 상대 위치는 필수 칸이 아니라, 빼면 그 칸으로 갈리지 않는 도표가 된다. 맞은편·측면 쌍(차2-x/3-x 등)은 둘 다 적어야 갈린다.
 - 속성과 변형 조건의 값은 위 enum이거나 `*`(`chart_scope.ANY_VALUE`)다. `*`는 그 도표가 그 칸으로 갈리지 않는다는 뜻이다. 칸을 빼면 미정의(검수 누락)로 보고 후보에서 뺀다.
 - 장소별 필수 칸(`REQUIRED_CONFIRMED_FIELDS`)은 도표가 속성이나 변형 조건으로 모두 정의해야 한다. `*`도 정의로 친다.
-- 값이 여럿인 도표(예: 직진 또는 좌회전)는 값마다 변형을 나눠 같은 비율을 넣는다. 카드와 맞는 변형이 하나도 없는 도표는 순위에 올리지 않는다.
+- 「값이 여럿인 도표」(예: 직진 또는 좌회전)는 값마다 변형을 나눠 같은 비율을 넣는다. 카드와 맞는 변형이 하나도 없는 도표는 순위에 올리지 않는다.
 - 수정요소는 `code`·`conditions`를 null로 둔다. 과속(`speeding`)·서행 불이행(`slow_down_failure`)만 담당자 입력 전용 코드로 표시할 수 있다.
 - 적용판·유효기간·발행월은 레코드 안 문서 사본이 아니라 검증된 검색 결과의 문서 값(`corpus_documents`)에서 읽는다. 시행일이 비어 있으면 근거 검증은 통과시키되 경고를 남긴다.
 - 발행월(`published_month`, 원문 판권면 `YYYY-MM`)이 있으면 그보다 앞선 달의 사고는 근거 검증 ①에서 막는다(보류). 발행되기 전의 사고에 그 판을 적용할 수 없기 때문이다. 같은 달 사고는 시행일을 몰라 경고만 남긴다.

@@ -132,7 +132,9 @@
       "straight",
       "left_turn",
       "right_turn",
-      "u_turn"
+      "u_turn",
+      "lane_change",
+      "other"
     ],
     "allow_unknown": true
   },
@@ -246,7 +248,9 @@
           "straight",
           "left_turn",
           "right_turn",
-          "u_turn"
+          "u_turn",
+          "lane_change",
+          "other"
         ],
         "allow_unknown": true,
         "answer": null
