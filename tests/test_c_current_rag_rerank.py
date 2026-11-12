@@ -84,6 +84,15 @@ class CurrentRagRerankTest(unittest.TestCase):
         self.assertEqual(meter.total_calls, 4)  # 청크 하나당 1회
         self.assertEqual((meter.input_tokens, meter.output_tokens), (40, 0))
 
+    def test_candidate_mode_can_be_changed_and_is_recorded(self):
+        search = FakeSearch(PASSAGES)
+        retriever = CurrentRagReranker(search, KeywordScorer(), mode="bm25")
+        asyncio.run(retriever(QUESTION, Meter()))
+        self.assertEqual(search.modes, ["bm25"])
+        self.assertEqual(retriever.params["candidates"], "bm25")
+        default = CurrentRagReranker(FakeSearch(PASSAGES), KeywordScorer())
+        self.assertEqual(default.params["candidates"], CANDIDATE_MODE)
+
     def test_call_limit_stops_before_scoring(self):
         scorer = KeywordScorer()
         with self.assertRaises(ModelCallLimitExceeded):

@@ -12,6 +12,8 @@
         --name gpt-rerank-rrf50 --max-model-calls 9000
 
 호출 수는 청크(모델 판단) 하나당 1회로 세고, 부르기 전에 센다(상한이면 돈·시간을 쓰기 전에 멈춤).
+후보 방식은 기본 common.CANDIDATE_MODE(rrf)다. 다른 코퍼스에서 바꿔 돌릴 때는 팩토리를 감싼다:
+build_qwen(search, mode="bm25"). 바꾼 값은 결과 JSON params.candidates에 남는다.
 """
 
 import inspect
@@ -31,13 +33,14 @@ class CurrentRagReranker:
     (QwenReranker·GptJudge, score는 동기·비동기 모두 된다).
     """
 
-    def __init__(self, search, scorer) -> None:
+    def __init__(self, search, scorer, mode: str = CANDIDATE_MODE) -> None:
         self.search = search
         self.scorer = scorer
-        self.params: dict = {"candidates": CANDIDATE_MODE, "candidate_parents": CANDIDATE_PARENTS}
+        self.mode = mode
+        self.params: dict = {"candidates": mode, "candidate_parents": CANDIDATE_PARENTS}
 
     async def __call__(self, question, meter) -> list[str]:
-        passages = await self.search.candidate_passages(question, mode=CANDIDATE_MODE)
+        passages = await self.search.candidate_passages(question, mode=self.mode)
         if not passages:
             return []
         name = self.scorer.model_name
@@ -53,7 +56,7 @@ class CurrentRagReranker:
         return [parent_id for parent_id, _ in ranked[:TOP_K]]
 
 
-def build_qwen(search):
+def build_qwen(search, mode: str = CANDIDATE_MODE):
     """③: ①과 같은 점수기(qwen_reranker.QwenReranker)."""
     import asyncio
 
@@ -67,17 +70,17 @@ def build_qwen(search):
         async def score(self, question, texts):
             return await asyncio.to_thread(reranker.score, question, texts)
 
-    retriever = CurrentRagReranker(search, _Threaded())
+    retriever = CurrentRagReranker(search, _Threaded(), mode)
     retriever.params |= {"scorer": reranker.describe(), "calls_counted": "per chunk"}
     return retriever
 
 
-def build_gpt(search):
+def build_gpt(search, mode: str = CANDIDATE_MODE):
     """④: ②와 같은 점수기(gpt_judge.GptJudge). 실제 사용량·비용은 실행 뒤 params.usage에."""
     from evals.rerank_compare.gpt_judge import GptJudge
 
     judge = GptJudge()
-    retriever = CurrentRagReranker(search, judge)
+    retriever = CurrentRagReranker(search, judge, mode)
     retriever.params |= {"scorer": judge.describe(), "calls_counted": "per chunk"}
     retriever.after_run = lambda: {"usage": judge.usage()}  # run.py가 실행 뒤 params에 더한다
     return retriever
