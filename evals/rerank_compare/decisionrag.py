@@ -10,7 +10,9 @@
 예산(GROUP_BUDGET·PARENT_BUDGET)은 평가 문항을 보기 전에 트리 크기만 보고 정했다.
 결과를 보고 바꾸지 않는다.
 판단 모델은 점수기(Scorer)로 주입한다. ① build(search) = Qwen3-Reranker-0.6B,
-② build_gpt(search) = gpt-4o-mini. 트리·예산·문구·하나씩 판단은 같고 점수기만 다르다.
+② build_gpt(search) = gpt-4o-mini, ⑤ build_jev(search) = Jev(공유 문맥).
+①②는 트리·예산·문구·하나씩 판단이 같고 점수기만 다르다. ⑤는 같은 트리·예산·노드 글·문구에
+한 단계의 후보를 함께 판단한다(jev_judge.py).
 """
 
 import inspect
@@ -68,6 +70,29 @@ GPT_DEVIATIONS = (
     "점수: 논문은 Yes·No로 정규화한 P(Yes), 여기서는 평가 틀 공통 yes_probability"
     "(top_logprobs의 Yes 확률, No로 나누지 않음)",
     *_COMMON_DEVIATIONS,
+)
+
+# ⑤ Jev — ①②와 같은 트리·예산·노드 글·문구, 판단 모델과 공유 문맥만 다르게.
+# "[Jev로 해소]"는 ①②의 논문과 다른 점 가운데 Jev로 없어진 것이다.
+_MULTIPLE_CHOICE = "다지선다 재정렬 단계 없음(Jev 기능)"
+JEV_RESOLVED = (
+    "[Jev로 해소] 판단 모델: 논문과 같은 Jev(jev-1.13.0, TypeSafe 공식 API). 실제로 답한 모델은 "
+    "결과 JSON params.usage.response_models",
+    "[Jev로 해소] 후보 판단: 논문처럼 공유 문맥 — 한 단계의 후보를 state 하나에 함께 넣고 후보마다 "
+    "noul 질문. 단 state가 Jev 토큰 24k(o200k 16,997)를 넘으면 번갈아 배정으로 나눠 보내고, "
+    "나뉜 요청끼리는 문맥을 공유하지 않는다(나눈 단계 수는 params.usage.stages_split)",
+    "[Jev로 해소] 점수: Jev noul = P(yes) 그대로(평가 틀의 yes_probability·Qwen yes/no softmax를 "
+    "쓰지 않음). 응답이 소수 둘째 자리 단위라 동점이 생기고, 동점은 문서 순서(L1·L2)·"
+    "parent_id(MaxP)",
+)
+JEV_DEVIATIONS = (
+    *JEV_RESOLVED,
+    *(
+        f"{d} — Jev로 할 수 있으나 ①②와 같은 단계로 비교하려고 넣지 않음"
+        if d == _MULTIPLE_CHOICE
+        else d
+        for d in _COMMON_DEVIATIONS
+    ),
 )
 
 PART = "보통약관"
@@ -350,3 +375,32 @@ def build_gpt(search):
     }
     retriever.after_run = lambda: {"usage": scorer.usage()}  # run.py가 실행 뒤 params에 더한다
     return retriever
+
+
+def build_jev(search):
+    """run.py --retriever evals.rerank_compare.decisionrag:build_jev. ⑤: 점수기만 Jev(공유 문맥)."""
+    from evals.rerank_compare.jev_judge import JEV_MODEL, JevJudge
+
+    scorer = JevJudge()
+    tree = build_tree(search.parents)
+    retriever = DecisionRagRetriever(tree, search.parents, scorer)
+    retriever.params = describe(tree, retriever, JEV_DEVIATIONS) | {
+        "name": f"{NAME} — ⑤ Jev(공유 문맥)",
+        "scorer": scorer.describe(),
+        "deviations_resolved_by_jev": list(JEV_RESOLVED),
+    }
+
+    retriever.after_run = lambda: jev_after_run(scorer.usage(), JEV_MODEL)
+    return retriever
+
+
+def jev_after_run(usage: dict, requested: str) -> dict:
+    """⑤ 실행 뒤 params에 더할 것: 사용량, 요청과 다른 모델이 답했으면 모델 버전 차이."""
+    extra: dict = {"usage": usage}
+    answered = set(usage["response_models"])
+    if answered and answered != {requested}:
+        extra["deviations"] = [
+            *JEV_DEVIATIONS,
+            f"모델 버전: 논문 {requested} → 실제 응답 {', '.join(sorted(answered))}",
+        ]
+    return extra

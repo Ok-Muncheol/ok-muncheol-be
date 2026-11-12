@@ -1,6 +1,6 @@
 # 약관 재정렬 비교 평가 틀 — 옥석현(D)·김지은(C)
 
-약관 검색 7가지를 **같은 질문·같은 지표·같은 결과 JSON**으로 비교한다. 운영 코드(`app/`)는 바꾸지 않는다.
+약관 검색 9가지를 **같은 질문·같은 지표·같은 결과 JSON**으로 비교한다. 운영 코드(`app/`)는 바꾸지 않는다.
 코퍼스는 `data/private/corpus-db-import/`(1413), 질문은 약관 88문항이다. 결과는 `evals/results/rerank_compare/`(무시 경로)에 저장하고 **커밋하지 않는다**.
 
 | 단계 | 방식 | 담당 | 이 틀에서 |
@@ -8,10 +8,12 @@
 | 1단계 검색 | 벡터, BM25, RRF | D | `baselines.py`(구현됨) |
 | 2단계 검색 + 재정렬 | ③ 후보 50개 → Qwen3-Reranker-0.6B | 김지은 | 끼워 넣기 |
 | | ④ 후보 50개 → GPT(gpt-4o-mini) | 김지은 | 끼워 넣기 |
+| | ⑥ 후보 50개 → Jev(공유 문맥) | 옥석현 | `jev_judge.build_rerank` |
 | 3단계 목차 탐색(검색 없음) | ① DecisionRAG + Qwen3-Reranker | 옥석현 | 끼워 넣기 |
 | | ② DecisionRAG + GPT | 옥석현 | 끼워 넣기 |
+| | ⑤ DecisionRAG + Jev(공유 문맥) | 옥석현 | `decisionrag.build_jev` |
 
-## 공통 조건 (`common.py`, ①~④ 모두 이 상수·함수만 쓴다)
+## 공통 조건 (`common.py`, ①~⑥ 모두 이 상수·함수만 쓴다. ⑤⑥ 점수만 Jev noul)
 
 | 조건 | 값 · 함수 |
 | --- | --- |
@@ -183,6 +185,90 @@ torch·transformers는 운영 의존성(pyproject)에 넣지 않는다. 모델(�
 python -m evals.rerank_compare.run --retriever evals.rerank_compare.decisionrag:build_gpt --name decisionrag-gpt --max-model-calls 1500 --limit 3
 python -m evals.rerank_compare.run --retriever evals.rerank_compare.decisionrag:build_gpt --name decisionrag-gpt --max-model-calls 12000
 ```
+
+## ⑤ DecisionRAG 방식 + Jev, ⑥ RRF 50 → Jev (`jev_judge.py`, `decisionrag.build_jev`, D)
+
+판단 모델만 Jev(TypeSafe System One, 논문 버전 **`jev-1.13.0`**, 공식 API `POST https://api.typesafe.ai/v1/systemone`)로 바꾼다.
+
+- ⑤는 ①②와 같은 트리·예산(묶음 5 / parent 20)·노드 글·`RELEVANCE_INSTRUCTION`이다.
+- ⑥은 ③④와 같은 후보(`candidate_passages(mode="rrf")`, 고유 parent 50개의 모든 청크)·`passage_text`·`max_p`이고, 김지은 님 `current_rag_rerank.CurrentRagReranker`를 import해서 쓴다.
+- 다른 점은 Jev의 **공유 문맥** 하나다. 한 단계(⑥은 후보 묶음)의 글을 state 하나에 함께 넣고, 후보마다 noul 질문을 하나씩 붙인다.
+
+```text
+state     = {"question": 질문, "candidates": {"c000": 글, "c001": 글, ...}}
+questions = {"c000": {"type": "noul", "instructions": {"task": RELEVANCE_INSTRUCTION, "candidate": "c000"}}, ...}
+점수       = answers["c000"].noul   # P(yes) 0~1, 가공하지 않음
+```
+
+### 요청 크기와 나누기 (평가 결과를 보기 전에 정함)
+
+- 공식 한도(docs.typesafe.ai/models, 2026-11-12): **질문당 32k 토큰**(state + 질문 하나), **요청당 64k 토큰**(state + 질문 전부). 바이트가 아니라 토큰 기준이다.
+- 긴 문맥 모드는 `TypeSafe-Danger-Zone-Long-Context: true` 헤더를 보낼 때만 켜진다("느리고 덜 정확"). **이 코드는 그 헤더를 보내지 않는다**(결과 JSON `long_context: false`).
+- 기준: 한 요청의 state를 **Jev 토큰 24k**(질문당 한도의 75%) 이하로 맞춘다. Jev 토큰화는 공개되지 않아 o200k × **1.412**로 어림했다(평가 문항이 아닌 확인 요청 1회: Jev 2,378 / o200k 1,684). 그래서 o200k 기준 상한은 **16,997**이다.
+- 넘으면 **번갈아 배정**한다(후보 i → i mod k). k는 모든 묶음이 상한 이하가 되는 가장 작은 수다. 나뉜 요청끼리는 문맥을 공유하지 않는다.
+- 측정(o200k, 88문항, API 없이):
+
+| 단계 | 후보 수 평균 / 최대 | state 평균 / 최대 | 결과 |
+| --- | --- | --- | --- |
+| ⑤ L1 묶음 28 | 28 | 4.2k / 4.2k | 항상 한 요청 |
+| ⑤ L2 | 47 / 141 (②에서 남은 묶음 기준) | 7.9k / 22.2k | 대개 한 요청 |
+| ⑤ L3 | 27 / 35 | 8.1k / 16.0k | 대개 한 요청 |
+| ⑥ 후보 전체 | 91 / 109 | 33.4k / 42.0k | 2~3요청 |
+
+- 실제(88문항): ⑤는 264단계 중 12단계를 2요청으로 나눴다. ⑥은 88단계를 모두 나눴다(2요청 39 · 3요청 49). 가장 큰 요청의 응답 `input_tokens`는 ⑤ 24,840, ⑥ 23,292다(질문당 32k 안).
+
+### 비용·키·멈춤
+
+- 가격: 입력 100만 토큰당 $0.042, 출력 무료. state는 질문 수와 상관없이 요청마다 한 번 청구된다(`--limit 3`으로 확인).
+- 결과 JSON `params.usage`에 남는 것: 요청 수, 재시도, 입력·출력 토큰, `cost_usd`, 응답의 실제 모델(`response_models`), `long_context`, 요청 크기 최대값(UTF-8 바이트·o200k·어림 Jev 토큰·응답 토큰), 나눈 단계 수(`stages_split`), 묶음 크기 분포(`batch_sizes`).
+- 비용 상한: `JEV_MAX_COST_USD`(기본 3달러). 보내기 전 어림으로 넘을 것 같으면 멈추고, 응답의 누적 비용이 넘어도 그 자리에서 멈춘다.
+- 키: `.env`의 `TYPESAFE_API_KEY`. 요청 헤더에만 쓰고 출력·저장하지 않는다.
+- 오류 처리: 429·5xx·연결 오류는 `retry-after`를 따라 4번까지 다시 보낸다. 그 밖의 오류는 점수 0으로 메우지 않고 멈춘다. 오류 메시지에는 상태 코드와 오류 종류만 남긴다(422의 `input` 미리보기는 버림).
+- 호출 수는 ①~④와 같이 **판단(후보) 하나당 1회**로 센다. 실제 요청 수는 `usage.requests`에 있다.
+- Jev 응답은 소수 둘째 자리 단위다. 하위 후보에 동점이 많고, 동점은 문서 순서(L1·L2)·parent_id(MaxP)로 가른다.
+
+### 논문과 다른 점 (⑤, `params.deviations`)
+
+- **[Jev로 해소]**
+  - 판단 모델: 논문과 같은 Jev 1.13
+  - 공유 문맥: 단, 24k를 넘으면 나눔
+  - 점수: noul = P(yes)
+- `params.deviations_resolved_by_jev`에 따로 남는다. 요청과 다른 모델이 답하면 "모델 버전: 논문 jev-1.13.0 → 실제 응답 …"이 더해진다(이번 실행은 276·225요청 모두 `jev-1.13.0`).
+- 그대로 남은 것:
+  - 다지선다 재정렬 없음(Jev로 할 수 있으나 ①②와 같은 단계로 비교하려고 넣지 않음)
+  - 결과 단위 parent
+  - 노드 설명
+  - 공통 질문 문구
+  - 예산 고정
+  - 확률 임계 규칙 등
+  - 목차 상수
+
+```bash
+# 메인 .venv. 3문항으로 비용 확인 → 전체(⑤ 다음 ⑥은 남은 상한으로)
+JEV_MAX_COST_USD=0.5 python -m evals.rerank_compare.run --retriever evals.rerank_compare.decisionrag:build_jev --name decisionrag-jev --max-model-calls 1500 --limit 3
+JEV_MAX_COST_USD=2.95 python -m evals.rerank_compare.run --retriever evals.rerank_compare.decisionrag:build_jev --name decisionrag-jev --max-model-calls 12000
+JEV_MAX_COST_USD=2.80 python -m evals.rerank_compare.run --retriever evals.rerank_compare.jev_judge:build_rerank --name jev-rerank-rrf50 --max-model-calls 9000
+```
+
+### 결과 (2026-11-12, 약관 80, 코퍼스 1413)
+
+| 방식 | Top-1 | R@3 | R@5 | R@10 | MRR@10 | 질문당 초 | 질문당 호출 | 비용(88문항) | 생존율 L1 · L2 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| BM25(기준선) | 0.812 | 0.881 | 0.894 | 0.944 | 0.856 | 0.003 | 0 | 0 | - |
+| ① DecisionRAG + Qwen | 0.725 | 0.769 | 0.781 | 0.781 | 0.753 | 3.1 | 120 | 0 | 0.819 · 0.781 |
+| ② DecisionRAG + GPT | 0.738 | 0.844 | 0.844 | 0.844 | 0.790 | 6.3 | 102 | $0.436 | 0.844 · 0.844 |
+| ⑤ DecisionRAG + Jev | 0.875 | 0.931 | 0.931 | 0.931 | 0.904 | 0.8 | 126 | $0.131 | 0.956 · 0.931 |
+| ③ RRF 50 → Qwen | 0.838 | 0.950 | 0.975 | 0.988 | 0.900 | 3.8 | 92 | 0 | - |
+| ④ RRF 50 → GPT | 0.875 | 0.988 | 1.000 | 1.000 | 0.930 | 8.3 | 92 | 약 $0.59 | - |
+| ⑥ RRF 50 → Jev | **0.938** | **1.000** | **1.000** | **1.000** | **0.967** | 0.45 | 92 | $0.169 | - |
+
+- L1 놓침(약관 80): ① 15, ② 13, ⑤ 4. ②와 ⑤가 겹치는 문항은 2개, ②만 놓친 문항 11개, ⑤만 놓친 문항 2개다.
+- ⑤는 L2에서 2문항을 더 놓쳤다. 별표 8은 ⑤⑥ 모두 Top-1 1.000이다.
+- **재현성**(같은 날 한 번 더 실행):
+  - ⑥은 지표와 질문별 1위가 모두 같다. 정답 아래 순위만 바뀐다.
+  - ⑤는 약관 80 Top-1 0.875 → 0.887, R@10 0.931 → 0.944로 1문항 차이가 났다.
+  - 원인은 Jev가 같은 요청에도 확률을 조금씩(대개 ±0.01~0.03) 다르게 주기 때문이다. ⑤는 L1 5·6위 경계 점수가 붙어 있어 남는 묶음이 바뀐다.
+  - 그래서 ⑤ 숫자는 실행마다 약관 80 Top-1 ±0.0125 정도 흔들린다고 본다.
 
 ## 결과 JSON (모든 방식 같은 모양, `schema: rerank-compare-v1`)
 
