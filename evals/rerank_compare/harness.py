@@ -1,4 +1,4 @@
-"""D: 약관 검색 방식(①~④·기준선)을 같은 질문·같은 지표·같은 JSON 모양으로 채점한다.
+"""D: 검색 방식(①~⑥·기준선)을 같은 질문·같은 지표·같은 JSON 모양으로 채점한다.
 
 끼우는 함수(Retriever): retrieve(question: Question, meter: Meter) -> list[str]
 - 상위 parent_id를 순위대로 최대 10개(TOP_K). 동기·async 둘 다 받는다.
@@ -6,7 +6,8 @@
 - 모델을 부를 때마다 meter.add(model, input_tokens=, output_tokens=).
   상한을 넘으면 그 자리에서 멈춘다.
 지표: Top-1, R@3, R@5, R@10, MRR@10(정의는 evals/retrieval/evaluate.score_predictions와 같다),
-질문당 시간, 모델 호출 수, 토큰 수. 점수는 약관 80(policy80)·별표 8(schedule8)·합계 88(all88) 따로.
+질문당 시간, 모델 호출 수, 토큰 수. 점수는 약관 80(policy80)·별표 8(schedule8)·합계 88(all88) 따로,
+도표는 fault100, 결정례는 dispute100(코퍼스는 common.set_corpus, run.py --corpus).
 """
 
 import datetime
@@ -20,14 +21,32 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from evals.rerank_compare.common import TOP_K, common_settings
+from evals.rerank_compare.common import (
+    CORPUS,
+    DISPUTE,
+    FAULT,
+    TOP_K,
+    active_corpus,
+    common_settings,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 QUESTIONS = ROOT / "data/private/03_policy_terms/evaluation.jsonl"  # 88문항
 QUESTIONS_80 = ROOT / "data/private/03_policy_terms/evaluation-80.jsonl"  # 별표 8문항을 가리는 기준
 DB_IMPORT = ROOT / "data/private/corpus-db-import/db_import"
 RESULTS = ROOT / "evals/results/rerank_compare"  # 무시 경로(커밋 금지)
-SUBSETS = ("policy80", "schedule8", "all88")
+# 코퍼스별 평가셋(100문항씩). 필터(document_id)는 파일의 request.filters 그대로
+CORPUS_QUESTIONS = {
+    FAULT: ROOT / "data/private/01_fault_standards/evaluation.jsonl",
+    DISPUTE: ROOT / "data/private/02_dispute_cases/evaluation.jsonl",
+}
+# 코퍼스별 문항 묶음. 마지막이 전체
+CORPUS_SUBSETS = {
+    CORPUS: ("policy80", "schedule8", "all88"),
+    FAULT: ("fault100",),
+    DISPUTE: ("dispute100",),
+}
+SUBSETS = tuple(s for subsets in CORPUS_SUBSETS.values() for s in subsets)
 SCHEMA = "rerank-compare-v1"
 
 
@@ -44,7 +63,7 @@ class Question:
 @dataclass(frozen=True)
 class Example:
     question: Question
-    subset: str  # "policy80" | "schedule8"
+    subset: str  # "policy80" | "schedule8" | "fault100" | "dispute100"
     expected: tuple[str, ...]  # 정답 parent_id
 
     @property
@@ -107,8 +126,14 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def load_examples(path: Path = QUESTIONS, path_80: Path = QUESTIONS_80) -> list[Example]:
-    """88문항. evaluation-80.jsonl에 있는 ID는 policy80, 나머지는 schedule8."""
+def load_examples(
+    path: Path | None = None, path_80: Path = QUESTIONS_80, *, corpus: str | None = None
+) -> list[Example]:
+    """지금 코퍼스의 평가셋. 약관 88문항은 evaluation-80.jsonl의 ID가 policy80, 나머지 schedule8."""
+    corpus = corpus or active_corpus()
+    if corpus != CORPUS:
+        return _load_corpus_examples(path or CORPUS_QUESTIONS[corpus], corpus)
+    path = path or QUESTIONS
     old = {row["example_id"] for row in _read_jsonl(path_80)}
     examples = []
     for row in _read_jsonl(path):
@@ -125,6 +150,23 @@ def load_examples(path: Path = QUESTIONS, path_80: Path = QUESTIONS_80) -> list[
         examples.append(Example(question, subset, tuple(row["expected_parent_ids"])))
     if not old <= {e.example_id for e in examples}:
         raise ValueError("evaluation-80.jsonl의 문항이 88문항 파일에 없습니다")
+    return examples
+
+
+def _load_corpus_examples(path: Path, corpus: str) -> list[Example]:
+    (subset,) = CORPUS_SUBSETS[corpus]
+    examples = []
+    for row in _read_jsonl(path):
+        request = row["request"]
+        if request["corpus"] != corpus:
+            raise ValueError(f"{row['example_id']}: {corpus} 문항이 아닙니다")
+        question = Question(
+            example_id=row["example_id"],
+            text=request["text"],
+            accident_date=request.get("accident_date") or "",
+            filters=dict(request.get("filters") or {}),
+        )
+        examples.append(Example(question, subset, tuple(row["expected_parent_ids"])))
     return examples
 
 
@@ -215,10 +257,12 @@ def _score_stages(stages: list[dict], expected: Sequence[str]) -> list[dict]:
     ]
 
 
-def subset_metrics(rows: list[dict]) -> dict[str, dict]:
+def subset_metrics(rows: list[dict], corpus: str | None = None) -> dict[str, dict]:
+    subsets = CORPUS_SUBSETS[corpus or active_corpus()]
     out = {}
-    for subset in SUBSETS:
-        chosen = rows if subset == "all88" else [r for r in rows if r["subset"] == subset]
+    for subset in subsets:
+        whole = subset == subsets[-1]
+        chosen = rows if whole else [r for r in rows if r["subset"] == subset]
         if chosen:
             out[subset] = summarize(chosen)
     return out
@@ -312,11 +356,15 @@ def git_commit() -> str | None:
     return done.stdout.strip() or None
 
 
-def dataset_info(examples: list[Example]) -> dict:
-    counts = {s: sum(e.subset == s for e in examples) for s in ("policy80", "schedule8")}
-    info: dict[str, object] = {"count": len(examples), "subsets": counts}
-    if QUESTIONS.is_file():
-        info["sha256"] = file_sha256(QUESTIONS)
+def dataset_info(examples: list[Example], corpus: str | None = None) -> dict:
+    corpus = corpus or active_corpus()
+    subsets = CORPUS_SUBSETS[corpus]
+    parts = subsets[:-1] if len(subsets) > 1 else subsets
+    counts = {s: sum(e.subset == s for e in examples) for s in parts}
+    info: dict[str, object] = {"corpus": corpus, "count": len(examples), "subsets": counts}
+    path = QUESTIONS if corpus == CORPUS else CORPUS_QUESTIONS[corpus]
+    if path.is_file():
+        info["sha256"] = file_sha256(path)
     return info
 
 
