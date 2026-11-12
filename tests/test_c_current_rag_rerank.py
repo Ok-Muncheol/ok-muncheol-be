@@ -5,7 +5,7 @@ import math
 import unittest
 from types import SimpleNamespace
 
-from evals.rerank_compare.common import CANDIDATE_MODE, gpt_request
+from evals.rerank_compare.common import gpt_request
 from evals.rerank_compare.current_rag_rerank import CurrentRagReranker
 from evals.rerank_compare.gpt_judge import GptJudge
 from evals.rerank_compare.harness import Meter, ModelCallLimitExceeded, Question
@@ -18,8 +18,9 @@ def passage(parent_id, n, text):
 class FakeSearch:
     """후보 청크를 정해 둔다. 부른 mode를 남긴다."""
 
-    def __init__(self, passages):
+    def __init__(self, passages, candidate_mode="rrf"):
         self.passages = passages
+        self.candidate_mode = candidate_mode
         self.modes = []
 
     async def candidate_passages(self, question, mode):
@@ -79,7 +80,7 @@ class CurrentRagRerankTest(unittest.TestCase):
         search, scorer, meter = FakeSearch(PASSAGES), KeywordScorer(), Meter()
         ranked = asyncio.run(CurrentRagReranker(search, scorer)(QUESTION, meter))
         self.assertEqual(ranked, ["b", "c", "a"])
-        self.assertEqual(search.modes, [CANDIDATE_MODE])
+        self.assertEqual(search.modes, ["rrf"])
         self.assertEqual(scorer.batches, [4])  # 청크 4개를 한 번에(질문당 한 번)
         self.assertEqual(meter.total_calls, 4)  # 청크 하나당 1회
         self.assertEqual((meter.input_tokens, meter.output_tokens), (40, 0))
@@ -90,8 +91,12 @@ class CurrentRagRerankTest(unittest.TestCase):
         asyncio.run(retriever(QUESTION, Meter()))
         self.assertEqual(search.modes, ["bm25"])
         self.assertEqual(retriever.params["candidates"], "bm25")
-        default = CurrentRagReranker(FakeSearch(PASSAGES), KeywordScorer())
-        self.assertEqual(default.params["candidates"], CANDIDATE_MODE)
+        # 기본값은 search의 코퍼스별 후보 방식을 따른다
+        search = FakeSearch(PASSAGES, candidate_mode="vector")
+        default = CurrentRagReranker(search, KeywordScorer())
+        asyncio.run(default(QUESTION, Meter()))
+        self.assertEqual(search.modes, ["vector"])
+        self.assertEqual(default.params["candidates"], "vector")
 
     def test_call_limit_stops_before_scoring(self):
         scorer = KeywordScorer()
