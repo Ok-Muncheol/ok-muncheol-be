@@ -101,8 +101,14 @@ def truncate_tokens(
     return encoder.decode(tokens[:max_tokens]).rstrip("�")
 
 
-def passage_text(title: str, body: str, *, encoder: TokenEncoder | None = None) -> str:
-    """모델에 넣는 글: 제목 한 줄 + 본문(512토큰).
+def passage_text(
+    title: str,
+    body: str,
+    *,
+    encoder: TokenEncoder | None = None,
+    max_tokens: int = MAX_PASSAGE_TOKENS,
+) -> str:
+    """모델에 넣는 글: 제목 한 줄 + 본문(기본 512토큰, 제목은 세지 않음).
 
     본문 첫머리의 제목 줄은 뺀다. "대인배상Ⅰ | 제3조(…)"처럼 담보 이름이 붙은 제목 줄이면 그 줄을
     제목으로 쓴다(담보 이름은 남기고 같은 제목이 여러 번 들어가지 않게).
@@ -119,7 +125,7 @@ def passage_text(title: str, body: str, *, encoder: TokenEncoder | None = None) 
             lines.pop(0)
         else:
             break
-    body = truncate_tokens("\n".join(lines).strip(), encoder=encoder)
+    body = truncate_tokens("\n".join(lines).strip(), max_tokens, encoder=encoder)
     return f"{title}\n{body}" if title else body
 
 
