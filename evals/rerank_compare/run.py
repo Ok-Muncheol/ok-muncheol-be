@@ -68,15 +68,22 @@ def finish_embedding(search: PolicySearch) -> None:
         print("질의 임베딩 API 0회(캐시만 사용)")
 
 
+def limited(examples: list, limit: int | None) -> list:
+    """--limit N: 파일 순서로 앞 N문항."""
+    return examples[:limit] if limit else examples
+
+
 def print_tables(results: list[dict]) -> None:
     for subset in SUBSETS:
+        if not any(subset in r["metrics"] for r in results):
+            continue  # --limit으로 그 세트 문항이 없을 때
         print(f"\n### {subset}")
         print(format_table(results, subset))
 
 
 async def run_methods(names: list[str], args) -> None:
     search = make_search(args.allow_embedding_api)
-    examples = load_examples()
+    examples = limited(load_examples(), args.limit)
     available = baseline_methods(search)
     unknown = [n for n in names if n not in available]
     if unknown:
@@ -93,7 +100,7 @@ async def run_methods(names: list[str], args) -> None:
             available[name],  # type: ignore[arg-type]
             examples,
             max_model_calls=0,
-            params=search.describe(),
+            params=search.describe() | ({"limit": args.limit} if args.limit else {}),
             description=description,
         )
         results.append(result)
@@ -110,15 +117,23 @@ async def run_plugin(args) -> None:
     search = make_search(args.allow_embedding_api)
     retrieve = factory(search)
     params = dict(getattr(retrieve, "params", {}) or {}) | {"search": search.describe()}
+    examples = limited(load_examples(), args.limit)
+    if args.limit:
+        params["limit"] = args.limit  # 앞 N문항만(시간 측정용, 비교표에 쓰지 않는다)
     result = await run_method(
         args.name or attr,
         retrieve,
-        load_examples(),
+        examples,
         max_model_calls=args.max_model_calls,
         params=params,
         description=args.description or "",
     )
+    after_run = getattr(retrieve, "after_run", None)
+    if callable(after_run):  # 예: GPT 실제 사용량·비용
+        result["params"] |= after_run()
     print(f"저장 {save_result(result)}")
+    if "usage" in result["params"]:
+        print("사용량", result["params"]["usage"])
     finish_embedding(search)
     print_tables([result])
 
@@ -187,6 +202,7 @@ def main() -> None:
         help=f"캐시({QUERY_VECTORS.name})에 없는 질의를 최대 N회 임베딩 API로 받는다. 기본 0",
     )
     parser.add_argument("--compare", nargs="+", type=Path, help="저장한 결과 JSON들")
+    parser.add_argument("--limit", type=int, help="앞 N문항만(시간 측정용). 결과 params에 남는다")
     args = parser.parse_args()
     if args.compare:
         print_tables([load_result(p) for p in args.compare])

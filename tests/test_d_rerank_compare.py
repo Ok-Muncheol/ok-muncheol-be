@@ -23,6 +23,17 @@ from evals.rerank_compare.common import (
     truncate_tokens,
     yes_probability,
 )
+from evals.rerank_compare.decisionrag import (
+    GPT_DEVIATIONS,
+    GROUP_BUDGET,
+    LAW_GROUP,
+    NODE_BODY_TOKENS,
+    PARENT_BUDGET,
+    DecisionRagRetriever,
+    build_tree,
+    describe,
+)
+from evals.rerank_compare.gpt_judge import GptJudge, GptJudgeError, cost_usd
 from evals.rerank_compare.harness import (
     Example,
     Meter,
@@ -33,6 +44,7 @@ from evals.rerank_compare.harness import (
     rank_scores,
     run_method,
 )
+from evals.rerank_compare.qwen_reranker import check_prompt_matches
 from tests.evidence_d import has_corpus
 
 
@@ -325,6 +337,249 @@ class RealCorpusParentsTest(unittest.TestCase):
         self.assertEqual(len(ids), 382)
         self.assertTrue(all(parents.title(p) for p in ids))
         self.assertTrue(all(parents.passages(p) for p in ids))
+
+
+def tree_corpus():
+    """보통약관 2개 묶음 + 별표 + 특약 + 인용 법령 + 각주."""
+
+    def chunk(pid, cid, page, text, **meta):
+        return {"corpus": "policy_terms", "parent_id": pid, "chunk_id": cid, "page_start": page,
+                "text": text, "metadata": meta}
+
+    chunks = [
+        chunk("a3", "a3-1", 59, "제3조(보상하는 손해)\n대인배상 본문",
+              clause_type="general_article", article_number="3", side_note_parent_ids=["n59"]),
+        chunk("a3", "a3-2", 60, "제3조(보상하는 손해)\n둘째 청크", clause_type="general_article",
+              article_number="3", side_note_parent_ids=["n59"]),
+        chunk("a12", "a12-1", 62, "제12조(보상하는 손해)\n자기신체사고 본문",
+              clause_type="general_article", article_number="12", side_note_parent_ids=["n59"]),
+        chunk("n59", "n59-1", 59, "약관 비고·각주\n각주 본문", clause_type="side_note"),
+        chunk("s3", "s3-1", 103, "<별표 3> 과실상계 등 | 4. 기왕증\n기왕증 본문",
+              clause_type="payment_standard", schedule="별표3"),
+        chunk("r1", "r1-1", 122, "운전자 한정 특별약관\n특약 본문",
+              clause_type="rider", rider_number="1"),
+        chunk("law", "law-1", 268, "자동차보험약관 인용 법조문\n[도로교통법]\n제44조",
+              clause_type="cited_law_appendix"),
+    ]
+    titles = {
+        "a3": "제3조(보상하는 손해)",
+        "a12": "제12조(보상하는 손해)",
+        "r1": "운전자 한정 특별약관",
+    }
+    records = [
+        {"corpus": "policy_terms", "is_parent": True, "parent_id": pid, "body": {"title": title}}
+        for pid, title in titles.items()
+    ]
+    return SimpleNamespace(chunks=chunks, records=records)  # fmt: skip
+
+
+class KeywordScorer:
+    """글에 질문 낱말이 있으면 높은 점수(결정적). 부를 때마다 글 수를 센다."""
+
+    model_name = "fake-reranker"
+
+    def __init__(self):
+        self.batches = []
+
+    def score(self, question, texts):
+        self.batches.append(len(texts))
+        words = question.split()
+        return [sum(w in t for w in words) / len(words) for t in texts], 10 * len(texts), 0
+
+
+class DecisionRagTreeTest(unittest.TestCase):
+    def setUp(self):
+        self.parents = PolicyParents(tree_corpus(), encoder=ENC)
+        self.tree = build_tree(self.parents, encoder=ENC)
+
+    def test_groups_follow_toc_order_and_cover_every_parent(self):
+        names = [g.group_id for g in self.tree.groups]
+        self.assertEqual(len(names), 5)
+        self.assertIn("제1절 대인배상Ⅰ", names[0])
+        self.assertIn("제1절 자기신체사고", names[1])
+        self.assertIn("<별표 3>", names[2])
+        self.assertIn("특별약관 > Ⅰ.", names[3])
+        self.assertEqual(names[4], LAW_GROUP)
+        placed = [pid for g in self.tree.groups for pid in g.parent_ids]
+        self.assertEqual(sorted(placed), sorted(self.parents.parent_ids()))
+
+    def test_side_note_follows_first_linked_clause(self):
+        first = self.tree.groups[0]
+        self.assertEqual(first.parent_ids, ("a3", "n59"))
+        self.assertIn("제3조(보상하는 손해) 각주", self.tree.parents["n59"].text)
+        self.assertNotIn("각주", first.text)  # 묶음 글에는 각주 제목을 넣지 않는다
+
+    def test_node_texts(self):
+        self.assertIn("제3조(보상하는 손해)", self.tree.groups[0].text)
+        self.assertIn("도로교통법", self.tree.groups[4].text)  # 인용 법령은 [법령명]
+        a3 = self.tree.parents["a3"].text
+        self.assertTrue(a3.startswith(f"{self.tree.groups[0].group_id} > 제3조(보상하는 손해)\n"))
+        self.assertIn("둘째 청크", a3)  # 본문은 parent의 청크를 이어 붙인 앞부분
+
+    def test_parent_body_is_cut_to_node_tokens(self):
+        long_corpus = tree_corpus()
+        long_corpus.chunks[0]["text"] = "제3조(보상하는 손해)\n" + "가" * 500
+        tree = build_tree(PolicyParents(long_corpus, encoder=ENC), encoder=ENC)
+        body = tree.parents["a3"].text.split("\n", 1)[1]
+        self.assertEqual(len(body), NODE_BODY_TOKENS)
+
+    def test_unknown_article_fails_loudly(self):
+        bad = tree_corpus()
+        for c in bad.chunks:
+            if c["parent_id"] == "a12":
+                c["metadata"]["article_number"] = "99"
+        with self.assertRaises(ValueError):
+            build_tree(PolicyParents(bad, encoder=ENC), encoder=ENC)
+
+
+class DecisionRagNavigationTest(unittest.TestCase):
+    def setUp(self):
+        self.parents = PolicyParents(tree_corpus(), encoder=ENC)
+        self.tree = build_tree(self.parents, encoder=ENC)
+        self.scorer = KeywordScorer()
+
+    def retriever(self, groups=2, parents=2):
+        return DecisionRagRetriever(
+            self.tree, self.parents, self.scorer, group_budget=groups, parent_budget=parents
+        )
+
+    def test_prunes_by_budget_and_records_stages(self):
+        meter = Meter()
+        ranked = asyncio.run(self.retriever()(Question("q", "대인배상 보상하는", "", {}), meter))
+        self.assertEqual(ranked[0], "a3")
+        l1, l2 = meter.stages
+        self.assertEqual(l1["name"], "L1")
+        self.assertEqual(len(l2["kept_parents"]), 2)
+        self.assertTrue(set(l2["kept_parents"]) <= set(l1["kept_parents"]))
+        self.assertTrue(set(ranked) <= set(l2["kept_parents"]))
+        # 호출 = 묶음 5 + L1에서 남은 parent + L2에서 남은 parent의 청크
+        chunks = sum(len(self.parents.chunks(p)) for p in l2["kept_parents"])
+        self.assertEqual(self.scorer.batches, [5, len(l1["kept_parents"]), chunks])
+        self.assertEqual(meter.total_calls, 5 + len(l1["kept_parents"]) + chunks)
+        self.assertEqual(meter.input_tokens, 10 * meter.total_calls)
+
+    def test_call_limit_stops_before_scoring(self):
+        with self.assertRaises(ModelCallLimitExceeded):
+            asyncio.run(self.retriever()(Question("q", "대인배상", "", {}), Meter(max_calls=4)))
+        self.assertEqual(self.scorer.batches, [])
+
+    def test_survival_is_scored_only_in_harness(self):
+        examples = [
+            Example(Question("q1", "대인배상 보상하는", "", {}), "policy80", ("a3",)),
+            Example(Question("q2", "대인배상 보상하는", "", {}), "schedule8", ("s3",)),
+        ]
+        result = asyncio.run(run_method("drag", self.retriever(groups=1, parents=1), examples))
+        rows = {r["example_id"]: r for r in result["questions"]}
+        self.assertEqual([s["survival"] for s in rows["q1"]["stages"]], [1.0, 1.0])
+        self.assertEqual([s["survival"] for s in rows["q2"]["stages"]], [0.0, 0.0])
+        self.assertEqual(result["metrics"]["policy80"]["stage_survival"], {"L1": 1.0, "L2": 1.0})
+        self.assertEqual(result["metrics"]["all88"]["stage_survival"], {"L1": 0.5, "L2": 0.5})
+        self.assertIn("L1 0.500 · L2 0.500", format_table([result], "all88"))
+
+    def test_describe_records_budgets_and_deviations(self):
+        params = describe(self.tree, self.retriever())
+        self.assertEqual(params["budgets"]["L1_groups"], 2)
+        self.assertTrue(params["budgets_fixed_before_eval"])
+        self.assertTrue(any("Qwen3-Reranker-0.6B" in d for d in params["deviations"]))
+        self.assertTrue(any("하나씩" in d for d in params["deviations"]))
+        self.assertEqual((GROUP_BUDGET, PARENT_BUDGET, NODE_BODY_TOKENS), (5, 20, 128))
+
+
+def fake_completion(yes_logprob, *, prompt_tokens=100, cached=0, logprobs=True):
+    top = [
+        SimpleNamespace(token="Yes", logprob=yes_logprob),
+        SimpleNamespace(token="No", logprob=-1.0),
+    ]
+    choice = SimpleNamespace(
+        logprobs=SimpleNamespace(content=[SimpleNamespace(top_logprobs=top)]) if logprobs else None
+    )
+    usage = SimpleNamespace(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=1,
+        prompt_tokens_details=SimpleNamespace(cached_tokens=cached),
+    )
+    return SimpleNamespace(choices=[choice], usage=usage)
+
+
+class FakeOpenAI:
+    """chat.completions.create만 흉내 낸다. 글에 '관련'이 있으면 Yes 확률이 높다."""
+
+    def __init__(self, fail=None, logprobs=True):
+        self.requests = []
+        self.fail = fail
+        self.logprobs = logprobs
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    async def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if self.fail:
+            raise self.fail
+        text = kwargs["messages"][1]["content"]
+        yes = math.log(0.9) if "관련" in text else math.log(0.1)
+        return fake_completion(yes, cached=20, logprobs=self.logprobs)
+
+
+class GptJudgeTest(unittest.TestCase):
+    def test_scores_each_text_separately_with_common_request(self):
+        client = FakeOpenAI()
+        judge = GptJudge(client=client, concurrency=2)
+        scores, input_tokens, output_tokens = asyncio.run(judge.score("Q", ["관련 글", "다른 글"]))
+        self.assertAlmostEqual(scores[0], 0.9)
+        self.assertAlmostEqual(scores[1], 0.1)
+        self.assertEqual((input_tokens, output_tokens, judge.cached_tokens), (200, 2, 40))
+        usage = judge.usage()
+        self.assertEqual(usage["requests"], 2)
+        self.assertAlmostEqual(usage["cost_usd"], cost_usd(200, 40, 2))
+        self.assertEqual(len(client.requests), 2)  # 글마다 한 요청(하나씩 판단)
+        self.assertEqual(client.requests[0], gpt_request("Q", "관련 글"))
+
+    def test_api_error_stops_without_original_message(self):
+        judge = GptJudge(client=FakeOpenAI(fail=RuntimeError("sk-secret-key-in-message")))
+        with self.assertRaises(GptJudgeError) as caught:
+            asyncio.run(judge.score("Q", ["글"]))
+        self.assertNotIn("sk-secret", str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+
+    def test_missing_logprobs_is_an_error(self):
+        with self.assertRaises(GptJudgeError):
+            asyncio.run(GptJudge(client=FakeOpenAI(logprobs=False)).score("Q", ["글"]))
+
+    def test_cost(self):
+        self.assertAlmostEqual(cost_usd(1_000_000, 0, 0), 0.15)
+        self.assertAlmostEqual(cost_usd(1_000_000, 1_000_000, 1_000_000), 0.075 + 0.60)
+
+    def test_gpt_retriever_reports_tokens_and_deviations(self):
+        parents = PolicyParents(tree_corpus(), encoder=ENC)
+        tree = build_tree(parents, encoder=ENC)
+        retriever = DecisionRagRetriever(tree, parents, GptJudge(client=FakeOpenAI()))
+        meter = Meter()
+        asyncio.run(retriever(Question("q", "관련", "", {}), meter))
+        self.assertEqual(meter.output_tokens, meter.total_calls)
+        self.assertEqual(meter.calls, {"gpt-4o-mini": meter.total_calls})
+        deviations = describe(tree, retriever, GPT_DEVIATIONS)["deviations"]
+        self.assertTrue(any("gpt-4o-mini" in d for d in deviations))
+        self.assertFalse(any("Qwen3-Reranker-0.6B(무료" in d for d in deviations))
+
+
+class QwenPromptTest(unittest.TestCase):
+    def test_three_parts_equal_common_prompt(self):
+        self.assertTrue(check_prompt_matches("질문", "글"))
+
+
+@unittest.skipUnless(has_corpus(), "data/private/corpus-db-import/db_import 파일이 없다")
+class RealCorpusTreeTest(unittest.TestCase):
+    def test_toc_tree_covers_all_parents(self):
+        from app.retrieval.loader import read_corpus
+
+        parents = PolicyParents(read_corpus(), encoder=ENC)
+        tree = build_tree(parents, encoder=ENC)
+        self.assertEqual(len(tree.groups), 28)
+        placed = [pid for g in tree.groups for pid in g.parent_ids]
+        self.assertEqual(len(placed), 382)
+        self.assertEqual(set(placed), set(parents.parent_ids()))
+        nine = next(g for g in tree.groups if any(":general_article:9:" in p for p in g.parent_ids))
+        # 데이터 coverage_context가 아니라 목차를 따른다
+        self.assertIn("제3절 배상책임에서 공통으로 적용할 사항", nine.group_id)
 
 
 if __name__ == "__main__":

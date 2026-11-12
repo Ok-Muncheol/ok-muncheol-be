@@ -123,6 +123,67 @@ legacy 3개는 예전 값과 같고 질문별 순위도 88문항 모두 같다. 
 
 → ③④ 후보 기본값은 **RRF**(`CANDIDATE_MODE`). 다른 후보로 돌릴 때는 `mode=`를 넘기고 `params`에 적는다.
 
+## ① DecisionRAG 방식의 계층 탐색을 무료 오픈소스 모델로 재현 (`decisionrag.py`, D)
+
+논문: Wan et al., "Retriever-Free Retrieval: Navigating Documents with Decision Models" (arXiv 2610.35868).
+검색기 없이 약관 목차 트리를 위에서 아래로 내려가며, 단계마다 판단 모델 점수로 상위 몇 개만 남긴다(top-k 가지치기).
+마지막에 남은 parent의 청크를 점수 매기고 `max_p`로 상위 10개 parent를 돌려준다.
+
+| 단계 | 노드 (382 parent 모두 도달 가능) | 모델에 보여 주는 글 | 남기는 수 |
+| --- | --- | --- | --- |
+| L1 묶음 28개 | 보통약관 장·절 14, 별표 1~5, 특약 Ⅰ~Ⅷ, 인용 법령 1 | 경로 + 하위 조항 제목(인용 법령은 본문의 `[법령명]`), `passage_text` 512토큰 | **5** |
+| L2 parent | 남은 묶음의 조·특약·별표 항목·각주·법령 페이지 | 경로 > 제목 + 본문 앞 **128토큰**(각주는 "연결 조항 제목 각주") | **20** |
+| L3 청크 | 남은 20개 parent의 모든 청크 | ③④와 같은 `passage_text(제목, 청크)` | MaxP → 상위 10 |
+
+- 묶음은 원문 PDF 목차(p.45~51)의 편·장·절 제목과 조·특약 번호 범위다(코퍼스에 편·장 칸이 없음). 제9~11조는 목차대로 "제3절 배상책임에서 공통으로 적용할 사항"에 둔다.
+- 각주는 처음 연결한 조항(페이지 순)의 묶음에 둔다. 동점은 문서 순서로 가른다.
+- 판단 모델: `qwen_reranker.QwenReranker`(Qwen3-Reranker-0.6B, revision 고정). 글은 `common.qwen_prompt`와 같고(`RELEVANCE_INSTRUCTION`을 **모든 단계에**), 점수는 마지막 위치 yes/no 로짓 softmax의 yes 확률.
+- **예산(묶음 5, parent 20)과 노드 글 길이(128)는 평가 문항을 보기 전에 트리 크기만 보고 정했다. 결과를 보고 바꾸지 않는다.** 결과 JSON `params`에 예산·트리·`deviations`·모델 revision·장치가 남는다.
+- **단계 생존율**: 끼우는 함수가 단계마다 `meter.stage(이름, 남은 parent)`를 남기고, 채점 때만 정답과 비교한다(L1 = 정답 parent가 든 묶음이 남았나, L2 = 정답 parent가 20개 안에 남았나). 결과 JSON `metrics.*.stage_survival`, 질문별 `stages`, `--compare` 표의 "단계 생존율" 칸.
+
+### 논문과 다른 점
+
+의도한 변경
+1. 판단 모델: 논문의 Jev(유료 API) 대신 **Qwen3-Reranker-0.6B**(무료, 로컬)
+2. 후보 판단: 논문은 한 단계의 후보를 한 문맥에서 함께 판단(공유 문맥), 여기서는 **하나씩** 판단(Qwen3-Reranker 구조상). 논문 실험(§6.1)에서는 하나씩 판단하면 Top-1이 낮고 R@10은 비슷했다
+3. 계층: **약관 목차 구조**(묶음 → 조항 → 청크)를 그대로 사용
+
+조사하며 생긴 차이
+4. 다지선다 재정렬 단계 없음(Jev 기능)
+5. 결과 단위: 논문은 문단 순위, 여기서는 parent 순위(청크 MaxP, 평가 틀 공통)
+6. 노드 설명: 논문은 제목·절 제목 또는 LLM 요약, 여기서는 위 표의 글(LLM 요약 없음). 각주 143개·법령 페이지 20개는 제목이 모두 같아 본문 앞부분을 넣었다
+7. 질문 문구: 논문은 단계별 질문, 여기서는 공통 `RELEVANCE_INSTRUCTION` 하나
+8. 예산: 논문은 평가와 겹치지 않는 설계용 셋으로 고름, 여기서는 설계용 셋이 없어 평가 전에 고정
+9. 확률 임계 규칙·대화 메모(notepad)·dense 후보 추가·페이지 점수 곱하기는 쓰지 않음
+10. 편·장 정보는 원문 목차를 코드 상수로 옮김(목차의 제52조의2는 코퍼스에 없음)
+
+### 실행 (실험용 가상환경, 저장소 밖)
+
+```bash
+py -3.12 -m venv C:\Users\Admin\.venvs\okm-rerank
+C:\Users\Admin\.venvs\okm-rerank\Scripts\python.exe -m pip install -r evals/rerank_compare/requirements-qwen.txt
+C:\Users\Admin\.venvs\okm-rerank\Scripts\python.exe -m pip install -e .
+C:\Users\Admin\.venvs\okm-rerank\Scripts\python.exe -m evals.rerank_compare.run --retriever evals.rerank_compare.decisionrag:build --name decisionrag-qwen --max-model-calls 36000 [--limit 3]
+```
+
+torch·transformers는 운영 의존성(pyproject)에 넣지 않는다. 모델(약 1.2GB)은 처음 실행 때 Hugging Face 캐시로 받는다. 문항당 호출은 평균 약 125회, 최대 약 400회다.
+
+## ② DecisionRAG 방식 + gpt-4o-mini (`decisionrag.build_gpt`, `gpt_judge.py`, D)
+
+①과 **같은 트리·예산(묶음 5 / parent 20)·노드 글·`RELEVANCE_INSTRUCTION`·하나씩 판단**이고 점수기만 다르다(모델 차이만 보려고).
+
+- 점수기 `gpt_judge.GptJudge`: 글마다 `common.gpt_request`(gpt-4o-mini, temperature 0, max_tokens 1, logprobs·top_logprobs 5)로 한 번씩 요청, 점수는 `common.yes_probability`. 동시 요청은 16개까지(속도용, 판단은 서로 독립).
+- 키는 `.env`의 `OPENAI_API_KEY`(클라이언트가 환경에서 읽음, 출력·저장 안 함). API 오류는 점수 0으로 메우지 않고 멈춘다(메시지에는 예외 종류만).
+- 실제 사용량·비용은 결과 JSON `params.usage`(요청 수, 입력·캐시·출력 토큰, `cost_usd`). 단가는 `gpt_judge.PRICE_PER_MILLION`(2026-11-11 OpenAI 모델 페이지: 입력 $0.15, 캐시 입력 $0.075, 출력 $0.60 / 100만 토큰).
+- `params.deviations`는 ①의 목록에서 모델 줄을 바꾸고 "점수: 논문은 Yes·No로 정규화한 P(Yes), 여기서는 정규화하지 않은 Yes 확률(평가 틀 공통)"을 더한 것이다.
+- temperature 0이어도 OpenAI 응답은 완전히 결정적이지 않다. 다시 돌리면 몇 문항이 바뀔 수 있다.
+
+```bash
+# 메인 .venv(openai·python-dotenv·tiktoken). 3문항으로 비용 확인 → 전체
+python -m evals.rerank_compare.run --retriever evals.rerank_compare.decisionrag:build_gpt --name decisionrag-gpt --max-model-calls 1500 --limit 3
+python -m evals.rerank_compare.run --retriever evals.rerank_compare.decisionrag:build_gpt --name decisionrag-gpt --max-model-calls 12000
+```
+
 ## 결과 JSON (모든 방식 같은 모양, `schema: rerank-compare-v1`)
 
 ```text
@@ -133,10 +194,11 @@ common    {공통 상수 전부: 문구·자르기·모델·후보 수}
 params    {방식별 설정(retrieve.params)}
 metrics   {policy80 | schedule8 | all88: n, top1, r3, r5, r10, mrr10,
            seconds_mean/p50/p95/total, model_calls, model_calls_per_question, model_calls_by_model,
-           input_tokens, output_tokens (보고하지 않으면 null)}
+           input_tokens, output_tokens (보고하지 않으면 null), stage_survival{L1, L2}(계층 탐색만)}
 questions [{example_id, subset, question, accident_date, expected, ranked(상위 10),
             scores{first_correct_rank, top1, r3, r5, r10, mrr10}, seconds, model_calls,
-            model_calls_by_model, input_tokens, output_tokens}]
+            model_calls_by_model, input_tokens, output_tokens,
+            stages[{name, kept_count, survival, kept_parents}]}]
 ```
 
 지표 정의는 `evals/retrieval/evaluate.score_predictions`와 같다(R@k = 정답 parent 중 상위 k개 안에 든 비율, MRR@10은 첫 정답 순위의 역수).

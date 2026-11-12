@@ -64,6 +64,12 @@ class Meter:
     calls: dict[str, int] = field(default_factory=dict)
     input_tokens: int | None = None  # 한 번도 보고하지 않으면 None(토큰 수 없음)
     output_tokens: int | None = None
+    # 단계별로 남긴 parent(계층 탐색용). 채점 때만 정답과 비교한다(stage 참고)
+    stages: list[dict] = field(default_factory=list)
+
+    def stage(self, name: str, kept_parents: Sequence[str]) -> None:
+        """이 단계 뒤에 아직 도달할 수 있는 parent를 남긴다. 정답은 끼우는 함수가 보지 않는다."""
+        self.stages.append({"name": name, "kept_parents": list(dict.fromkeys(kept_parents))})
 
     @property
     def total_calls(self) -> int:
@@ -176,8 +182,37 @@ def summarize(rows: list[dict]) -> dict[str, object]:
         "model_calls_by_model": calls_by_model,
         "input_tokens": tokens("input_tokens"),
         "output_tokens": tokens("output_tokens"),
+        "stage_survival": stage_survival(rows),
     }
     return metrics
+
+
+def stage_survival(rows: list[dict]) -> dict[str, float] | None:
+    """단계별 생존율: 그 단계 뒤에 정답 parent가 아직 남은 비율의 평균. 단계 기록이 없으면 None."""
+    names = list(dict.fromkeys(s["name"] for r in rows for s in r["stages"]))
+    if not names:
+        return None
+    out = {}
+    for name in names:
+        values = [s["survival"] for r in rows for s in r["stages"] if s["name"] == name]
+        if len(values) != len(rows):
+            raise ValueError(f"단계 {name}을 기록하지 않은 문항이 있습니다")
+        out[name] = sum(values) / len(values)
+    return out
+
+
+def _score_stages(stages: list[dict], expected: Sequence[str]) -> list[dict]:
+    """채점 때만 정답과 비교한다. 생존율 = 남은 parent 안에 든 정답 비율."""
+    gold = set(expected)
+    return [
+        {
+            "name": s["name"],
+            "kept_count": len(s["kept_parents"]),
+            "survival": len(gold.intersection(s["kept_parents"])) / len(gold),
+            "kept_parents": s["kept_parents"],
+        }
+        for s in stages
+    ]
 
 
 def subset_metrics(rows: list[dict]) -> dict[str, dict]:
@@ -218,6 +253,7 @@ async def run_method(
     for example in examples:
         question = example.question
         before_calls, before_in, before_out = meter.snapshot()
+        before_stages = len(meter.stages)
         started = time.perf_counter()
         raw = retrieve(question, meter)
         if inspect.isawaitable(raw):
@@ -244,6 +280,7 @@ async def run_method(
                 "model_calls_by_model": by_model,
                 "input_tokens": None if after_in is None else after_in - (before_in or 0),
                 "output_tokens": None if after_out is None else after_out - (before_out or 0),
+                "stages": _score_stages(meter.stages[before_stages:], example.expected),
             }
         )
     return {
@@ -309,9 +346,9 @@ def format_table(results: list[dict], subset: str) -> str:
     """결과 여러 개를 마크다운 표 하나로."""
     head = (
         "| 방식 | 문항 | Top-1 | R@3 | R@5 | R@10 | MRR@10 | 질문당 초(평균/p95) "
-        "| 질문당 호출 | 입력/출력 토큰 |"
+        "| 질문당 호출 | 입력/출력 토큰 | 단계 생존율 |"
     )
-    lines = [head, "| " + " | ".join(["---"] * 10) + " |"]
+    lines = [head, "| " + " | ".join(["---"] * 11) + " |"]
     for result in results:
         m = result["metrics"].get(subset)
         if not m:
@@ -321,9 +358,11 @@ def format_table(results: list[dict], subset: str) -> str:
             if m["input_tokens"] is None
             else f"{m['input_tokens']:,} / {m['output_tokens'] or 0:,}"
         )
+        survival = m.get("stage_survival")
+        stages = " · ".join(f"{k} {v:.3f}" for k, v in survival.items()) if survival else "-"
         lines.append(
             f"| {result['method']} | {m['n']} | {m['top1']:.3f} | {m['r3']:.3f} | {m['r5']:.3f} "
             f"| {m['r10']:.3f} | {m['mrr10']:.3f} | {m['seconds_mean']:.3f} / "
-            f"{m['seconds_p95']:.3f} | {m['model_calls_per_question']:.1f} | {tokens} |"
+            f"{m['seconds_p95']:.3f} | {m['model_calls_per_question']:.1f} | {tokens} | {stages} |"
         )
     return "\n".join(lines)
