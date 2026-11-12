@@ -122,7 +122,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 모른다(`unknown=true`, `value=null`) | 같은 실행을 재개한다. 그 칸으로 갈리는 도표는 후보에서 빼고 그 칸이 `*`(무관)인 도표로 진행한다. 남는 도표가 없으면 `deferred`(확인 불가)다 |
 
 반박 검토는 `wrong_chart`일 때만 차순위 도표로 1회 재실행하고, `missing_fact`·`contradiction`은 바로 `needs_confirmation`이다.
-반박 검토 LLM 응답은 JSON 스키마(`holds`·`kind`·`preferred_chart_id`·`reasons`)로 고정하며 모양이 어긋나면 실행 실패로 올린다.
+반박 검토 LLM 응답은 JSON 스키마(`verdict`·`preferred_chart_id`·`reasons`)로 고정하며 모양이 어긋나면 실행 실패로 올린다. `verdict`는 `none`(반박 없음)·`wrong_chart`·`missing_fact`·`contradiction` 중 하나다(11/12, 참거짓 `holds`와 `kind`를 따로 받던 형식이 서로 어긋나 바꿨다).
 
 ## 판단 접수·질문 응답
 
