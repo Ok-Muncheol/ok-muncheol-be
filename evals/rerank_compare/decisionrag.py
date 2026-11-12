@@ -13,6 +13,8 @@
 ② build_gpt(search) = gpt-4o-mini, ⑤ build_jev(search) = Jev(공유 문맥).
 ①②는 트리·예산·문구·하나씩 판단이 같고 점수기만 다르다. ⑤는 같은 트리·예산·노드 글·문구에
 한 단계의 후보를 함께 판단한다(jev_judge.py).
+도표·결정례(11/12 확장, run.py --corpus fault|dispute): 트리는 corpus_trees.py, 예산·노드 글 규칙·
+탐색은 약관과 같다. 발표 번호는 ① Qwen, ② GPT, ③ Jev(이 저장소의 ⑤).
 """
 
 import inspect
@@ -24,6 +26,8 @@ from typing import Protocol
 
 from evals.rerank_compare.common import (
     CORPUS,
+    DISPUTE,
+    FAULT,
     TOP_K,
     PolicyParents,
     TokenEncoder,
@@ -158,6 +162,7 @@ class PolicyTree:
     groups: tuple[GroupNode, ...]
     parents: dict[str, ParentNode]
     version: str = TREE_VERSION
+    corpus: str = CORPUS
 
 
 def _group_path(meta: dict) -> tuple[int, str] | None:
@@ -331,7 +336,7 @@ def describe(
     return {
         "name": NAME,
         "paper": PAPER,
-        "corpus": CORPUS,
+        "corpus": tree.corpus,
         "tree_version": tree.version,
         "tree": {"groups": len(tree.groups), "parents": len(tree.parents), "group_sizes": sizes},
         "budgets": {
@@ -346,6 +351,66 @@ def describe(
     }
 
 
+# ---- 도표·결정례 ----
+
+_FAULT_ITEMS = (
+    "계층: 도표 원문 목차(제3편 제2장 4. 세부유형별 기준)의 절 → 도표 → 청크. 장(가~마)은 묶음 "
+    "경로에만 쓰고 따로 고르는 단계를 두지 않음",
+    "노드 설명: 논문은 제목·절 제목 또는 LLM 요약. 여기서는 묶음 = 장·절 경로 + 하위 도표 제목"
+    "(수정요소 해설은 원문 소제목), 도표 = 경로 + 도표 번호·제목 + 본문 앞 128토큰. LLM 요약 없음",
+    "장·절 정보가 코퍼스에 없어 원문 목차(p.147~482) 제목과 도표 번호 범위를 코드 상수로 옮김. "
+    "공통 수정요소 해설(p.129~147, 19 parent)은 묶음 하나",
+)
+_DISPUTE_ITEMS = (
+    "계층: 결정례 문서의 목차가 아니라, 결정례가 연결된 도표(chart_id)의 절 → 결정례 → 청크",
+    "노드 설명: 논문은 제목·절 제목 또는 LLM 요약. 여기서는 묶음 = 도표 장·절 경로 + 연결된 도표 "
+    "제목, 결정례 = 경로 + 도표 제목 + 심의번호·사례 제목 + 본문 앞 128토큰. LLM 요약 없음",
+    "도표 연결은 사람 검토 전(chart_link_human_reviewed False, 부록 번호 대응): 연결이 틀리면 정답 "
+    "결정례가 다른 묶음에 들어가 L1에서 잃을 수 있음. 같은 도표의 결정례(최대 8건)끼리는 트리가 "
+    "구분해 주지 않음",
+)
+_SHARED = tuple(d for i, d in enumerate(_COMMON_DEVIATIONS) if i not in (0, 3, 7))
+_CORPUS_COMMON = {
+    CORPUS: _COMMON_DEVIATIONS,
+    FAULT: (_FAULT_ITEMS[0], *_SHARED, *_FAULT_ITEMS[1:]),
+    DISPUTE: (_DISPUTE_ITEMS[0], *_SHARED, *_DISPUTE_ITEMS[1:]),
+}
+
+
+def corpus_deviations(corpus: str, scorer: str) -> tuple[str, ...]:
+    """논문과 다른 점. scorer: "qwen"(①) · "gpt"(②) · "jev"(발표 ③, 저장소 ⑤)."""
+    common = _CORPUS_COMMON[corpus]
+    if scorer == "qwen":
+        return (*DEVIATIONS[:2], *common)
+    if scorer == "gpt":
+        return (*GPT_DEVIATIONS[:3], *common)
+    if scorer == "jev":
+        marked = (
+            f"{d} — Jev로 할 수 있으나 ①②와 같은 단계로 비교하려고 넣지 않음"
+            if d == _MULTIPLE_CHOICE
+            else d
+            for d in common
+        )
+        return (*JEV_RESOLVED, *marked)
+    raise ValueError(f"알 수 없는 점수기: {scorer}")
+
+
+def build_corpus_tree(search) -> PolicyTree:
+    """search.corpus_name의 트리. 약관은 build_tree 그대로."""
+    from evals.rerank_compare.corpus_trees import (
+        build_dispute_tree,
+        build_fault_tree,
+        chart_titles,
+    )
+
+    corpus = getattr(search, "corpus_name", CORPUS)
+    if corpus == FAULT:
+        return build_fault_tree(search.parents)
+    if corpus == DISPUTE:
+        return build_dispute_tree(search.parents, chart_titles(search.corpus))
+    return build_tree(search.parents)
+
+
 def build(search):
     """run.py --retriever evals.rerank_compare.decisionrag:build. Qwen3-Reranker-0.6B를 읽는다."""
     from evals.rerank_compare.qwen_reranker import QwenReranker
@@ -353,9 +418,9 @@ def build(search):
     started = time.perf_counter()
     scorer = QwenReranker()
     load_seconds = time.perf_counter() - started
-    tree = build_tree(search.parents)
+    tree = build_corpus_tree(search)
     retriever = DecisionRagRetriever(tree, search.parents, scorer)
-    retriever.params = describe(tree, retriever) | {
+    retriever.params = describe(tree, retriever, corpus_deviations(tree.corpus, "qwen")) | {
         "scorer": scorer.describe(),
         "model_load_seconds": load_seconds,
     }
@@ -367,9 +432,9 @@ def build_gpt(search):
     from evals.rerank_compare.gpt_judge import GptJudge
 
     scorer = GptJudge()
-    tree = build_tree(search.parents)
+    tree = build_corpus_tree(search)
     retriever = DecisionRagRetriever(tree, search.parents, scorer)
-    retriever.params = describe(tree, retriever, GPT_DEVIATIONS) | {
+    retriever.params = describe(tree, retriever, corpus_deviations(tree.corpus, "gpt")) | {
         "name": f"{NAME} — ② gpt-4o-mini",
         "scorer": scorer.describe(),
     }
@@ -382,25 +447,28 @@ def build_jev(search):
     from evals.rerank_compare.jev_judge import JEV_MODEL, JevJudge
 
     scorer = JevJudge()
-    tree = build_tree(search.parents)
+    tree = build_corpus_tree(search)
+    deviations = corpus_deviations(tree.corpus, "jev")
     retriever = DecisionRagRetriever(tree, search.parents, scorer)
-    retriever.params = describe(tree, retriever, JEV_DEVIATIONS) | {
+    retriever.params = describe(tree, retriever, deviations) | {
         "name": f"{NAME} — ⑤ Jev(공유 문맥)",
         "scorer": scorer.describe(),
         "deviations_resolved_by_jev": list(JEV_RESOLVED),
     }
 
-    retriever.after_run = lambda: jev_after_run(scorer.usage(), JEV_MODEL)
+    retriever.after_run = lambda: jev_after_run(scorer.usage(), JEV_MODEL, deviations)
     return retriever
 
 
-def jev_after_run(usage: dict, requested: str) -> dict:
+def jev_after_run(
+    usage: dict, requested: str, deviations: Sequence[str] = JEV_DEVIATIONS
+) -> dict:
     """⑤ 실행 뒤 params에 더할 것: 사용량, 요청과 다른 모델이 답했으면 모델 버전 차이."""
     extra: dict = {"usage": usage}
     answered = set(usage["response_models"])
     if answered and answered != {requested}:
         extra["deviations"] = [
-            *JEV_DEVIATIONS,
+            *deviations,
             f"모델 버전: 논문 {requested} → 실제 응답 {', '.join(sorted(answered))}",
         ]
     return extra
