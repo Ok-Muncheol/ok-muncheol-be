@@ -139,7 +139,7 @@ async def openai_reviewer(system: str, user: str) -> str:
     """기본 검토기. OPENAI_API_KEY·OPENAI_MODEL을 쓰고 JSON 스키마 출력을 강제한다."""
     if not os.environ.get("OPENAI_API_KEY"):
         raise ReviewerNotConfigured("OPENAI_API_KEY가 없어 반박 검토를 실행할 수 없다")
-    model = os.environ.get("OPENAI_MODEL") or "gpt-5"
+    model = os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
 
     async def attempt() -> str:
         async with llm_policy.openai_client() as client:

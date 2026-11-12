@@ -424,7 +424,7 @@ async def openai_qa_llm(
     """
     if not os.environ.get("OPENAI_API_KEY"):
         raise QaNotConfigured("OPENAI_API_KEY가 없어 질의응답을 실행할 수 없다")
-    model = os.environ.get("OPENAI_MODEL") or "gpt-5"
+    model = os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
 
     async def attempt() -> LlmMessage:
         async with llm_policy.openai_client() as client:
