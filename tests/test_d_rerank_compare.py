@@ -26,12 +26,15 @@ from evals.rerank_compare.common import (
 from evals.rerank_compare.decisionrag import (
     GPT_DEVIATIONS,
     GROUP_BUDGET,
+    JEV_DEVIATIONS,
+    JEV_RESOLVED,
     LAW_GROUP,
     NODE_BODY_TOKENS,
     PARENT_BUDGET,
     DecisionRagRetriever,
     build_tree,
     describe,
+    jev_after_run,
 )
 from evals.rerank_compare.gpt_judge import GptJudge, GptJudgeError, cost_usd
 from evals.rerank_compare.harness import (
@@ -44,6 +47,15 @@ from evals.rerank_compare.harness import (
     rank_scores,
     run_method,
 )
+from evals.rerank_compare.jev_judge import (
+    API_URL,
+    JevBudgetExceeded,
+    JevJudge,
+    JevJudgeError,
+    build_state,
+    split_round_robin,
+)
+from evals.rerank_compare.jev_judge import cost_usd as jev_cost_usd
 from evals.rerank_compare.qwen_reranker import check_prompt_matches
 from tests.evidence_d import has_corpus
 
@@ -559,6 +571,159 @@ class GptJudgeTest(unittest.TestCase):
         deviations = describe(tree, retriever, GPT_DEVIATIONS)["deviations"]
         self.assertTrue(any("gpt-4o-mini" in d for d in deviations))
         self.assertFalse(any("Qwen3-Reranker-0.6B(무료" in d for d in deviations))
+
+
+class FakeJev:
+    """TypeSafe /v1/systemone 흉내(httpx MockTransport). 글에 "관련"이 있으면 noul 0.9."""
+
+    def __init__(self, *, statuses=(), model="jev-1.13.0", detail=None, reported_tokens=None):
+        self.requests = []
+        self.statuses = list(statuses)  # 앞에서부터 하나씩 이 상태로 답한다(그다음은 200)
+        self.model = model
+        self.detail = detail
+        self.reported_tokens = reported_tokens  # usage.input_tokens를 이 값으로(비용 상한 시험)
+
+    def handler(self, request):
+        import httpx
+
+        self.requests.append(request)
+        if self.statuses:
+            status = self.statuses.pop(0)
+            headers = {"retry-after": "0"}
+            return httpx.Response(status, headers=headers, json={"detail": self.detail})
+        body = json.loads(request.content)
+        candidates = body["state"]["candidates"]
+        answers = {
+            cid: {"type": "noul", "noul": 0.9 if "관련" in candidates[cid] else 0.1}
+            for cid in body["questions"]
+        }
+        tokens = self.reported_tokens or len(request.content)
+        usage = {"input_tokens": tokens, "output_tokens": len(answers)}
+        return httpx.Response(200, json={"model": self.model, "answers": answers, "usage": usage})
+
+    def judge(self, **kwargs):
+        import httpx
+
+        kwargs.setdefault("api_key", "ts-secret-key")
+        kwargs.setdefault("encoder", ENC)
+        kwargs.setdefault("retry_wait_cap", 0)
+        return JevJudge(transport=httpx.MockTransport(self.handler), **kwargs)
+
+
+class JevJudgeTest(unittest.TestCase):
+    def test_shared_context_request_and_scores_in_order(self):
+        fake = FakeJev()
+        texts = ["무관 글", "관련 글", "무관 2"]
+        scores, tokens_in, tokens_out = asyncio.run(fake.judge().score("질문", texts))
+        self.assertEqual(scores, [0.1, 0.9, 0.1])
+        self.assertEqual(len(fake.requests), 1)  # 세 글을 한 요청(공유 문맥)에
+        request = fake.requests[0]
+        self.assertEqual(str(request.url), API_URL)
+        self.assertEqual(request.headers["authorization"], "Bearer ts-secret-key")
+        self.assertNotIn("typesafe-danger-zone-long-context", request.headers)
+        body = json.loads(request.content)
+        self.assertEqual(body["model"], "jev-1.13.0")
+        self.assertEqual(body["state"], build_state("질문", texts))
+        self.assertEqual(
+            body["questions"]["c001"],
+            {"type": "noul", "instructions": {"task": RELEVANCE_INSTRUCTION, "candidate": "c001"}},
+        )
+        self.assertEqual(set(body["questions"]), {"c000", "c001", "c002"})
+        self.assertEqual((tokens_in, tokens_out), (len(request.content), 3))
+
+    def test_round_robin_split_under_budget(self):
+        texts = [f"글{i}" * 10 for i in range(7)]
+        whole = len(json.dumps(build_state("q", texts), ensure_ascii=False))
+        batches = split_round_robin("q", texts, budget_o200k=whole // 2, encoder=ENC)
+        k = len(batches)
+        self.assertGreater(k, 1)
+        self.assertEqual(batches, [list(range(s, 7, k)) for s in range(k)])
+        for batch in batches:
+            state = build_state("q", [texts[i] for i in batch])
+            self.assertLessEqual(len(json.dumps(state, ensure_ascii=False)), whole // 2)
+        one = split_round_robin("q", texts, budget_o200k=whole, encoder=ENC)
+        self.assertEqual(one, [list(range(7))])
+
+    def test_split_requests_merge_back_and_are_recorded(self):
+        fake = FakeJev()
+        texts = ["관련 " + "가" * 50, "무관 " + "나" * 50, "관련 " + "다" * 50]
+        judge = fake.judge(budget_o200k=120)
+        scores, _, _ = asyncio.run(judge.score("질문", texts))
+        self.assertEqual(scores, [0.9, 0.1, 0.9])
+        self.assertGreater(len(fake.requests), 1)
+        usage = judge.usage()
+        self.assertEqual(usage["stages_split"], 1)
+        self.assertEqual(usage["requests"], len(fake.requests))
+        self.assertFalse(usage["long_context"])
+        self.assertEqual(sum(int(k) * v for k, v in usage["batch_sizes"].items()), 3)
+
+    def test_text_too_long_alone_stops(self):
+        with self.assertRaises(JevJudgeError):
+            split_round_robin("q", ["가" * 500], budget_o200k=100, encoder=ENC)
+
+    def test_retries_429_and_5xx_then_succeeds(self):
+        fake = FakeJev(statuses=[429, 503])
+        judge = fake.judge()
+        scores, _, _ = asyncio.run(judge.score("q", ["관련"]))
+        self.assertEqual(scores, [0.9])
+        self.assertEqual((len(fake.requests), judge.usage()["retries"]), (3, 2))
+
+    def test_client_error_stops_without_key_or_text(self):
+        detail = [{"loc": ["body", "state"], "msg": "bad", "type": "invalid", "input": "비밀 글"}]
+        fake = FakeJev(statuses=[422], detail=detail)
+        with self.assertRaises(JevJudgeError) as caught:
+            asyncio.run(fake.judge().score("q", ["비밀 글"]))
+        message = str(caught.exception)
+        self.assertIn("422", message)
+        self.assertNotIn("비밀 글", message)
+        self.assertNotIn("ts-secret-key", message)
+        self.assertEqual(len(fake.requests), 1)  # 4xx는 다시 보내지 않는다
+
+    def test_cost_cap_stops_before_sending(self):
+        fake = FakeJev()
+        with self.assertRaises(JevBudgetExceeded):
+            asyncio.run(fake.judge(max_cost_usd=0.0).score("q", ["관련"]))
+        self.assertEqual(fake.requests, [])
+
+    def test_cost_cap_after_response(self):
+        fake = FakeJev(reported_tokens=100_000_000)  # $4.2 — 보내기 전 어림(작음)은 통과
+        with self.assertRaises(JevBudgetExceeded):
+            asyncio.run(fake.judge(max_cost_usd=1.0).score("q", ["관련"]))
+        self.assertEqual(len(fake.requests), 1)
+
+    def test_usage_cost_models_and_no_key_in_describe(self):
+        judge = FakeJev(model="jev-1.14.0").judge()
+        asyncio.run(judge.score("q", ["관련", "무관"]))
+        usage = judge.usage()
+        self.assertAlmostEqual(usage["cost_usd"], jev_cost_usd(usage["input_tokens"]))
+        self.assertAlmostEqual(jev_cost_usd(1_000_000), 0.042)
+        self.assertEqual(usage["response_models"], {"jev-1.14.0": 1})
+        self.assertNotIn("ts-secret-key", json.dumps(judge.describe() | usage, ensure_ascii=False))
+
+    def test_missing_key_stops(self):
+        with self.assertRaises(JevJudgeError):
+            JevJudge(api_key="")
+
+    def test_jev_retriever_uses_shared_context_per_stage(self):
+        fake = FakeJev()
+        parents = PolicyParents(tree_corpus(), encoder=ENC)
+        tree = build_tree(parents, encoder=ENC)
+        retriever = DecisionRagRetriever(tree, parents, fake.judge())
+        meter = Meter()
+        asyncio.run(retriever(Question("q", "관련", "", {}), meter))
+        self.assertEqual(len(fake.requests), 3)  # L1·L2·L3 단계마다 한 요청
+        self.assertEqual(meter.calls, {"jev-1.13.0": meter.total_calls})  # 판단 하나당 1회
+        self.assertEqual([s["name"] for s in meter.stages], ["L1", "L2"])
+
+    def test_jev_deviations_mark_resolved(self):
+        self.assertTrue(all(d.startswith("[Jev로 해소]") for d in JEV_RESOLVED))
+        self.assertEqual(list(JEV_DEVIATIONS[: len(JEV_RESOLVED)]), list(JEV_RESOLVED))
+        self.assertFalse(any("Qwen3-Reranker-0.6B(무료" in d for d in JEV_DEVIATIONS))
+        self.assertTrue(any("다지선다" in d and "넣지 않음" in d for d in JEV_DEVIATIONS))
+        same = jev_after_run({"response_models": {"jev-1.13.0": 3}}, "jev-1.13.0")
+        self.assertNotIn("deviations", same)
+        other = jev_after_run({"response_models": {"jev-1.14.0": 3}}, "jev-1.13.0")
+        self.assertIn("모델 버전: 논문 jev-1.13.0 → 실제 응답 jev-1.14.0", other["deviations"])
 
 
 class QwenPromptTest(unittest.TestCase):
