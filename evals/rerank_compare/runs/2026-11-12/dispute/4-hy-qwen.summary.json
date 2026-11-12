@@ -1,0 +1,596 @@
+{
+ "schema": "rerank-compare-summary-v1",
+ "run": {
+  "corpus": "dispute_cases",
+  "slot": "④",
+  "repo_number": "③",
+  "name": "하이브리드(RRF 50) + Qwen3-Reranker-0.6B",
+  "owner": "옥석현",
+  "role": "본 결과"
+ },
+ "source": {
+  "file": "dispute-qwen-rerank-rrf50-20261112-151559.json",
+  "sha256": "b42f0f99100df86ede12fb237b80ab6dffaecbbcfb6e24899b7cd0cbef118acc"
+ },
+ "method": "dispute-qwen-rerank-rrf50",
+ "description": "",
+ "created_at": "2026-11-12T15:15:59+09:00",
+ "git_commit": "45a5df7",
+ "dataset": {
+  "corpus": "dispute_cases",
+  "count": 100,
+  "subsets": {
+   "dispute100": 100
+  },
+  "sha256": "d7e5e48c0ec2d964d8120e59e787a2327455002643e974aafe15c0ec614e73d8"
+ },
+ "corpus_files_sha256": {
+  "corpus_chunks.jsonl": "8f73545fc660e0bb21a282e79f21e567a2b3761dd9c601043866e4dd62703c97",
+  "corpus_documents.jsonl": "414c35eff681f24960ca4e4707c2968854b87b4ddee2ca1d53642569720373f8",
+  "corpus_records.jsonl": "b6d4c4cbdbf47e133b5456ed2318f14049e64466ff90a05a6236166dd0c8a8a4",
+  "corpus_source_pages.jsonl": "488eb3896b546bcfe53a11b618a74e46f856a007b85d161874a43a421d8034b8"
+ },
+ "corpus_edition": "1413",
+ "common": {
+  "corpus": "dispute_cases",
+  "top_k": 10,
+  "candidate_parents": 50,
+  "candidate_mode": "rrf",
+  "token_encoding": "o200k_base",
+  "max_passage_tokens": 512,
+  "prompt_version": "relevance-v1-dispute",
+  "system_prompt": "Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".",
+  "relevance_instruction": "Given a question about an auto insurance claim, judge whether this fault ratio dispute decision case provides the basis needed to answer the question.",
+  "answer_instruction": "Answer only Yes or No.",
+  "qwen_reranker_model": "Qwen/Qwen3-Reranker-0.6B",
+  "gpt_model": "gpt-4o-mini",
+  "gpt_temperature": 0,
+  "gpt_top_logprobs": 5
+ },
+ "params": {
+  "candidates": "rrf",
+  "candidate_parents": 50,
+  "scorer": {
+   "model": "Qwen/Qwen3-Reranker-0.6B",
+   "revision": "e61197ed45024b0ed8a2d74b80b4d909f1255473",
+   "device": "cuda",
+   "device_name": "NVIDIA GeForce RTX 4070 Laptop GPU",
+   "dtype": "float16",
+   "batch_size": 16,
+   "torch": "2.14.1+cu126",
+   "transformers": "5.22.2",
+   "score": "softmax(logit[no], logit[yes])[yes] at last position"
+  },
+  "calls_counted": "per chunk",
+  "search": {
+   "corpus": "dispute_cases",
+   "keyword_version": "bm25-v1:kiwi",
+   "embedding": "text-embedding-3-small:1536:text-embedding-3-small:1536:v1",
+   "terms_edition": "2026.11.11"
+  }
+ },
+ "metrics": {
+  "dispute100": {
+   "n": 100,
+   "top1": 0.61,
+   "r3": 0.83,
+   "r5": 0.9,
+   "r10": 0.95,
+   "mrr10": 0.7313452380952381,
+   "seconds_mean": 5.323653866020031,
+   "seconds_p50": 5.303905050037429,
+   "seconds_p95": 5.7947859996929765,
+   "seconds_total": 532.3653866020031,
+   "model_calls": 25000,
+   "model_calls_per_question": 250.0,
+   "model_calls_by_model": {
+    "Qwen3-Reranker-0.6B": 25000
+   },
+   "input_tokens": 7802168,
+   "output_tokens": 0,
+   "stage_survival": null
+  }
+ },
+ "questions": [
+  {
+   "example_id": "dispute_cases-cd9a36aa20ac",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-9aa8438cc3dc",
+   "subset": "dispute100",
+   "first_correct_rank": 4
+  },
+  {
+   "example_id": "dispute_cases-d2924358d25b",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-ad94dc9f93a3",
+   "subset": "dispute100",
+   "first_correct_rank": 6
+  },
+  {
+   "example_id": "dispute_cases-9941e96b1bf4",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-efc9ac284ec5",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-f0a489bb5a0b",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-6f91166b9007",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-bfe55582344a",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-f6702cd5e006",
+   "subset": "dispute100",
+   "first_correct_rank": 4
+  },
+  {
+   "example_id": "dispute_cases-ff218dc5220e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b4f6eea07485",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-adb5b661c989",
+   "subset": "dispute100",
+   "first_correct_rank": 4
+  },
+  {
+   "example_id": "dispute_cases-b4d6af3cdcc6",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e7b39bfbb1dc",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ff9e7d0f7af9",
+   "subset": "dispute100",
+   "first_correct_rank": 7
+  },
+  {
+   "example_id": "dispute_cases-cbb4c0fbb41a",
+   "subset": "dispute100",
+   "first_correct_rank": 10
+  },
+  {
+   "example_id": "dispute_cases-c7b11cf1008d",
+   "subset": "dispute100",
+   "first_correct_rank": 8
+  },
+  {
+   "example_id": "dispute_cases-acf14e2f8455",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c0820879ef80",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c114a16cadf9",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-bb635728fe83",
+   "subset": "dispute100",
+   "first_correct_rank": 6
+  },
+  {
+   "example_id": "dispute_cases-f312d81947ab",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-705aab01d9a6",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-d78b2deb78a5",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-cdbc26fb2456",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-fe75161e5515",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-89c65744f9cb",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-a0f188af02e1",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-fbb23671b68e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-feb5fd314847",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c6f58ac31de8",
+   "subset": "dispute100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "dispute_cases-e75acd5f2658",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-444fd335dc3c",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-9a8b5b60f6a5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-cd1ec3fda964",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-a3c4b59ddca3",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d4089cfdeb8a",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c5e6fa934cc7",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f21d30ec3365",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-ef170a2e1956",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b00c0115b0e5",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-fc2efd4997fc",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d7c138919935",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-95751959bc95",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d919f4554102",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c7dd2bbfa73c",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-fbf632833927",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-e707b14975d5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-83946208adbd",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-cc7a2fdf65f9",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-6a5df389dbb3",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-0089ea0fcd1e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d3dc23da3f99",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-6d0ba9b8db42",
+   "subset": "dispute100",
+   "first_correct_rank": 4
+  },
+  {
+   "example_id": "dispute_cases-1431c13fad92",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-ae3b1286ad7c",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c6948d3c54ac",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e5cffdac8115",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-4239306cdfc9",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-a9dd7a675c75",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-981847872268",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c26087025014",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d11e9208bc9b",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-8abff8c07d4b",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-75599dbd62f3",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-87f33d6980b7",
+   "subset": "dispute100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "dispute_cases-4ecb9a866cc6",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-ad3eb8fdc7ed",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-b268697a7704",
+   "subset": "dispute100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "dispute_cases-e64e32f987ac",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-63cccea8910b",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-53d70c9ef9c3",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-143a1d44d7a8",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f84ffe4be6a4",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-6f1c5b50ace2",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ef7e593c5244",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c333d5a5a185",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-c4c494c61737",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-e12670097cb8",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-3fb36ee0c7bc",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-bc5d6f2b33b8",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-69070acd53f7",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b5a874ad4d2e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d503f16d90ad",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-54cdda19bcf3",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e4ea3eced108",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-52a45a915d9c",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-88f21857c4b2",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-345f9708516a",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-bf2e4006046c",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f72e2341b15b",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-763f40f4a62e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-38b4596129d5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-86635a433435",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-a0ed4e5826a4",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f284e0cd2db6",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ea41864f4b1e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b4d0d90e6a5d",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-2db2ddd40cfe",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  }
+ ]
+}

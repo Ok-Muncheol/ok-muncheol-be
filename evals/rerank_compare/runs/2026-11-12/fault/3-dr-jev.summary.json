@@ -1,0 +1,742 @@
+{
+ "schema": "rerank-compare-summary-v1",
+ "run": {
+  "corpus": "fault_standards",
+  "slot": "③",
+  "repo_number": "⑤",
+  "name": "DecisionRAG + Jev(공유 문맥)",
+  "owner": "옥석현",
+  "role": "본 결과"
+ },
+ "source": {
+  "file": "fault-decisionrag-jev-20261112-143515.json",
+  "sha256": "dffc90f57b27ecca033116070c2698ebc7e0c1198570febe1423f926ddfeee8b"
+ },
+ "method": "fault-decisionrag-jev",
+ "description": "",
+ "created_at": "2026-11-12T14:35:15+09:00",
+ "git_commit": "45a5df7",
+ "dataset": {
+  "corpus": "fault_standards",
+  "count": 100,
+  "subsets": {
+   "fault100": 100
+  },
+  "sha256": "d4b2f73cbaa8bf294cb9f39e298eef88fb3029a33cd5bf54f6ea1a6d030ed900"
+ },
+ "corpus_files_sha256": {
+  "corpus_chunks.jsonl": "8f73545fc660e0bb21a282e79f21e567a2b3761dd9c601043866e4dd62703c97",
+  "corpus_documents.jsonl": "414c35eff681f24960ca4e4707c2968854b87b4ddee2ca1d53642569720373f8",
+  "corpus_records.jsonl": "b6d4c4cbdbf47e133b5456ed2318f14049e64466ff90a05a6236166dd0c8a8a4",
+  "corpus_source_pages.jsonl": "488eb3896b546bcfe53a11b618a74e46f856a007b85d161874a43a421d8034b8"
+ },
+ "corpus_edition": "1413",
+ "common": {
+  "corpus": "fault_standards",
+  "top_k": 10,
+  "candidate_parents": 50,
+  "candidate_mode": "rrf",
+  "token_encoding": "o200k_base",
+  "max_passage_tokens": 512,
+  "prompt_version": "relevance-v1-fault",
+  "system_prompt": "Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".",
+  "relevance_instruction": "Given a question about an auto insurance claim, judge whether this fault ratio standard chart provides the basis needed to answer the question.",
+  "answer_instruction": "Answer only Yes or No.",
+  "qwen_reranker_model": "Qwen/Qwen3-Reranker-0.6B",
+  "gpt_model": "gpt-4o-mini",
+  "gpt_temperature": 0,
+  "gpt_top_logprobs": 5
+ },
+ "params": {
+  "name": "DecisionRAG 방식의 계층 탐색을 무료 오픈소스 모델로 재현 — ⑤ Jev(공유 문맥)",
+  "paper": "Wan et al., Retriever-Free Retrieval: Navigating Documents with Decision Models, arXiv 2610.35868",
+  "corpus": "fault_standards",
+  "tree_version": "fault-toc-v1",
+  "tree": {
+   "groups": 24,
+   "parents": 127,
+   "group_sizes": [
+    19,
+    21,
+    3,
+    8,
+    6,
+    17,
+    4,
+    4,
+    1,
+    2,
+    1,
+    3,
+    7,
+    1,
+    6,
+    1,
+    3,
+    1,
+    2,
+    1,
+    1,
+    5,
+    7,
+    3
+   ]
+  },
+  "budgets": {
+   "L1_groups": 5,
+   "L2_parents": 20,
+   "L3": "남은 parent의 모든 청크 → MaxP → 상위 10"
+  },
+  "node_body_tokens": 128,
+  "budgets_fixed_before_eval": true,
+  "stages": {
+   "L1": "정답 parent가 든 묶음이 남았나",
+   "L2": "정답 parent가 남았나"
+  },
+  "deviations": [
+   "[Jev로 해소] 판단 모델: 논문과 같은 Jev(jev-1.13.0, TypeSafe 공식 API). 실제로 답한 모델은 결과 JSON params.usage.response_models",
+   "[Jev로 해소] 후보 판단: 논문처럼 공유 문맥 — 한 단계의 후보를 state 하나에 함께 넣고 후보마다 noul 질문. 단 state가 Jev 토큰 24k(o200k 16,997)를 넘으면 번갈아 배정으로 나눠 보내고, 나뉜 요청끼리는 문맥을 공유하지 않는다(나눈 단계 수는 params.usage.stages_split)",
+   "[Jev로 해소] 점수: Jev noul = P(yes) 그대로(평가 틀의 yes_probability·Qwen yes/no softmax를 쓰지 않음). 응답이 소수 둘째 자리 단위라 동점이 생기고, 동점은 문서 순서(L1·L2)·parent_id(MaxP)",
+   "계층: 도표 원문 목차(제3편 제2장 4. 세부유형별 기준)의 절 → 도표 → 청크. 장(가~마)은 묶음 경로에만 쓰고 따로 고르는 단계를 두지 않음",
+   "다지선다 재정렬 단계 없음(Jev 기능) — Jev로 할 수 있으나 ①②와 같은 단계로 비교하려고 넣지 않음",
+   "결과 단위: 논문은 문단 순위, 여기서는 parent 순위(청크 점수 MaxP, 평가 틀 공통)",
+   "질문 문구: 논문은 단계별 질문, 여기서는 공통 RELEVANCE_INSTRUCTION 하나를 모든 단계에",
+   "예산: 논문은 평가와 겹치지 않는 설계용 셋으로 고름. 여기서는 설계용 셋이 없어 트리 크기만 보고 평가 전에 고정(묶음 5, parent 20)",
+   "확률 임계 규칙·대화 메모(notepad)·dense 후보 추가·페이지 점수 곱하기는 쓰지 않음",
+   "노드 설명: 논문은 제목·절 제목 또는 LLM 요약. 여기서는 묶음 = 장·절 경로 + 하위 도표 제목(수정요소 해설은 원문 소제목), 도표 = 경로 + 도표 번호·제목 + 본문 앞 128토큰. LLM 요약 없음",
+   "장·절 정보가 코퍼스에 없어 원문 목차(p.147~482) 제목과 도표 번호 범위를 코드 상수로 옮김. 공통 수정요소 해설(p.129~147, 19 parent)은 묶음 하나"
+  ],
+  "scorer": {
+   "model": "jev-1.13.0",
+   "endpoint": "https://api.typesafe.ai/v1/systemone",
+   "state": "{\"question\": 질문, \"candidates\": {\"c000\": 글, ...}}",
+   "question": "{\"type\": \"noul\", \"instructions\": {\"task\": relevance_instruction(), \"candidate\": \"c000\"}} — 후보마다 하나",
+   "score": "answers[후보].noul = P(yes), 정규화·가공 없음",
+   "shared_context": "한 단계(또는 후보 묶음)의 글을 state 하나에 함께",
+   "long_context": false,
+   "split": {
+    "rule": "state가 상한을 넘으면 번갈아 배정(후보 i → i mod k), 모든 묶음이 상한 이하가 되는 가장 작은 k",
+    "jev_token_budget": 24000,
+    "jev_per_o200k": 1.412,
+    "state_budget_o200k": 16997,
+    "limits_jev_tokens": {
+     "per_question": 32000,
+     "per_request": 64000
+    },
+    "fixed_before_eval": true,
+    "ratio_measured": "2026-11-12 확인 요청 1회(평가 문항 아님): Jev 2,378 / o200k 1,684"
+   },
+   "concurrency": 4,
+   "max_retries": 4,
+   "price_per_million_input_usd": 0.042,
+   "price_checked": "2026-11-12 docs.typesafe.ai/models (출력 토큰 무료)"
+  },
+  "deviations_resolved_by_jev": [
+   "[Jev로 해소] 판단 모델: 논문과 같은 Jev(jev-1.13.0, TypeSafe 공식 API). 실제로 답한 모델은 결과 JSON params.usage.response_models",
+   "[Jev로 해소] 후보 판단: 논문처럼 공유 문맥 — 한 단계의 후보를 state 하나에 함께 넣고 후보마다 noul 질문. 단 state가 Jev 토큰 24k(o200k 16,997)를 넘으면 번갈아 배정으로 나눠 보내고, 나뉜 요청끼리는 문맥을 공유하지 않는다(나눈 단계 수는 params.usage.stages_split)",
+   "[Jev로 해소] 점수: Jev noul = P(yes) 그대로(평가 틀의 yes_probability·Qwen yes/no softmax를 쓰지 않음). 응답이 소수 둘째 자리 단위라 동점이 생기고, 동점은 문서 순서(L1·L2)·parent_id(MaxP)"
+  ],
+  "search": {
+   "corpus": "fault_standards",
+   "keyword_version": "bm25-v1:kiwi",
+   "embedding": "text-embedding-3-small:1536:text-embedding-3-small:1536:v1",
+   "terms_edition": "2026.11.11"
+  },
+  "usage": {
+   "requests": 419,
+   "retries": 0,
+   "input_tokens": 5863335,
+   "output_tokens": 359294,
+   "cost_usd": 0.24626007000000014,
+   "max_cost_usd": 0.4,
+   "response_models": {
+    "jev-1.13.0": 419
+   },
+   "long_context": false,
+   "request_size": {
+    "max_state_bytes_utf8": 59360,
+    "max_state_o200k": 16882,
+    "max_state_estimated_jev_tokens": 23838,
+    "max_request_input_tokens_reported": 22957,
+    "per_question_limit": 32000
+   },
+   "stages_scored": 300,
+   "stages_split": 100,
+   "requests_per_stage": {
+    "1": 200,
+    "2": 81,
+    "3": 19
+   },
+   "batch_sizes": {
+    "23": 1,
+    "24": 100,
+    "33": 4,
+    "34": 1,
+    "35": 1,
+    "36": 9,
+    "37": 2,
+    "38": 3,
+    "39": 5,
+    "40": 7,
+    "41": 7,
+    "42": 13,
+    "43": 5,
+    "44": 13,
+    "45": 13,
+    "46": 11,
+    "47": 15,
+    "48": 21,
+    "49": 11,
+    "50": 14,
+    "51": 12,
+    "52": 4,
+    "53": 14,
+    "54": 8,
+    "55": 28,
+    "56": 19,
+    "57": 8,
+    "58": 7,
+    "59": 5,
+    "60": 8,
+    "61": 2,
+    "62": 1,
+    "63": 4,
+    "64": 4,
+    "65": 6,
+    "66": 11,
+    "67": 2,
+    "68": 13,
+    "69": 5,
+    "70": 1,
+    "72": 1
+   }
+  }
+ },
+ "metrics": {
+  "fault100": {
+   "n": 100,
+   "top1": 0.96,
+   "r3": 1.0,
+   "r5": 1.0,
+   "r10": 1.0,
+   "mrr10": 0.98,
+   "seconds_mean": 0.76034867297858,
+   "seconds_p50": 0.7225028998218477,
+   "seconds_p95": 0.9193516997620463,
+   "seconds_total": 76.034867297858,
+   "model_calls": 18822,
+   "model_calls_per_question": 188.22,
+   "model_calls_by_model": {
+    "jev-1.13.0": 18822
+   },
+   "input_tokens": 5863335,
+   "output_tokens": 359294,
+   "stage_survival": {
+    "L1": 1.0,
+    "L2": 1.0
+   }
+  }
+ },
+ "questions": [
+  {
+   "example_id": "fault_standards-e1d144c97a16",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-36209665e854",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-aa7d57327c28",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f7430b330955",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-96b53f7afa88",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c7685c306f1b",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-a53dc94f44ef",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c0aaf9eb31b6",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-dd5466d15819",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-e91bec2a4839",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-115283336c22",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f1833d012480",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-d687f08a26e7",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-9aa591c55d35",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-fa0940fa00f4",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-cb5f918b6234",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-e007d5e3611b",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-a4f48ab2ee61",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-9cc3dff79d42",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-21a48fc92d81",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-cc84ce44d4e3",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-fa3e8c261773",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-21f722aae0b0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-ecb2c354e4d0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b47de5ff09c0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f9445a9643d6",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4669782d419a",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-560672e23180",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f0b78c0f3cf0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-fe3de238222d",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b5f2bc63f298",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-cfcd69144739",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-e2870583e6ee",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-d2e9ff8188f6",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-fc3b7f9f71e2",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f4f82d66ecf0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b46d20d8bbac",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-9d67fe8f9364",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-d45d5a4208d1",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-903a163dd8a8",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-87187f414ac6",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-7e76b8df876c",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-9d49213a6a0a",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b32098b03be2",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c6bf27d8c05d",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-be2f6a417b4e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-810c809b2219",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-cfd378b88147",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-902a9dec5ede",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-6b26509226de",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c56564e83a76",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5007f86b4e32",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5c5e22f18936",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-3d9262bab12b",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-565b9b3611ee",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-76ffdd825995",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-658dd9ef0326",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-21d60d6a04ab",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-2018e35f085a",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b437c4f6cafd",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c0e8ec9e543e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c834fd8e298e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4583541f1b65",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-bbc889569db9",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5c50c2dfbde9",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-dfd9c0ebf4c9",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-edf1634a7ea4",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4e5cc895afd7",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-ab29f1474112",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-7f67c49faad5",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-77b9a52d9217",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4a6fd26efebd",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-479ad7e60509",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-2a7072583a85",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4ae58912603c",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-707198596be6",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-32596b9c3fc0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-0243a0560fec",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-8bcdc0ff5d10",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b805f99c6cbb",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5bf70a5fa18e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5b6e4b1e794d",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-ba63dc327ddf",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-47d0d8b3dcd7",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-127e63401894",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-664f3429458a",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-382f2c54242e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-27ce6080154f",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4520f6a87d26",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-6b725e1baa10",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-85e767da7e9d",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-962d386cfc1e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-340feb96d9da",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-96f52322f5ce",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-09b439e76c22",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-2482a7492f92",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-62fcfecadbea",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-59e3ead01b0b",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-93fdbb2f9678",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-2a45779b2f5e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  }
+ ]
+}
