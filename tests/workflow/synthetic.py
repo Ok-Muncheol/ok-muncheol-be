@@ -134,7 +134,8 @@ def candidates() -> list[ChartCandidate]:
 
 def verdict(holds: bool = False, kind: str | None = None, preferred: str | None = None,
             reasons: list[str] | None = None) -> str:
+    """가짜 반박 검토 응답. 판정 하나(`verdict`)로 쓴다. 반박이 없으면 `none`."""
     if reasons is None:
         reasons = ["반박 사유"] if holds else []
-    return json.dumps({"holds": holds, "kind": kind, "preferred_chart_id": preferred,
+    return json.dumps({"verdict": kind if holds else "none", "preferred_chart_id": preferred,
                        "reasons": reasons})

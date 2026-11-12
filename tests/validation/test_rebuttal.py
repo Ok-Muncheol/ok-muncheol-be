@@ -6,6 +6,9 @@ import json
 import pytest
 
 from app.validation.rebuttal import (
+    RESPONSE_SCHEMA,
+    SYSTEM_PROMPT,
+    VERDICTS,
     ReviewerNotConfigured,
     openai_reviewer,
     parse_verdict,
@@ -28,12 +31,13 @@ def test_wrong_chart_requires_alternative_and_other_kinds_drop_preferred():
 
 
 @pytest.mark.parametrize("raw", [
-    "not json", json.dumps({"holds": "yes", "reasons": []}),
-    json.dumps({"holds": True, "kind": "typo", "preferred_chart_id": None, "reasons": ["r"]}),
-    json.dumps({"holds": True, "kind": "wrong_chart", "preferred_chart_id": "S-9",
-                "reasons": ["r"]}),
-    json.dumps({"holds": True, "kind": "contradiction", "preferred_chart_id": None, "reasons": []}),
-    json.dumps({"holds": False, "reasons": "x"}),
+    "not json", json.dumps(["none"]),
+    json.dumps({"verdict": "typo", "preferred_chart_id": None, "reasons": ["r"]}),
+    json.dumps({"verdict": "wrong_chart", "preferred_chart_id": "S-9", "reasons": ["r"]}),
+    json.dumps({"verdict": "contradiction", "preferred_chart_id": None, "reasons": []}),
+    json.dumps({"verdict": "none", "preferred_chart_id": None, "reasons": "x"}),
+    # 예전 형식은 받지 않는다. 이 모순(반박 성립인데 종류 없음)이 실제로 나왔다(11/12)
+    json.dumps({"holds": True, "kind": None, "preferred_chart_id": None, "reasons": ["일치"]}),
 ])
 def test_malformed_verdicts_raise(raw):
     with pytest.raises(ValueError):
@@ -124,3 +128,19 @@ def test_payload_lists_confirmed_unknown_fields_apart_from_facts():
     assert "movement_B" not in payload["confirmed_facts"]
     assert payload["unknown_facts"] == ["movement_B"]
     assert payload["confirmed_facts"]["narrative"] == "합성 서술"
+
+
+def test_verdict_is_one_value_so_rebuttal_and_kind_cannot_disagree():
+    """판정은 하나다. 반박 없음(none)이면 차순위 후보 ID가 와도 버린다."""
+    out = parse_verdict(json.dumps({"verdict": "none", "preferred_chart_id": "S-2",
+                                    "reasons": ["선택 도표가 사실과 맞다"]}), ["S-2"])
+    assert out == {"holds": False, "kind": None, "preferred_chart_id": None,
+                   "reasons": ["선택 도표가 사실과 맞다"]}
+    assert RESPONSE_SCHEMA["required"] == ["verdict", "preferred_chart_id", "reasons"]
+    assert RESPONSE_SCHEMA["properties"]["verdict"]["enum"] == list(VERDICTS)
+    assert VERDICTS == ("none", "wrong_chart", "missing_fact", "contradiction")
+
+
+def test_prompt_explains_the_any_value():
+    # 진입 순서 `*`인 도표에서 모델이 판정을 헷갈렸다. `*`이 반박 사유가 아님을 알린다
+    assert "'*'" in SYSTEM_PROMPT and "verdict" in SYSTEM_PROMPT

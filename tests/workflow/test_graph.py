@@ -219,8 +219,8 @@ def test_edition_outside_accident_date_fails_evidence_and_defers():
 
 
 def test_invalid_reviewer_output_fails_the_run():
-    with pytest.raises(ValueError, match="kind"):
-        run(card(), verdicts=('{"holds": true, "kind": "nope", "preferred_chart_id": null, '
+    with pytest.raises(ValueError, match="verdict"):
+        run(card(), verdicts=('{"verdict": "nope", "preferred_chart_id": null, '
                               '"reasons": ["x"]}',))
 
 
