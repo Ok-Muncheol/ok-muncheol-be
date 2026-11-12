@@ -5,6 +5,8 @@ python -m evals.rerank_compare.run --methods bm25,rrf   # 일부만
 python -m evals.rerank_compare.run --candidates         # ③④ 후보 풀: BM25·RRF의 R@10~R@100
 python -m evals.rerank_compare.run --retriever 모듈:팩토리 --name 이름 --max-model-calls N
 python -m evals.rerank_compare.run --compare a.json b.json ...   # 저장한 결과를 표 하나로
+python -m evals.rerank_compare.run --corpus fault ...  # 도표 fault·결정례 dispute, 기본 policy
+                                                      # 결과 이름 앞에 fault-·dispute-가 붙는다
 결과는 evals/results/rerank_compare/(무시 경로)에 저장한다. 커밋하지 않는다.
 """
 
@@ -25,12 +27,14 @@ from evals.rerank_compare.baselines import (  # noqa: E402
     MODES,
     QUERY_VECTORS,
     CachedEmbedder,
-    PolicySearch,
+    CorpusSearch,
     baseline_methods,
     load_vector_cache,
     save_vector_cache,
 )
+from evals.rerank_compare.common import CORPUS, active_corpus, set_corpus  # noqa: E402
 from evals.rerank_compare.harness import (  # noqa: E402
+    CORPUS_SUBSETS,
     RESULTS,
     SUBSETS,
     format_table,
@@ -44,7 +48,13 @@ from evals.rerank_compare.harness import (  # noqa: E402
 CANDIDATE_KS = (10, 20, 30, 50, 100)
 
 
-def make_search(allow_embedding_api: int) -> PolicySearch:
+def method_name(name: str) -> str:
+    """약관은 이름 그대로(예전 결과와 같게), 도표·결정례는 앞에 fault-·dispute-."""
+    corpus = active_corpus()
+    return name if corpus == CORPUS else f"{corpus.split('_')[0]}-{name}"
+
+
+def make_search(allow_embedding_api: int) -> CorpusSearch:
     inner = None
     if allow_embedding_api:
         from app.retrieval.embedding import OpenAIEmbedder
@@ -56,10 +66,10 @@ def make_search(allow_embedding_api: int) -> PolicySearch:
         allow_api=bool(allow_embedding_api),
         max_api_calls=allow_embedding_api,
     )
-    return PolicySearch(embedder)
+    return CorpusSearch(embedder)
 
 
-def finish_embedding(search: PolicySearch) -> None:
+def finish_embedding(search: CorpusSearch) -> None:
     embedder = search.embedder
     if embedder.added:
         save_vector_cache(embedder.cache)
@@ -96,7 +106,7 @@ async def run_methods(names: list[str], args) -> None:
             else "고유 parent 10개(비교표용)"
         )
         result = await run_method(
-            name,
+            method_name(name),
             available[name],  # type: ignore[arg-type]
             examples,
             max_model_calls=0,
@@ -121,7 +131,7 @@ async def run_plugin(args) -> None:
     if args.limit:
         params["limit"] = args.limit  # 앞 N문항만(시간 측정용, 비교표에 쓰지 않는다)
     result = await run_method(
-        args.name or attr,
+        method_name(args.name or attr),
         retrieve,
         examples,
         max_model_calls=args.max_model_calls,
@@ -153,8 +163,9 @@ async def run_candidates(args) -> None:
             for k in CANDIDATE_KS
         }
         report[mode] = {}
-        for subset in SUBSETS:
-            chosen = [e for e in examples if subset == "all88" or e.subset == subset]
+        subsets = CORPUS_SUBSETS[active_corpus()]
+        for subset in subsets:
+            chosen = [e for e in examples if subset == subsets[-1] or e.subset == subset]
             row: dict[str, object] = {}
             for k in CANDIDATE_KS:
                 values = [recall_at(pools[k][e.example_id], e.expected, k) for e in chosen]
@@ -169,12 +180,12 @@ async def run_candidates(args) -> None:
             report[mode][subset] = row
     finish_embedding(search)
     RESULTS.mkdir(parents=True, exist_ok=True)
-    path = RESULTS / "candidates-recall.json"
+    path = RESULTS / f"{method_name('candidates-recall')}.json"
     path.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     ks = " | ".join(f"R@{k}" for k in CANDIDATE_KS)
     print(f"| 세트 | 방식 | {ks} | @50 parent 평균/최소 | @50에서 놓친 문항 |")
     print("| " + " | ".join(["---"] * (len(CANDIDATE_KS) + 4)) + " |")
-    for subset in SUBSETS:
+    for subset in CORPUS_SUBSETS[active_corpus()]:
         for mode in ("bm25", "rrf"):
             row = report[mode][subset]
             values = " | ".join(f"{row[f'r{k}']:.3f}" for k in CANDIDATE_KS)
@@ -187,7 +198,10 @@ async def run_candidates(args) -> None:
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
-    parser = argparse.ArgumentParser(description="약관 재정렬 비교 평가 틀")
+    parser = argparse.ArgumentParser(description="약관·도표·결정례 검색 방식 비교 평가 틀")
+    parser.add_argument(
+        "--corpus", default="policy", help="policy(약관, 기본)·fault(도표)·dispute(결정례)"
+    )
     parser.add_argument("--methods", help="쉼표로. 기본은 기준선 6개")
     parser.add_argument("--candidates", action="store_true", help="BM25·RRF 후보 풀 R@k")
     parser.add_argument("--retriever", help="모듈:팩토리. 팩토리(PolicySearch) → 끼우는 함수")
@@ -204,6 +218,7 @@ def main() -> None:
     parser.add_argument("--compare", nargs="+", type=Path, help="저장한 결과 JSON들")
     parser.add_argument("--limit", type=int, help="앞 N문항만(시간 측정용). 결과 params에 남는다")
     args = parser.parse_args()
+    set_corpus(args.corpus)  # 점수기 문구·후보 검색·평가셋이 따른다
     if args.compare:
         print_tables([load_result(p) for p in args.compare])
     elif args.candidates:

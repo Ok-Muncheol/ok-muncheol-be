@@ -6,7 +6,7 @@
 
     state     = {"question": 질문, "candidates": {"c000": 글, "c001": 글, ...}}
     questions = {"c000": {"type": "noul",
-                          "instructions": {"task": RELEVANCE_INSTRUCTION,
+                          "instructions": {"task": relevance_instruction(),
                                            "candidate": "c000"}}, ...}
     점수       = answers["c000"].noul (P(yes), 0~1)
 
@@ -31,7 +31,7 @@ from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
-from evals.rerank_compare.common import RELEVANCE_INSTRUCTION, TokenEncoder, token_encoder
+from evals.rerank_compare.common import TokenEncoder, relevance_instruction, token_encoder
 
 ROOT = Path(__file__).resolve().parents[2]
 API_URL = "https://api.typesafe.ai/v1/systemone"
@@ -72,10 +72,9 @@ def build_state(question: str, texts: Sequence[str]) -> dict:
 
 
 def build_questions(ids: Sequence[str]) -> dict:
-    return {
-        cid: {"type": "noul", "instructions": {"task": RELEVANCE_INSTRUCTION, "candidate": cid}}
-        for cid in ids
-    }
+    """후보마다 noul 질문. task는 지금 코퍼스의 문구(common.relevance_instruction)."""
+    task = relevance_instruction()
+    return {cid: {"type": "noul", "instructions": {"task": task, "candidate": cid}} for cid in ids}
 
 
 def _json(value: object) -> str:
@@ -198,7 +197,7 @@ class JevJudge:
             "model": self.model,
             "endpoint": API_URL,
             "state": '{"question": 질문, "candidates": {"c000": 글, ...}}',
-            "question": '{"type": "noul", "instructions": {"task": RELEVANCE_INSTRUCTION, '
+            "question": '{"type": "noul", "instructions": {"task": relevance_instruction(), '
             '"candidate": "c000"}} — 후보마다 하나',
             "score": "answers[후보].noul = P(yes), 정규화·가공 없음",
             "shared_context": "한 단계(또는 후보 묶음)의 글을 state 하나에 함께",

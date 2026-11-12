@@ -1,6 +1,7 @@
 # 약관 재정렬 비교 평가 틀 — 옥석현(D)·김지은(C)
 
 약관 검색 9가지를 **같은 질문·같은 지표·같은 결과 JSON**으로 비교한다. 운영 코드(`app/`)는 바꾸지 않는다.
+도표·결정례로 넓힌 것은 아래 "도표·결정례로 넓히기"(`--corpus`).
 코퍼스는 `data/private/corpus-db-import/`(1413), 질문은 약관 88문항이다. 결과는 `evals/results/rerank_compare/`(무시 경로)에 저장하고 **커밋하지 않는다**.
 
 | 단계 | 방식 | 담당 | 이 틀에서 |
@@ -270,15 +271,75 @@ JEV_MAX_COST_USD=2.80 python -m evals.rerank_compare.run --retriever evals.reran
   - 원인은 Jev가 같은 요청에도 확률을 조금씩(대개 ±0.01~0.03) 다르게 주기 때문이다. ⑤는 L1 5·6위 경계 점수가 붙어 있어 남는 묶음이 바뀐다.
   - 그래서 ⑤ 숫자는 실행마다 약관 80 Top-1 ±0.0125 정도 흔들린다고 본다.
 
+## 도표·결정례로 넓히기 (`--corpus fault|dispute`, 2026-11-12, D)
+
+같은 9방식을 도표(`fault_standards`, 100문항)·결정례(`dispute_cases`, 100문항)에도 돌린다. 운영 코드는 그대로다.
+발표(17쪽) 번호: ① DecisionRAG + Qwen, ② DecisionRAG + GPT, ③ DecisionRAG + Jev(이 문서 위쪽 ⑤),
+④ 하이브리드 + Qwen(위쪽 ③), ⑤ 하이브리드 + GPT(위쪽 ④), ⑥ 하이브리드 + Jev.
+
+```bash
+python -m evals.rerank_compare.run --corpus fault               # 기준선 6개(결과 이름 앞에 fault-)
+python -m evals.rerank_compare.run --corpus dispute --candidates
+python -m evals.rerank_compare.run --corpus fault --retriever evals.rerank_compare.decisionrag:build_jev \
+    --name decisionrag-jev --max-model-calls 35000               # ①②③④⑤⑥ 모두 같은 --retriever 그대로
+```
+
+결과 보기 전에 정한 것(11/12, 평가 문항을 보지 않고 트리·후보 크기만 보고):
+
+| 항목 | 정한 것 |
+| --- | --- |
+| 코퍼스 고르기 | `common.set_corpus`(run.py `--corpus`)가 프로세스 하나에 코퍼스 하나를 정한다. 점수기 문구·후보 검색·평가셋·결과 이름이 따른다. 기본은 약관(예전 결과·이름 그대로) |
+| 평가셋·필터 | `data/private/01_fault_standards/evaluation.jsonl`·`02_dispute_cases/evaluation.jsonl`, `request.filters`(`document_id`) 그대로 운영 `retrieve`에 넘긴다. 묶음은 `fault100`·`dispute100` 하나 |
+| 문구 | 틀은 같고 명사만 바꾼다: 약관 "policy clause"(`relevance-v1` 그대로), 도표 "fault ratio standard chart"(`relevance-v1-fault`), 결정례 "fault ratio dispute decision case"(`relevance-v1-dispute`). Qwen·GPT user 글과 Jev noul task 모두 `relevance_instruction()` |
+| 넣는 글 | `passage_text` 512토큰·MaxP·고유 parent 10개 그대로. 제목은 청크 첫 줄과 같은 꼴: 도표 `차1-1 녹색직진 대 적색직진`, 결정례 `심의번호 2018-051544` |
+| 후보(④⑤⑥) | R@50(100문항)이 높은 쪽, 같으면 RRF. 도표·결정례 모두 BM25·RRF R@50 1.000이라 **RRF 50** |
+| 도표 트리 `fault-toc-v1` | L1 묶음 24 = 원문 목차 절 23(가. 교차로 (1)~(6), 나. 마주보는 방향 (1)~(3), 다. 같은 방향 (1)~(8), 라. 기타 (1)~(5), 마. 이륜차 특수) + "3. 수정요소의 해설"(공통 수정요소 해설 19 parent) → L2 도표 108 + 해설 19 → L3 청크. 도표 번호 범위([차1]~[차61])로 절을 정한다(`corpus_trees.FAULT_SECTIONS`). 차대차만 있어 "차대차" 단계는 없고, 장은 경로에만 쓴다 |
+| 결정례 트리 `dispute-chart-v1` | L1 묶음 21 = 결정례가 연결된 도표(`chart_id`)의 절 → L2 결정례 226 → L3 청크. 결정례 노드 글 = 경로 > 도표 제목 > 심의번호·사례 제목 + 본문 앞 128토큰 |
+| 예산 | 약관과 같다: L1 묶음 5, L2 parent 20, 노드 본문 128토큰 |
+| 비용 상한 | Jev 확장 전체 $2.5(실행마다 `JEV_MAX_COST_USD` = 3문항 추정의 약 1.5배), GPT $8(멘토님 키). 유료 방식은 `--limit 3`으로 추정한 뒤 전체 |
+
+트리 크기: 도표 묶음 크기 1~21(중앙 3), L1 뒤 후보 최대 72 parent. 결정례 1~68(중앙 6), 최대 151.
+하이브리드 후보 글: 도표 질문당 청크 약 405개(Jev 요청 6~8개로 나눔), 결정례 250개(3개), 약관 91개(2~3개).
+
+**결정례 한계**: 도표 연결은 사람 검토 전이다(`chart_link_human_reviewed False`, 부록 번호 대응). 연결이 틀리면
+정답 결정례가 다른 묶음에 들어가 L1에서 잃을 수 있고, 같은 도표 아래 결정례(최대 8건)끼리는 트리가 구분해 주지 않는다.
+결정례 문서 자체의 목차가 아니라 도표 목차로 묶은 것이다. 이 두 가지는 결과 JSON `params.deviations`에도 있다.
+도표 청크 65개는 첫 줄에 절 이름이 붙어 있어(`… 관련 법규`) 제목이 한 번 더 들어간다(모든 방식이 같은 글).
+
+### 결과 (2026-11-12, 코퍼스 1413, 기계 검수 라벨, 비용은 100문항 실행 전체)
+
+재현 확인: 확장 뒤 약관 기준선 6개가 예전 JSON과 88문항 목록까지 같고, 도표·결정례 `-legacy`가 `docs/d-retrieval.md` 숫자
+(도표 RRF Top-1 0.690·R@5 0.930, 결정례 BM25 0.770·0.930 등)와 같다.
+
+| 코퍼스 | 방식(발표 번호) | Top-1 | R@3 | R@10 | MRR@10 | 초/질문 | 비용 | 생존율 L1 · L2 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 도표 | 벡터 / BM25 / RRF | 0.550 / 0.610 / 0.690 | 0.840 / 0.845 / 0.855 | 0.930 / 0.920 / 0.970 | 0.697 / 0.728 / 0.788 | ≤0.4 | 0 | - |
+| | ① DecisionRAG + Qwen | 0.650 | 0.870 | 0.980 | 0.763 | 5.5 | 0(GPU) | 0.980 · 0.980 |
+| | ② DecisionRAG + GPT | 0.610 | 0.900 | 0.980 | 0.760 | 12.1 | $1.14 | 0.990 · 0.990 |
+| | ③ DecisionRAG + Jev | **0.960** | **1.000** | **1.000** | **0.980** | 0.8 | $0.25 | 1.000 · 1.000 |
+| | ④ RRF 50 → Qwen | 0.650 | 0.870 | 0.980 | 0.762 | 10.7 | 0(GPU) | - |
+| | ⑤ RRF 50 → GPT | 0.630 | 0.960 | 0.990 | 0.789 | 21.0 | $2.24 | - |
+| | ⑥ RRF 50 → Jev | 0.910 | 0.980 | 1.000 | 0.948 | 1.1 | $0.56 | - |
+| 결정례 | 벡터 / BM25 / RRF | 0.550 / 0.770 / 0.730 | 0.740 / 0.910 / 0.910 | 0.920 / 0.980 / 0.960 | 0.673 / 0.844 / 0.823 | ≤0.3 | 0 | - |
+| | ① DecisionRAG + Qwen | 0.540 | 0.700 | 0.810 | 0.634 | 4.6 | 0(GPU) | 0.850 · 0.830 |
+| | ② DecisionRAG + GPT | 0.670 | 0.885 | 0.960 | 0.786 | 11.9 | $1.01 | 0.970 · 0.970 |
+| | ③ DecisionRAG + Jev | **0.860** | **0.960** | 0.990 | **0.907** | 0.7 | $0.25 | 0.990 · 0.990 |
+| | ④ RRF 50 → Qwen | 0.610 | 0.830 | 0.950 | 0.731 | 5.3 | 0(GPU) | - |
+| | ⑤ RRF 50 → GPT | 0.630 | 0.875 | 0.980 | 0.763 | 13.1 | $1.07 | - |
+| | ⑥ RRF 50 → Jev | 0.750 | 0.940 | **1.000** | 0.850 | 0.7 | $0.24 | - |
+
+- Jev(③⑥)만 기준선 최고보다 Top-1이 높다(결정례 ⑥은 BM25보다 0.02 낮음). Qwen·GPT(①②④⑤)는 도표·결정례에서 Top-1이 기준선 최고보다 낮고 R@3·R@10만 비슷하거나 높다.
+- 1문항 = 0.01. 재현성 재실행은 하지 않았다(Jev는 같은 요청에도 확률이 조금 달라 ③은 약관에서 ±1문항 흔들렸다).
+
 ## 결과 JSON (모든 방식 같은 모양, `schema: rerank-compare-v1`)
 
 ```text
 method, description, created_at, git_commit
-dataset   {count, subsets{policy80, schedule8}, sha256}
+dataset   {corpus, count, subsets{policy80, schedule8} | {fault100} | {dispute100}, sha256}
 corpus    {db_import 파일별 sha256}
 common    {공통 상수 전부: 문구·자르기·모델·후보 수}
 params    {방식별 설정(retrieve.params)}
-metrics   {policy80 | schedule8 | all88: n, top1, r3, r5, r10, mrr10,
+metrics   {policy80 | schedule8 | all88 | fault100 | dispute100: n, top1, r3, r5, r10, mrr10,
            seconds_mean/p50/p95/total, model_calls, model_calls_per_question, model_calls_by_model,
            input_tokens, output_tokens (보고하지 않으면 null), stage_survival{L1, L2}(계층 탐색만)}
 questions [{example_id, subset, question, accident_date, expected, ranked(상위 10),

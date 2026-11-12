@@ -7,7 +7,8 @@
 기준선 두 가지
 - "<방식>-legacy": 상위 10개 **청크**를 parent로 합친 것(10개 이하). 예전 숫자 재현 확인용
 - "<방식>": 고유 parent 10개가 찰 때까지 청크를 더 가져온다. 비교표에는 이쪽을 쓴다(③④와 같은 10개)
-후보 풀(candidate_parents): 기본은 RRF(CANDIDATE_MODE)의 고유 parent 50개.
+후보 풀(candidate_parents): 코퍼스별 candidate_mode(약관 RRF)의 고유 parent 50개.
+코퍼스는 common.set_corpus로 정한다(기본 약관). 도표·결정례도 운영 retrieve와 평가셋 필터 그대로.
 RRF는 운영과 같이 벡터·BM25 각각 max(50, 요청 청크 수)개를 합친다.
 """
 
@@ -16,12 +17,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from evals.rerank_compare.common import (
-    CANDIDATE_MODE,
     CANDIDATE_PARENTS,
     CORPUS,
     TOP_K,
+    CorpusParents,
     Passage,
-    PolicyParents,
+    active_corpus,
+    candidate_mode,
 )
 from evals.rerank_compare.harness import RESULTS, Meter, Question
 
@@ -68,24 +70,34 @@ def save_vector_cache(cache: dict[str, list[float]], path: Path = QUERY_VECTORS)
     path.write_text(json.dumps(cache), encoding="utf-8")
 
 
-class PolicySearch:
-    """약관 색인 + 질의 벡터 캐시. 한 번 만들어 여러 방식에 같이 쓴다."""
+class CorpusSearch:
+    """코퍼스 하나의 색인 + 질의 벡터 캐시. 한 번 만들어 여러 방식에 같이 쓴다."""
 
-    def __init__(self, embedder: CachedEmbedder, *, tokenizer=None) -> None:
+    corpus_name: str = CORPUS
+
+    def __init__(
+        self, embedder: CachedEmbedder, *, tokenizer=None, corpus_name: str | None = None
+    ) -> None:
         from app.retrieval.loader import build_index, read_corpus
 
+        self.corpus_name = corpus_name or active_corpus()
         self.corpus = read_corpus()
-        self.index = build_index(self.corpus, [CORPUS], tokenizer=tokenizer)
+        self.index = build_index(self.corpus, [self.corpus_name], tokenizer=tokenizer)
         self.terms_edition = self.corpus.terms_edition()
         self.embedder = embedder
-        self.parents = PolicyParents(self.corpus)
+        self.parents = CorpusParents(self.corpus, name=self.corpus_name)
         # 청크 수를 더 늘릴 수 없는 한계
-        self.chunk_count = sum(c["corpus"] == CORPUS for c in self.corpus.chunks)
+        self.chunk_count = sum(c["corpus"] == self.corpus_name for c in self.corpus.chunks)
         spec = self.index.spec
         self.embedding = f"{spec.model}:{spec.dimensions}:{spec.version}" if spec else None
 
+    @property
+    def candidate_mode(self) -> str:
+        return candidate_mode(self.corpus_name)
+
     def describe(self) -> dict:
         return {
+            "corpus": self.corpus_name,
             "keyword_version": self.index.keyword_version,
             "embedding": self.embedding,
             "terms_edition": self.terms_edition,
@@ -98,7 +110,7 @@ class PolicySearch:
         if mode not in MODES:
             raise ValueError(f"알 수 없는 방식: {mode}")
         request = {
-            "corpus": CORPUS,
+            "corpus": self.corpus_name,
             "text": question.text,
             "accident_date": question.accident_date,
             "filters": dict(question.filters),
@@ -125,13 +137,13 @@ class PolicySearch:
             top_k *= 2
 
     async def candidate_parents(
-        self, question: Question, mode: str = CANDIDATE_MODE, n: int = CANDIDATE_PARENTS
+        self, question: Question, mode: str | None = None, n: int = CANDIDATE_PARENTS
     ) -> list[str]:
-        """③④ 재정렬 후보: 1단계 검색의 고유 parent n개(기본 RRF 50개)."""
-        return await self.unique_parents(question, mode, n)
+        """③④ 재정렬 후보: 1단계 검색의 고유 parent n개(기본 코퍼스별 후보 방식, 50개)."""
+        return await self.unique_parents(question, mode or self.candidate_mode, n)
 
     async def candidate_passages(
-        self, question: Question, mode: str = CANDIDATE_MODE, n: int = CANDIDATE_PARENTS
+        self, question: Question, mode: str | None = None, n: int = CANDIDATE_PARENTS
     ) -> list[Passage]:
         """후보 parent의 모든 청크를 모델 입력 글로. 점수를 매긴 뒤 common.max_p로 parent 순위."""
         out: list[Passage] = []
@@ -153,7 +165,10 @@ class PolicySearch:
         return retrieve
 
 
-def baseline_methods(search: PolicySearch) -> dict[str, object]:
+PolicySearch = CorpusSearch  # 예전 이름(코퍼스 기본은 약관)
+
+
+def baseline_methods(search: CorpusSearch) -> dict[str, object]:
     """방식 이름 → 끼우는 함수. 비교표용(<방식>)과 재현 확인용(<방식>-legacy)."""
     methods: dict[str, object] = {}
     for mode in MODES:
