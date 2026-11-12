@@ -5,6 +5,12 @@ LLM은 "이 도표 선택이 틀렸다는 반박이 성립하는가"만 답한�
 판정은 값 하나(`verdict`: 반박 없음 또는 반박 종류)로 받는다. 예전 형식(`holds` 참거짓 + `kind`)은
 모델이 `holds`를 "선택이 성립한다"로 읽고 반박 없음 이유와 함께 `holds: true, kind: null`을 내서
 판단이 실패했다(2026-11-12, 진입 순서 `*`인 도표).
+운영 모델은 gpt-4o-mini다(호출 1~2초). 이 모델이 과실비율을 따져 맞는 도표를 '모순'으로 돌리거나
+고른 도표 자신을 `wrong_chart` 후보로 적는 일이 있었다(11/12 시범 실행 58건 중 3건).
+그래서 프롬프트에 판정마다 칸 대조 규칙을 적고, 차순위 후보가 아닌 `wrong_chart`는 실행을 멈추지
+않고 담당자 확인으로 넘긴다. '모순'·'사실 누락' 주장은 코드가 칸마다 대조해 확인될 때만 따른다
+(`claim_confirmed`). 판단 그래프는 '*'가 아닌 조건이 모두 확인된 사실과 같은 도표만 고른다.
+그래서 확인되지 않는 주장은 검증 사유에 경고로만 남긴다.
 호출 1회 상한(45초)·재시도(타임아웃·네트워크·5xx만 1회)는 app/llm.py 정책이다 — 공식 판단과
 질의응답의 가정 실행이 같은 검토기를 쓴다.
 """
@@ -15,7 +21,7 @@ from collections.abc import Awaitable, Callable
 from typing import Literal, TypedDict, get_args
 
 from app import llm as llm_policy
-from app.schemas.chart_scope import FIELD_OPTIONS
+from app.schemas.chart_scope import ANY_VALUE, FIELD_OPTIONS
 from app.schemas.facts import FactCard
 from app.schemas.judgment import RebuttalKind, ValidationCheck
 from app.workflow.candidates import ChartCandidate, confirmed_values
@@ -39,15 +45,19 @@ VERDICTS: tuple[str, ...] = (NO_REBUTTAL, *KINDS)
 SYSTEM_PROMPT = (
     "당신은 자동차 사고 과실비율 인정기준 검토자다. 담당자가 확인한 사실 카드와 선택된 도표, "
     "차순위 후보를 보고 '이 도표 선택에 반박이 성립하는가'만 판단한다.\n"
-    "verdict를 하나 고른다: none(반박 없음 — 선택한 도표가 확인한 사실에 맞다), "
-    "wrong_chart(차순위 후보가 사실에 더 맞음), missing_fact(도표를 가르는 사실이 카드에 없음), "
-    "contradiction(카드 사실과 도표 조건이 모순).\n"
+    "판단은 선택한 도표의 조건과 확인한 사실을 칸마다 대조하는 것뿐이다. 과실비율이 타당한지, "
+    "누구 과실이 더 큰지는 판단하지 않는다.\n"
+    "verdict를 하나 고른다.\n"
+    "- none: 반박 없음. 선택한 도표의 조건이 확인한 사실과 맞는다\n"
+    "- contradiction: selected_chart의 attributes·variant.conditions 중 '*'가 아닌 값이 "
+    "confirmed_facts의 같은 칸 값과 다르다\n"
+    "- missing_fact: '*'가 아닌 그 조건 칸이 confirmed_facts에 없다\n"
+    "- wrong_chart: alternative_charts 중 하나가 확인한 사실에 더 맞는다. preferred_chart_id에 "
+    "그 후보 ID를 적는다. alternative_charts가 비었거나 선택한 도표 자신이면 고르지 않는다\n"
     "도표 조건 값 '*'는 그 도표가 그 칸으로 갈리지 않는다는 뜻이라 어떤 사실 값과도 맞는다. "
     "'*'인 칸은 반박 사유가 아니다. unknown_facts는 담당자가 모른다고 확인한 칸이고, "
-    "party_note가 있으면 그 안내대로 A/B를 읽는다.\n"
-    "카드에 없는 사실을 가정하지 말고, 과실비율 숫자를 제안하지 말라. "
-    "wrong_chart일 때만 preferred_chart_id에 차순위 후보 ID를 적는다.\n"
-    "JSON만 출력한다."
+    "party_note가 있으면 그 안내대로 A/B를 읽는다. 서술(narrative)은 참고만 한다.\n"
+    "카드에 없는 사실을 가정하지 말고, 과실비율 숫자를 제안하지 말라. JSON만 출력한다."
 )
 
 RESPONSE_SCHEMA = {
@@ -126,6 +136,8 @@ def parse_verdict(raw: str, alternatives: list[str]) -> RebuttalVerdict:
 
     판정은 `verdict` 하나다. `none`이면 반박 없음, 그 밖은 반박 종류다. 예전 형식(`holds`·`kind`)은
     받지 않는다. 반환값은 판단 그래프가 쓰는 모양(`holds`·`kind`) 그대로다.
+    `wrong_chart`가 차순위 후보가 아닌 도표(고른 도표 자신 등)를 가리키면 다시 고를 수 없으므로
+    `preferred_chart_id`를 비워 담당자 확인으로 넘긴다(실행은 멈추지 않는다).
     """
     try:
         data = json.loads(raw)
@@ -144,9 +156,10 @@ def parse_verdict(raw: str, alternatives: list[str]) -> RebuttalVerdict:
         raise ValueError("반박이 성립하는데 이유가 없다")
     if kind == "wrong_chart":
         if preferred not in alternatives:
-            raise ValueError(
-                f"wrong_chart인데 preferred_chart_id가 차순위 후보가 아니다: {preferred!r}"
-            )
+            shown = preferred or "없음"
+            note = f"반박 검토가 차순위 후보가 아닌 도표({shown})를 골라 다시 고르지 않았다"
+            return {"holds": True, "kind": "wrong_chart", "preferred_chart_id": None,
+                    "reasons": [*reasons, note]}
     else:
         preferred = None
     return {"holds": True, "kind": kind, "preferred_chart_id": preferred, "reasons": reasons}
@@ -178,6 +191,35 @@ async def openai_reviewer(system: str, user: str) -> str:
     return await llm_policy.with_retry(attempt, name="rebuttal")
 
 
+CLAIM_NAMES = {"contradiction": "모순", "missing_fact": "사실 누락"}
+UNCONFIRMED_CLAIM_NOTE = (
+    "반박 검토의 '{name}' 주장은 도표 조건과 확인한 사실을 칸마다 대조해 확인되지 않아 "
+    "반영하지 않았다"
+)
+
+
+def claim_confirmed(
+    kind: str, card: FactCard, selection: ChartSelection, candidates: list[ChartCandidate]
+) -> bool | None:
+    """'모순'·'사실 누락' 주장이 칸 대조로 확인되는가. 선택 도표가 후보에 없으면 None(따른다).
+
+    대조하는 칸은 선택 도표의 속성과 고른 변형의 조건 중 '*'가 아닌 것, 값은 판단이 읽은 확인한 사실
+    (`confirmed_values`, v1 2절 맞바꿈 반영)이다. 모순 = 같은 칸 값이 다르다.
+    사실 누락 = 그 칸이 없다.
+    """
+    chosen = next((c for c in candidates if c["chart_id"] == selection["chart_id"]), None)
+    if chosen is None:
+        return None
+    conditions = {**chosen["attributes"], **(selection["variant"].get("conditions") or {})}
+    concrete = {k: v for k, v in conditions.items() if v != ANY_VALUE}
+    values = confirmed_values(card)
+    if kind == "contradiction":
+        return any(k in values and values[k] != v for k, v in concrete.items())
+    if kind == "missing_fact":
+        return any(k not in values for k in concrete)
+    return None
+
+
 async def review_rebuttal(
     card: FactCard,
     selection: ChartSelection,
@@ -188,11 +230,17 @@ async def review_rebuttal(
 
     실패하면 rebuttal_kind를 반드시 채운다. wrong_chart(차순위 후보가 더 맞음)만
     graph.py가 재실행하고, missing_fact(구분 조건 누락)·contradiction(근거와 카드 모순)은
-    담당자 질문으로 넘긴다.
+    담당자 질문으로 넘긴다. 단 이 두 주장은 칸 대조(`claim_confirmed`)로 확인되지 않으면 따르지
+    않고, 통과시키되 사유 첫 줄에 경고를 남긴다(보고서 1번).
     """
     review = reviewer or openai_reviewer
     raw = await review(SYSTEM_PROMPT, review_payload(card, selection, candidates))
     verdict = parse_verdict(raw, selection["alternatives"])
+    kind = verdict["kind"]
+    if kind in CLAIM_NAMES and claim_confirmed(kind, card, selection, candidates) is False:
+        note = UNCONFIRMED_CLAIM_NOTE.format(name=CLAIM_NAMES[kind])
+        return {"layer": "rebuttal", "passed": True, "reasons": [note, *verdict["reasons"]],
+                "rebuttal_kind": None}, None
     check: ValidationCheck = {
         "layer": "rebuttal", "passed": not verdict["holds"], "reasons": verdict["reasons"],
         "rebuttal_kind": verdict["kind"],
