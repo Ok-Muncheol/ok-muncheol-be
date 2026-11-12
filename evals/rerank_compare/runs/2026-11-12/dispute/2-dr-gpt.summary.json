@@ -1,0 +1,665 @@
+{
+ "schema": "rerank-compare-summary-v1",
+ "run": {
+  "corpus": "dispute_cases",
+  "slot": "②",
+  "repo_number": "②",
+  "name": "DecisionRAG + gpt-4o-mini",
+  "owner": "옥석현",
+  "role": "본 결과"
+ },
+ "source": {
+  "file": "dispute-decisionrag-gpt-20261112-150323.json",
+  "sha256": "978201cd2835101fed60d4624b23601d4b1c6ec5164867f4d1947373eb77cf1e"
+ },
+ "method": "dispute-decisionrag-gpt",
+ "description": "",
+ "created_at": "2026-11-12T15:03:23+09:00",
+ "git_commit": "45a5df7",
+ "dataset": {
+  "corpus": "dispute_cases",
+  "count": 100,
+  "subsets": {
+   "dispute100": 100
+  },
+  "sha256": "d7e5e48c0ec2d964d8120e59e787a2327455002643e974aafe15c0ec614e73d8"
+ },
+ "corpus_files_sha256": {
+  "corpus_chunks.jsonl": "8f73545fc660e0bb21a282e79f21e567a2b3761dd9c601043866e4dd62703c97",
+  "corpus_documents.jsonl": "414c35eff681f24960ca4e4707c2968854b87b4ddee2ca1d53642569720373f8",
+  "corpus_records.jsonl": "b6d4c4cbdbf47e133b5456ed2318f14049e64466ff90a05a6236166dd0c8a8a4",
+  "corpus_source_pages.jsonl": "488eb3896b546bcfe53a11b618a74e46f856a007b85d161874a43a421d8034b8"
+ },
+ "corpus_edition": "1413",
+ "common": {
+  "corpus": "dispute_cases",
+  "top_k": 10,
+  "candidate_parents": 50,
+  "candidate_mode": "rrf",
+  "token_encoding": "o200k_base",
+  "max_passage_tokens": 512,
+  "prompt_version": "relevance-v1-dispute",
+  "system_prompt": "Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".",
+  "relevance_instruction": "Given a question about an auto insurance claim, judge whether this fault ratio dispute decision case provides the basis needed to answer the question.",
+  "answer_instruction": "Answer only Yes or No.",
+  "qwen_reranker_model": "Qwen/Qwen3-Reranker-0.6B",
+  "gpt_model": "gpt-4o-mini",
+  "gpt_temperature": 0,
+  "gpt_top_logprobs": 5
+ },
+ "params": {
+  "name": "DecisionRAG 방식의 계층 탐색을 무료 오픈소스 모델로 재현 — ② gpt-4o-mini",
+  "paper": "Wan et al., Retriever-Free Retrieval: Navigating Documents with Decision Models, arXiv 2610.35868",
+  "corpus": "dispute_cases",
+  "tree_version": "dispute-chart-v1",
+  "tree": {
+   "groups": 21,
+   "parents": 226,
+   "group_sizes": [
+    37,
+    2,
+    10,
+    9,
+    68,
+    10,
+    6,
+    1,
+    10,
+    5,
+    8,
+    26,
+    1,
+    10,
+    4,
+    2,
+    1,
+    1,
+    3,
+    10,
+    2
+   ]
+  },
+  "budgets": {
+   "L1_groups": 5,
+   "L2_parents": 20,
+   "L3": "남은 parent의 모든 청크 → MaxP → 상위 10"
+  },
+  "node_body_tokens": 128,
+  "budgets_fixed_before_eval": true,
+  "stages": {
+   "L1": "정답 parent가 든 묶음이 남았나",
+   "L2": "정답 parent가 남았나"
+  },
+  "deviations": [
+   "판단 모델: 논문의 Jev 대신 gpt-4o-mini(유료 API, temperature 0, logprobs, max_tokens 1)",
+   "후보 판단: 논문은 공유 문맥, 여기서는 ①과 같이 하나씩 판단(모델 차이만 보려고)",
+   "점수: 논문은 Yes·No로 정규화한 P(Yes), 여기서는 평가 틀 공통 yes_probability(top_logprobs의 Yes 확률, No로 나누지 않음)",
+   "계층: 결정례 문서의 목차가 아니라, 결정례가 연결된 도표(chart_id)의 절 → 결정례 → 청크",
+   "다지선다 재정렬 단계 없음(Jev 기능)",
+   "결과 단위: 논문은 문단 순위, 여기서는 parent 순위(청크 점수 MaxP, 평가 틀 공통)",
+   "질문 문구: 논문은 단계별 질문, 여기서는 공통 RELEVANCE_INSTRUCTION 하나를 모든 단계에",
+   "예산: 논문은 평가와 겹치지 않는 설계용 셋으로 고름. 여기서는 설계용 셋이 없어 트리 크기만 보고 평가 전에 고정(묶음 5, parent 20)",
+   "확률 임계 규칙·대화 메모(notepad)·dense 후보 추가·페이지 점수 곱하기는 쓰지 않음",
+   "노드 설명: 논문은 제목·절 제목 또는 LLM 요약. 여기서는 묶음 = 도표 장·절 경로 + 연결된 도표 제목, 결정례 = 경로 + 도표 제목 + 심의번호·사례 제목 + 본문 앞 128토큰. LLM 요약 없음",
+   "도표 연결은 사람 검토 전(chart_link_human_reviewed False, 부록 번호 대응): 연결이 틀리면 정답 결정례가 다른 묶음에 들어가 L1에서 잃을 수 있음. 같은 도표의 결정례(최대 8건)끼리는 트리가 구분해 주지 않음"
+  ],
+  "scorer": {
+   "model": "gpt-4o-mini",
+   "request": {
+    "model": "gpt-4o-mini",
+    "temperature": 0,
+    "max_tokens": 1,
+    "logprobs": true,
+    "top_logprobs": 5
+   },
+   "concurrency": 16,
+   "score": "yes_probability(top_logprobs) — 'Yes' 확률, No로 정규화하지 않음",
+   "price_per_million_usd": {
+    "input": 0.15,
+    "cached_input": 0.075,
+    "output": 0.6
+   },
+   "price_checked": "2026-11-11 developers.openai.com gpt-4o-mini 모델 페이지"
+  },
+  "search": {
+   "corpus": "dispute_cases",
+   "keyword_version": "bm25-v1:kiwi",
+   "embedding": "text-embedding-3-small:1536:text-embedding-3-small:1536:v1",
+   "terms_edition": "2026.11.11"
+  },
+  "usage": {
+   "requests": 21168,
+   "input_tokens": 6663194,
+   "cached_input_tokens": 0,
+   "output_tokens": 21168,
+   "cost_usd": 1.0121799
+  }
+ },
+ "metrics": {
+  "dispute100": {
+   "n": 100,
+   "top1": 0.67,
+   "r3": 0.885,
+   "r5": 0.94,
+   "r10": 0.96,
+   "mrr10": 0.7855833333333334,
+   "seconds_mean": 11.86821820902638,
+   "seconds_p50": 11.634097249945626,
+   "seconds_p95": 14.473468899726868,
+   "seconds_total": 1186.8218209026381,
+   "model_calls": 21168,
+   "model_calls_per_question": 211.68,
+   "model_calls_by_model": {
+    "gpt-4o-mini": 21168
+   },
+   "input_tokens": 6663194,
+   "output_tokens": 21168,
+   "stage_survival": {
+    "L1": 0.97,
+    "L2": 0.97
+   }
+  }
+ },
+ "questions": [
+  {
+   "example_id": "dispute_cases-cd9a36aa20ac",
+   "subset": "dispute100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "dispute_cases-9aa8438cc3dc",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d2924358d25b",
+   "subset": "dispute100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "dispute_cases-ad94dc9f93a3",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-9941e96b1bf4",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-efc9ac284ec5",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-f0a489bb5a0b",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-6f91166b9007",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-bfe55582344a",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f6702cd5e006",
+   "subset": "dispute100",
+   "first_correct_rank": 4
+  },
+  {
+   "example_id": "dispute_cases-ff218dc5220e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b4f6eea07485",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-adb5b661c989",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-b4d6af3cdcc6",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-e7b39bfbb1dc",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ff9e7d0f7af9",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-cbb4c0fbb41a",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c7b11cf1008d",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-acf14e2f8455",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c0820879ef80",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c114a16cadf9",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-bb635728fe83",
+   "subset": "dispute100",
+   "first_correct_rank": 6
+  },
+  {
+   "example_id": "dispute_cases-f312d81947ab",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-705aab01d9a6",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d78b2deb78a5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-cdbc26fb2456",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-fe75161e5515",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-89c65744f9cb",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-a0f188af02e1",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-fbb23671b68e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-feb5fd314847",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-c6f58ac31de8",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e75acd5f2658",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-444fd335dc3c",
+   "subset": "dispute100",
+   "first_correct_rank": 4
+  },
+  {
+   "example_id": "dispute_cases-9a8b5b60f6a5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-cd1ec3fda964",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-a3c4b59ddca3",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d4089cfdeb8a",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c5e6fa934cc7",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f21d30ec3365",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-ef170a2e1956",
+   "subset": "dispute100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "dispute_cases-b00c0115b0e5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-fc2efd4997fc",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d7c138919935",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-95751959bc95",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d919f4554102",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-c7dd2bbfa73c",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-fbf632833927",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e707b14975d5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-83946208adbd",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-cc7a2fdf65f9",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-6a5df389dbb3",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-0089ea0fcd1e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d3dc23da3f99",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-6d0ba9b8db42",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-1431c13fad92",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ae3b1286ad7c",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c6948d3c54ac",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e5cffdac8115",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-4239306cdfc9",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-a9dd7a675c75",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-981847872268",
+   "subset": "dispute100",
+   "first_correct_rank": 8
+  },
+  {
+   "example_id": "dispute_cases-c26087025014",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d11e9208bc9b",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-8abff8c07d4b",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-75599dbd62f3",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-87f33d6980b7",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-4ecb9a866cc6",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ad3eb8fdc7ed",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b268697a7704",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-e64e32f987ac",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-63cccea8910b",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-53d70c9ef9c3",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-143a1d44d7a8",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f84ffe4be6a4",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-6f1c5b50ace2",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ef7e593c5244",
+   "subset": "dispute100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "dispute_cases-c333d5a5a185",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-c4c494c61737",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e12670097cb8",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-3fb36ee0c7bc",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-bc5d6f2b33b8",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-69070acd53f7",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b5a874ad4d2e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-d503f16d90ad",
+   "subset": "dispute100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "dispute_cases-54cdda19bcf3",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-e4ea3eced108",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-52a45a915d9c",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-88f21857c4b2",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-345f9708516a",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-bf2e4006046c",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-f72e2341b15b",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-763f40f4a62e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-38b4596129d5",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-86635a433435",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-a0ed4e5826a4",
+   "subset": "dispute100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "dispute_cases-f284e0cd2db6",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-ea41864f4b1e",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-b4d0d90e6a5d",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "dispute_cases-2db2ddd40cfe",
+   "subset": "dispute100",
+   "first_correct_rank": 1
+  }
+ ]
+}

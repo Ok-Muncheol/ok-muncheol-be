@@ -1,0 +1,754 @@
+{
+ "schema": "rerank-compare-summary-v1",
+ "run": {
+  "corpus": "policy_terms",
+  "slot": "③",
+  "repo_number": "⑤",
+  "name": "DecisionRAG + Jev(공유 문맥)",
+  "owner": "옥석현",
+  "role": "재현성(재실행)"
+ },
+ "source": {
+  "file": "decisionrag-jev-rerun-20261112-111147.json",
+  "sha256": "b50c975a25cb1d214c2d4ca2463d03e1808110f6f9378b411c3e3376c527270a"
+ },
+ "method": "decisionrag-jev-rerun",
+ "description": "",
+ "created_at": "2026-11-12T11:11:47+09:00",
+ "git_commit": "b4d78ac",
+ "dataset": {
+  "count": 88,
+  "subsets": {
+   "policy80": 80,
+   "schedule8": 8
+  },
+  "sha256": "efd395892e153aade35724e8fcbaddf41756278acb53323ff21e20df92cc5597"
+ },
+ "corpus_files_sha256": {
+  "corpus_chunks.jsonl": "8f73545fc660e0bb21a282e79f21e567a2b3761dd9c601043866e4dd62703c97",
+  "corpus_documents.jsonl": "414c35eff681f24960ca4e4707c2968854b87b4ddee2ca1d53642569720373f8",
+  "corpus_records.jsonl": "b6d4c4cbdbf47e133b5456ed2318f14049e64466ff90a05a6236166dd0c8a8a4",
+  "corpus_source_pages.jsonl": "488eb3896b546bcfe53a11b618a74e46f856a007b85d161874a43a421d8034b8"
+ },
+ "corpus_edition": "1413",
+ "common": {
+  "corpus": "policy_terms",
+  "top_k": 10,
+  "candidate_parents": 50,
+  "candidate_mode": "rrf",
+  "token_encoding": "o200k_base",
+  "max_passage_tokens": 512,
+  "prompt_version": "relevance-v1",
+  "system_prompt": "Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".",
+  "relevance_instruction": "Given a question about an auto insurance claim, judge whether this policy clause provides the basis needed to answer the question.",
+  "answer_instruction": "Answer only Yes or No.",
+  "qwen_reranker_model": "Qwen/Qwen3-Reranker-0.6B",
+  "gpt_model": "gpt-4o-mini",
+  "gpt_temperature": 0,
+  "gpt_top_logprobs": 5
+ },
+ "params": {
+  "name": "DecisionRAG 방식의 계층 탐색을 무료 오픈소스 모델로 재현 — ⑤ Jev(공유 문맥)",
+  "paper": "Wan et al., Retriever-Free Retrieval: Navigating Documents with Decision Models, arXiv 2610.35868",
+  "corpus": "policy_terms",
+  "tree_version": "policy-toc-v1",
+  "tree": {
+   "groups": 28,
+   "parents": 382,
+   "group_sizes": [
+    6,
+    3,
+    5,
+    4,
+    7,
+    7,
+    7,
+    5,
+    6,
+    8,
+    8,
+    5,
+    11,
+    8,
+    17,
+    7,
+    5,
+    2,
+    2,
+    49,
+    28,
+    59,
+    9,
+    12,
+    6,
+    16,
+    58,
+    22
+   ]
+  },
+  "budgets": {
+   "L1_groups": 5,
+   "L2_parents": 20,
+   "L3": "남은 parent의 모든 청크 → MaxP → 상위 10"
+  },
+  "node_body_tokens": 128,
+  "budgets_fixed_before_eval": true,
+  "stages": {
+   "L1": "정답 parent가 든 묶음이 남았나",
+   "L2": "정답 parent가 남았나"
+  },
+  "deviations": [
+   "[Jev로 해소] 판단 모델: 논문과 같은 Jev(jev-1.13.0, TypeSafe 공식 API). 실제로 답한 모델은 결과 JSON params.usage.response_models",
+   "[Jev로 해소] 후보 판단: 논문처럼 공유 문맥 — 한 단계의 후보를 state 하나에 함께 넣고 후보마다 noul 질문. 단 state가 Jev 토큰 24k(o200k 16,997)를 넘으면 번갈아 배정으로 나눠 보내고, 나뉜 요청끼리는 문맥을 공유하지 않는다(나눈 단계 수는 params.usage.stages_split)",
+   "[Jev로 해소] 점수: Jev noul = P(yes) 그대로(평가 틀의 yes_probability·Qwen yes/no softmax를 쓰지 않음). 응답이 소수 둘째 자리 단위라 동점이 생기고, 동점은 문서 순서(L1·L2)·parent_id(MaxP)",
+   "계층: 약관 목차 구조(묶음 → 조항 → 청크)를 그대로 사용",
+   "다지선다 재정렬 단계 없음(Jev 기능) — Jev로 할 수 있으나 ①②와 같은 단계로 비교하려고 넣지 않음",
+   "결과 단위: 논문은 문단 순위, 여기서는 parent 순위(청크 점수 MaxP, 평가 틀 공통)",
+   "노드 설명: 논문은 제목·절 제목 또는 LLM 요약. 여기서는 묶음 = 경로 + 하위 조항 제목(인용 법령은 본문의 [법령명]), 조항 = 경로 + 제목 + 본문 앞 128토큰. LLM 요약 없음",
+   "질문 문구: 논문은 단계별 질문, 여기서는 공통 RELEVANCE_INSTRUCTION 하나를 모든 단계에",
+   "예산: 논문은 평가와 겹치지 않는 설계용 셋으로 고름. 여기서는 설계용 셋이 없어 트리 크기만 보고 평가 전에 고정(묶음 5, parent 20)",
+   "확률 임계 규칙·대화 메모(notepad)·dense 후보 추가·페이지 점수 곱하기는 쓰지 않음",
+   "편·장 정보가 코퍼스에 없어 원문 목차(p.45~51) 제목과 조·특약 번호 범위를 코드 상수로 옮김(목차의 제52조의2는 코퍼스에 없음)"
+  ],
+  "scorer": {
+   "model": "jev-1.13.0",
+   "endpoint": "https://api.typesafe.ai/v1/systemone",
+   "state": "{\"question\": 질문, \"candidates\": {\"c000\": 글, ...}}",
+   "question": "{\"type\": \"noul\", \"instructions\": {\"task\": RELEVANCE_INSTRUCTION, \"candidate\": \"c000\"}} — 후보마다 하나",
+   "score": "answers[후보].noul = P(yes), 정규화·가공 없음",
+   "shared_context": "한 단계(또는 후보 묶음)의 글을 state 하나에 함께",
+   "long_context": false,
+   "split": {
+    "rule": "state가 상한을 넘으면 번갈아 배정(후보 i → i mod k), 모든 묶음이 상한 이하가 되는 가장 작은 k",
+    "jev_token_budget": 24000,
+    "jev_per_o200k": 1.412,
+    "state_budget_o200k": 16997,
+    "limits_jev_tokens": {
+     "per_question": 32000,
+     "per_request": 64000
+    },
+    "fixed_before_eval": true,
+    "ratio_measured": "2026-11-12 확인 요청 1회(평가 문항 아님): Jev 2,378 / o200k 1,684"
+   },
+   "concurrency": 4,
+   "max_retries": 4,
+   "price_per_million_input_usd": 0.042,
+   "price_checked": "2026-11-12 docs.typesafe.ai/models (출력 토큰 무료)"
+  },
+  "deviations_resolved_by_jev": [
+   "[Jev로 해소] 판단 모델: 논문과 같은 Jev(jev-1.13.0, TypeSafe 공식 API). 실제로 답한 모델은 결과 JSON params.usage.response_models",
+   "[Jev로 해소] 후보 판단: 논문처럼 공유 문맥 — 한 단계의 후보를 state 하나에 함께 넣고 후보마다 noul 질문. 단 state가 Jev 토큰 24k(o200k 16,997)를 넘으면 번갈아 배정으로 나눠 보내고, 나뉜 요청끼리는 문맥을 공유하지 않는다(나눈 단계 수는 params.usage.stages_split)",
+   "[Jev로 해소] 점수: Jev noul = P(yes) 그대로(평가 틀의 yes_probability·Qwen yes/no softmax를 쓰지 않음). 응답이 소수 둘째 자리 단위라 동점이 생기고, 동점은 문서 순서(L1·L2)·parent_id(MaxP)"
+  ],
+  "search": {
+   "keyword_version": "bm25-v1:kiwi",
+   "embedding": "text-embedding-3-small:1536:text-embedding-3-small:1536:v1",
+   "terms_edition": "2026.11.11"
+  },
+  "usage": {
+   "requests": 275,
+   "retries": 0,
+   "input_tokens": 3123351,
+   "output_tokens": 209720,
+   "cost_usd": 0.1311807419999999,
+   "max_cost_usd": 1.0,
+   "response_models": {
+    "jev-1.13.0": 275
+   },
+   "long_context": false,
+   "request_size": {
+    "max_state_bytes_utf8": 59541,
+    "max_state_o200k": 16922,
+    "max_state_estimated_jev_tokens": 23894,
+    "max_request_input_tokens_reported": 24840,
+    "per_question_limit": 32000
+   },
+   "stages_scored": 264,
+   "stages_split": 11,
+   "requests_per_stage": {
+    "1": 253,
+    "2": 11
+   },
+   "batch_sizes": {
+    "20": 1,
+    "21": 1,
+    "22": 2,
+    "23": 5,
+    "24": 11,
+    "25": 12,
+    "26": 11,
+    "27": 7,
+    "28": 97,
+    "29": 10,
+    "30": 4,
+    "31": 4,
+    "32": 8,
+    "33": 2,
+    "34": 3,
+    "35": 2,
+    "36": 4,
+    "37": 2,
+    "38": 1,
+    "39": 2,
+    "40": 2,
+    "41": 1,
+    "42": 1,
+    "43": 2,
+    "44": 2,
+    "45": 2,
+    "46": 1,
+    "47": 2,
+    "48": 2,
+    "49": 3,
+    "50": 4,
+    "52": 4,
+    "53": 2,
+    "54": 4,
+    "55": 2,
+    "59": 2,
+    "60": 2,
+    "61": 1,
+    "63": 1,
+    "66": 1,
+    "67": 5,
+    "68": 5,
+    "69": 3,
+    "71": 1,
+    "73": 1,
+    "74": 2,
+    "76": 1,
+    "77": 3,
+    "79": 2,
+    "80": 1,
+    "81": 2,
+    "82": 4,
+    "83": 1,
+    "84": 1,
+    "86": 1,
+    "87": 1,
+    "88": 1,
+    "89": 1,
+    "90": 1,
+    "91": 2,
+    "92": 1,
+    "94": 1,
+    "98": 2,
+    "100": 1,
+    "105": 1
+   }
+  }
+ },
+ "metrics": {
+  "policy80": {
+   "n": 80,
+   "top1": 0.8875,
+   "r3": 0.94375,
+   "r5": 0.94375,
+   "r10": 0.94375,
+   "mrr10": 0.9166666666666666,
+   "seconds_mean": 0.6902025924762711,
+   "seconds_p50": 0.6807086998596787,
+   "seconds_p95": 0.809355900157243,
+   "seconds_total": 55.21620739810169,
+   "model_calls": 10041,
+   "model_calls_per_question": 125.5125,
+   "model_calls_by_model": {
+    "jev-1.13.0": 10041
+   },
+   "input_tokens": 2827996,
+   "output_tokens": 191783,
+   "stage_survival": {
+    "L1": 0.96875,
+    "L2": 0.94375
+   }
+  },
+  "schedule8": {
+   "n": 8,
+   "top1": 1.0,
+   "r3": 1.0,
+   "r5": 1.0,
+   "r10": 1.0,
+   "mrr10": 1.0,
+   "seconds_mean": 0.7314128250000067,
+   "seconds_p50": 0.7267818001564592,
+   "seconds_p95": 0.7986431000754237,
+   "seconds_total": 5.851302600000054,
+   "model_calls": 939,
+   "model_calls_per_question": 117.375,
+   "model_calls_by_model": {
+    "jev-1.13.0": 939
+   },
+   "input_tokens": 295355,
+   "output_tokens": 17937,
+   "stage_survival": {
+    "L1": 1.0,
+    "L2": 1.0
+   }
+  },
+  "all88": {
+   "n": 88,
+   "top1": 0.8977272727272727,
+   "r3": 0.9488636363636364,
+   "r5": 0.9488636363636364,
+   "r10": 0.9488636363636364,
+   "mrr10": 0.9242424242424242,
+   "seconds_mean": 0.6939489772511561,
+   "seconds_p50": 0.6866412998642772,
+   "seconds_p95": 0.7986431000754237,
+   "seconds_total": 61.06750999810174,
+   "model_calls": 10980,
+   "model_calls_per_question": 124.77272727272727,
+   "model_calls_by_model": {
+    "jev-1.13.0": 10980
+   },
+   "input_tokens": 3123351,
+   "output_tokens": 209720,
+   "stage_survival": {
+    "L1": 0.9715909090909091,
+    "L2": 0.9488636363636364
+   }
+  }
+ },
+ "questions": [
+  {
+   "example_id": "policy_terms-6f52eb973c52",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-15f04a172d03",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ab996c696761",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-a3ca097c8cc1",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-2fcf23b6293e",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-5a2b8b3dd6c8",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-8500199db0ef",
+   "subset": "policy80",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "policy_terms-88bc775f7ecf",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-bce2ec328455",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-1a44c47f4f8b",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-436c6290a768",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ae55e9d2fc59",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-df469f6a14b7",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-f4ef7f9518c7",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-213e7d147905",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-47f38c1902a7",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-7fe29ca1c627",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-6920c7135b4b",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-bb7120c24cea",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-4fb46e7d3c3d",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-2e4b6e4c0493",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ce0e409c670c",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ed15b96fed6f",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-0369366bff69",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-64733d6f318d",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-b39fdc369080",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-d1c4f26a3b0d",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-a8cd0a3ce283",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-29d7a229e08a",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-175a44af9ce4",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-366945fb5496",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-0f34f4b3c78d",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-82e3a38a661b",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-7f16749ed487",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-9bf29aecb107",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-b0a427eddb68",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-1584f50d2e31",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-d77f6bd13fa7",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-5065146e1e4c",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-5ce6adbab861",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-f7838fec281a",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ecf54c962b3b",
+   "subset": "policy80",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "policy_terms-8b739562ee8f",
+   "subset": "policy80",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "policy_terms-89c516fa67cf",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-6d420ccb3f9c",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-792bc216940f",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-90f5dab0c92a",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-8c3c557463e9",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-e5d4d4c911b0",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-372b6a4a92bb",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-f34dc2edc5e9",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ff24e0966e4c",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-f2b1d3dabb52",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-908be46f4892",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-98eb0e361611",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-d173de92ead5",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-e5a2a24b7aef",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-e8898d3ddbc0",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-93f831c3c9b8",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-c92565b21179",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-fab4a6affbaf",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-cb8f24fcba8b",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-e031bdb05e18",
+   "subset": "policy80",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "policy_terms-f58ed188b00f",
+   "subset": "policy80",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "policy_terms-fefb53d1e04c",
+   "subset": "policy80",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "policy_terms-f85198d1e386",
+   "subset": "policy80",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "policy_terms-d8aa3a9060cd",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-04bfd7cdf554",
+   "subset": "policy80",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "policy_terms-ead42c9173ac",
+   "subset": "policy80",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "policy_terms-d1678a463201",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-53b968e1ec59",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-5ec4df37d6f8",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-8c6d181c6c9a",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-d96e2610b80c",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-9be3ef4220f4",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-271a8e315d1a",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-b70cc891c77d",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ef86eca3ed3c",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-ca4b6180b23a",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-dfb90540ebaf",
+   "subset": "policy80",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-fb5047e8242c",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-f86521e72631",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-f287cc5ed0c4",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-a27f34c5eed4",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-2c7a060c812f",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-e4edc16d989d",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-c866e69574fc",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "policy_terms-d98824015b6f",
+   "subset": "schedule8",
+   "first_correct_rank": 1
+  }
+ ]
+}

@@ -1,0 +1,577 @@
+{
+ "schema": "rerank-compare-summary-v1",
+ "run": {
+  "corpus": "fault_standards",
+  "slot": "기준선",
+  "name": "BM25",
+  "owner": "옥석현",
+  "role": "본 결과"
+ },
+ "source": {
+  "file": "fault-bm25-20261112-141645.json",
+  "sha256": "54ebded1b9cbf5b9f57d97f86a6397ed3ace3632f4e5db882f1cbae149e0be63"
+ },
+ "method": "fault-bm25",
+ "description": "고유 parent 10개(비교표용)",
+ "created_at": "2026-11-12T14:16:45+09:00",
+ "git_commit": "45a5df7",
+ "dataset": {
+  "corpus": "fault_standards",
+  "count": 100,
+  "subsets": {
+   "fault100": 100
+  },
+  "sha256": "d4b2f73cbaa8bf294cb9f39e298eef88fb3029a33cd5bf54f6ea1a6d030ed900"
+ },
+ "corpus_files_sha256": {
+  "corpus_chunks.jsonl": "8f73545fc660e0bb21a282e79f21e567a2b3761dd9c601043866e4dd62703c97",
+  "corpus_documents.jsonl": "414c35eff681f24960ca4e4707c2968854b87b4ddee2ca1d53642569720373f8",
+  "corpus_records.jsonl": "b6d4c4cbdbf47e133b5456ed2318f14049e64466ff90a05a6236166dd0c8a8a4",
+  "corpus_source_pages.jsonl": "488eb3896b546bcfe53a11b618a74e46f856a007b85d161874a43a421d8034b8"
+ },
+ "corpus_edition": "1413",
+ "common": {
+  "corpus": "fault_standards",
+  "top_k": 10,
+  "candidate_parents": 50,
+  "candidate_mode": "rrf",
+  "token_encoding": "o200k_base",
+  "max_passage_tokens": 512,
+  "prompt_version": "relevance-v1-fault",
+  "system_prompt": "Judge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".",
+  "relevance_instruction": "Given a question about an auto insurance claim, judge whether this fault ratio standard chart provides the basis needed to answer the question.",
+  "answer_instruction": "Answer only Yes or No.",
+  "qwen_reranker_model": "Qwen/Qwen3-Reranker-0.6B",
+  "gpt_model": "gpt-4o-mini",
+  "gpt_temperature": 0,
+  "gpt_top_logprobs": 5
+ },
+ "params": {
+  "corpus": "fault_standards",
+  "keyword_version": "bm25-v1:kiwi",
+  "embedding": "text-embedding-3-small:1536:text-embedding-3-small:1536:v1",
+  "terms_edition": "2026.11.11"
+ },
+ "metrics": {
+  "fault100": {
+   "n": 100,
+   "top1": 0.61,
+   "r3": 0.845,
+   "r5": 0.88,
+   "r10": 0.92,
+   "mrr10": 0.7280119047619047,
+   "seconds_mean": 0.0059360319841653105,
+   "seconds_p50": 0.00541925011202693,
+   "seconds_p95": 0.010112000163644552,
+   "seconds_total": 0.5936031984165311,
+   "model_calls": 0,
+   "model_calls_per_question": 0.0,
+   "model_calls_by_model": {},
+   "input_tokens": null,
+   "output_tokens": null,
+   "stage_survival": null
+  }
+ },
+ "questions": [
+  {
+   "example_id": "fault_standards-e1d144c97a16",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-36209665e854",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-aa7d57327c28",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f7430b330955",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-96b53f7afa88",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c7685c306f1b",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-a53dc94f44ef",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-c0aaf9eb31b6",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-dd5466d15819",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-e91bec2a4839",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-115283336c22",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f1833d012480",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-d687f08a26e7",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-9aa591c55d35",
+   "subset": "fault100",
+   "first_correct_rank": 7
+  },
+  {
+   "example_id": "fault_standards-fa0940fa00f4",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-cb5f918b6234",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-e007d5e3611b",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-a4f48ab2ee61",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-9cc3dff79d42",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-21a48fc92d81",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-cc84ce44d4e3",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-fa3e8c261773",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-21f722aae0b0",
+   "subset": "fault100",
+   "first_correct_rank": 10
+  },
+  {
+   "example_id": "fault_standards-ecb2c354e4d0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b47de5ff09c0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-f9445a9643d6",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4669782d419a",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-560672e23180",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-f0b78c0f3cf0",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-fe3de238222d",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b5f2bc63f298",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-cfcd69144739",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-e2870583e6ee",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-d2e9ff8188f6",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-fc3b7f9f71e2",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-f4f82d66ecf0",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-b46d20d8bbac",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-9d67fe8f9364",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-d45d5a4208d1",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-903a163dd8a8",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-87187f414ac6",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-7e76b8df876c",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-9d49213a6a0a",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-b32098b03be2",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c6bf27d8c05d",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-be2f6a417b4e",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-810c809b2219",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-cfd378b88147",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-902a9dec5ede",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-6b26509226de",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c56564e83a76",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-5007f86b4e32",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5c5e22f18936",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-3d9262bab12b",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-565b9b3611ee",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-76ffdd825995",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-658dd9ef0326",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-21d60d6a04ab",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-2018e35f085a",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b437c4f6cafd",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-c0e8ec9e543e",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-c834fd8e298e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4583541f1b65",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-bbc889569db9",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5c50c2dfbde9",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-dfd9c0ebf4c9",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-edf1634a7ea4",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4e5cc895afd7",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-ab29f1474112",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-7f67c49faad5",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-77b9a52d9217",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4a6fd26efebd",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-479ad7e60509",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-2a7072583a85",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-4ae58912603c",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-707198596be6",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-32596b9c3fc0",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-0243a0560fec",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-8bcdc0ff5d10",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-b805f99c6cbb",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5bf70a5fa18e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-5b6e4b1e794d",
+   "subset": "fault100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "fault_standards-ba63dc327ddf",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-47d0d8b3dcd7",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-127e63401894",
+   "subset": "fault100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "fault_standards-664f3429458a",
+   "subset": "fault100",
+   "first_correct_rank": null
+  },
+  {
+   "example_id": "fault_standards-382f2c54242e",
+   "subset": "fault100",
+   "first_correct_rank": 6
+  },
+  {
+   "example_id": "fault_standards-27ce6080154f",
+   "subset": "fault100",
+   "first_correct_rank": 5
+  },
+  {
+   "example_id": "fault_standards-4520f6a87d26",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-6b725e1baa10",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-85e767da7e9d",
+   "subset": "fault100",
+   "first_correct_rank": 8
+  },
+  {
+   "example_id": "fault_standards-962d386cfc1e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-340feb96d9da",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-96f52322f5ce",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-09b439e76c22",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-2482a7492f92",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-62fcfecadbea",
+   "subset": "fault100",
+   "first_correct_rank": 2
+  },
+  {
+   "example_id": "fault_standards-59e3ead01b0b",
+   "subset": "fault100",
+   "first_correct_rank": 3
+  },
+  {
+   "example_id": "fault_standards-93fdbb2f9678",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  },
+  {
+   "example_id": "fault_standards-2a45779b2f5e",
+   "subset": "fault100",
+   "first_correct_rank": 1
+  }
+ ]
+}
