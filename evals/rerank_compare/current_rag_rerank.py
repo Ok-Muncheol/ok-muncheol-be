@@ -2,6 +2,7 @@
 
 후보 parent 50개(RRF)의 모든 청크 → 청크마다 "관련 있나?" Yes 확률 → MaxP → 상위 10개.
 문구·넣는 글·자르기·후보 수·GPT 요청·Yes 확률·MaxP는 모두 common.py 것만 쓴다.
+점수기는 ①②와 같은 것을 쓴다: ③ qwen_reranker.QwenReranker(revision 고정), ④ gpt_judge.GptJudge.
 
     python -m evals.rerank_compare.run \
         --retriever evals.rerank_compare.current_rag_rerank:build_qwen \
@@ -10,119 +11,73 @@
         --retriever evals.rerank_compare.current_rag_rerank:build_gpt \
         --name gpt-rerank-rrf50 --max-model-calls 9000
 
-호출 수는 청크(모델 판단) 하나당 1회로 센다. Qwen은 배치로 돌리지만 판단 수는 같다.
+호출 수는 청크(모델 판단) 하나당 1회로 세고, 부르기 전에 센다(상한이면 돈·시간을 쓰기 전에 멈춤).
 """
 
-import asyncio
+import inspect
 
 from evals.rerank_compare.common import (
     CANDIDATE_MODE,
     CANDIDATE_PARENTS,
-    GPT_MODEL,
-    QWEN_RERANKER_MODEL,
     TOP_K,
-    gpt_request,
     max_p,
-    qwen_prompt,
-    yes_probability,
 )
 
-GPT_CONCURRENCY = 8  # 질문 하나의 청크를 동시에 몇 개 부를지(결과에는 영향 없음)
-QWEN_BATCH = 16
 
+class CurrentRagReranker:
+    """후보 청크 전부를 scorer로 판단하고 MaxP로 parent 순위를 낸다.
 
-def _params(**extra: object) -> dict[str, object]:
-    return {"candidates": CANDIDATE_MODE, "candidate_parents": CANDIDATE_PARENTS, **extra}
+    scorer는 model_name과 score(question, texts) -> (점수들, 입력 토큰, 출력 토큰)을 가진다
+    (QwenReranker·GptJudge, score는 동기·비동기 모두 된다).
+    """
 
+    def __init__(self, search, scorer) -> None:
+        self.search = search
+        self.scorer = scorer
+        self.params: dict = {"candidates": CANDIDATE_MODE, "candidate_parents": CANDIDATE_PARENTS}
 
-class QwenReranker:
-    """모델 카드 방식: 답 자리의 "yes"·"no" 로짓 softmax에서 yes 확률."""
-
-    def __init__(self, batch_size: int = QWEN_BATCH) -> None:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-
-        self.torch = torch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = torch.float16 if self.device == "cuda" else torch.float32
-        self.tokenizer = AutoTokenizer.from_pretrained(QWEN_RERANKER_MODEL, padding_side="left")
-        self.model = AutoModelForCausalLM.from_pretrained(QWEN_RERANKER_MODEL, dtype=dtype)
-        self.model.to(self.device).eval()
-        self.yes = self.tokenizer.convert_tokens_to_ids("yes")
-        self.no = self.tokenizer.convert_tokens_to_ids("no")
-        self.batch_size = batch_size
-
-    def score(self, prompts: list[str]) -> tuple[list[float], int]:
-        """(yes 확률들, 입력 토큰 수). 글은 common에서 512토큰으로 잘려 와서 더 자르지 않는다."""
-        torch = self.torch
-        inputs = self.tokenizer(
-            prompts, add_special_tokens=False, padding=True, return_tensors="pt"
-        ).to(self.device)
-        with torch.no_grad():
-            logits = self.model(**inputs).logits[:, -1, :]
-        pair = torch.stack([logits[:, self.no], logits[:, self.yes]], dim=1).float()
-        tokens = int(inputs["attention_mask"].sum())
-        return torch.softmax(pair, dim=1)[:, 1].tolist(), tokens
+    async def __call__(self, question, meter) -> list[str]:
+        passages = await self.search.candidate_passages(question, mode=CANDIDATE_MODE)
+        if not passages:
+            return []
+        name = self.scorer.model_name
+        meter.add(name, calls=len(passages))  # 부르기 전에 센다(상한)
+        result = self.scorer.score(question.text, [p.text for p in passages])
+        if inspect.isawaitable(result):
+            result = await result
+        scores, input_tokens, output_tokens = result
+        if len(scores) != len(passages):
+            raise RuntimeError(f"점수 수 {len(scores)} ≠ 글 수 {len(passages)}")
+        meter.add(name, calls=0, input_tokens=input_tokens, output_tokens=output_tokens)
+        ranked = max_p((p.parent_id, s) for p, s in zip(passages, scores, strict=True))
+        return [parent_id for parent_id, _ in ranked[:TOP_K]]
 
 
 def build_qwen(search):
+    """③: ①과 같은 점수기(qwen_reranker.QwenReranker)."""
+    import asyncio
+
+    from evals.rerank_compare.qwen_reranker import QwenReranker
+
     reranker = QwenReranker()
 
-    async def retrieve(question, meter):
-        passages = await search.candidate_passages(question, mode=CANDIDATE_MODE)
-        scored: list[tuple[str, float]] = []
-        for i in range(0, len(passages), reranker.batch_size):
-            batch = passages[i : i + reranker.batch_size]
-            meter.add(QWEN_RERANKER_MODEL, calls=len(batch))
-            prompts = [qwen_prompt(question.text, p.text) for p in batch]
-            scores, tokens = await asyncio.to_thread(reranker.score, prompts)
-            meter.add(QWEN_RERANKER_MODEL, calls=0, input_tokens=tokens, output_tokens=0)
-            scored += [(p.parent_id, s) for p, s in zip(batch, scores, strict=True)]
-        return [parent_id for parent_id, _ in max_p(scored)[:TOP_K]]
+    class _Threaded:  # GPU 계산이 이벤트 루프를 막지 않게
+        model_name = reranker.model_name
 
-    retrieve.params = _params(  # type: ignore[attr-defined]
-        model=QWEN_RERANKER_MODEL,
-        device=reranker.device,
-        batch_size=reranker.batch_size,
-        score="softmax(no, yes) at answer position",
-        calls_counted="per chunk",
-    )
-    return retrieve
+        async def score(self, question, texts):
+            return await asyncio.to_thread(reranker.score, question, texts)
+
+    retriever = CurrentRagReranker(search, _Threaded())
+    retriever.params |= {"scorer": reranker.describe(), "calls_counted": "per chunk"}
+    return retriever
 
 
 def build_gpt(search):
-    from dotenv import load_dotenv
-    from openai import AsyncOpenAI
+    """④: ②와 같은 점수기(gpt_judge.GptJudge). 실제 사용량·비용은 실행 뒤 params.usage에."""
+    from evals.rerank_compare.gpt_judge import GptJudge
 
-    load_dotenv(override=False)
-    client = AsyncOpenAI()
-    limit = asyncio.Semaphore(GPT_CONCURRENCY)
-
-    async def judge(question, passage, meter) -> tuple[str, float]:
-        async with limit:
-            response = await client.chat.completions.create(
-                **gpt_request(question.text, passage.text)
-            )
-        usage = response.usage
-        meter.add(
-            GPT_MODEL,
-            calls=0,
-            input_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=usage.completion_tokens if usage else None,
-        )
-        top = response.choices[0].logprobs.content[0].top_logprobs
-        return passage.parent_id, yes_probability(top)
-
-    async def retrieve(question, meter):
-        passages = await search.candidate_passages(question, mode=CANDIDATE_MODE)
-        for _ in passages:  # 돈을 쓰기 전에 이 질문의 호출 수를 모두 센다(상한이면 여기서 멈춤)
-            meter.add(GPT_MODEL)
-        scored = await asyncio.gather(*(judge(question, p, meter) for p in passages))
-        return [parent_id for parent_id, _ in max_p(scored)[:TOP_K]]
-
-    retrieve.params = _params(  # type: ignore[attr-defined]
-        model=GPT_MODEL,
-        concurrency=GPT_CONCURRENCY,
-        calls_counted="per chunk",
-    )
-    return retrieve
+    judge = GptJudge()
+    retriever = CurrentRagReranker(search, judge)
+    retriever.params |= {"scorer": judge.describe(), "calls_counted": "per chunk"}
+    retriever.after_run = lambda: {"usage": judge.usage()}  # run.py가 실행 뒤 params에 더한다
+    return retriever
