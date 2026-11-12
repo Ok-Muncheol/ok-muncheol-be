@@ -86,7 +86,7 @@ MAX_LISTED_UNREVIEWED = 3
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.12.1"
+RULE_VERSION = "judgment-rules-2026.11.12.2"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
@@ -586,6 +586,9 @@ def build_graph(
             "missing_fact": "도표를 가르는 사실이 카드에 없음",
             "contradiction": "카드 사실과 도표 조건이 모순",
         }.get(kind or "", "반박 성립")
+        if kind == "wrong_chart" and not preferred:
+            # 검토기가 차순위 후보가 아닌 도표를 가리켰다(parse_verdict). 다시 고를 수 없다
+            label = "도표 오선택 반박인데 고를 차순위 후보가 없음: 담당자 확인 필요"
         update["outcome"] = _outcome("needs_confirmation", [label, *check["reasons"]])
         return update
 

@@ -14,6 +14,7 @@ from app.schemas.chart_scope import (
     REASON_PENDING_DECISION,
 )
 from app.validation.evidence import PERIOD_UNKNOWN_WARNING
+from app.validation.rebuttal import UNCONFIRMED_CLAIM_NOTE
 from app.workflow.graph import (
     CRITERIA_VERSION,
     MAX_REBUTTAL_RETRIES,
@@ -182,14 +183,20 @@ def test_second_wrong_chart_needs_confirmation_without_third_run():
     assert reviewer.await_count == 2
 
 
-@pytest.mark.parametrize("kind", ["missing_fact", "contradiction"])
-def test_fact_rebuttals_need_confirmation_without_rerun(kind):
+@pytest.mark.parametrize(("kind", "name"), [("missing_fact", "사실 누락"),
+                                            ("contradiction", "모순")])
+def test_fact_rebuttals_not_backed_by_the_card_are_noted_not_followed(kind, name):
+    """선택 도표의 '*' 아닌 조건이 모두 확인한 사실과 같으면 LLM의 모순·사실 누락은 경고만 한다.
+
+    판단 그래프는 그런 도표만 고르므로 이 주장은 칸 대조로 확인되지 않는다(gpt-4o-mini 오판, 11/12).
+    """
     _, out, reviewer = run(card(), verdicts=(verdict(True, kind, reasons=["쟁점"]),))
     result = out["result"]
-    assert result["status"] == "needs_confirmation"
-    assert result["checks"][-1]["rebuttal_kind"] == kind
-    assert "쟁점" in result["reasons"]
-    assert result["fault_A"] is None and result["calculation_log"] == []
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "S-1")
+    rebuttal = result["checks"][1]
+    assert (rebuttal["layer"], rebuttal["passed"], rebuttal["rebuttal_kind"]) == \
+        ("rebuttal", True, None)
+    assert rebuttal["reasons"] == [UNCONFIRMED_CLAIM_NOTE.format(name=name), "쟁점"]
     assert reviewer.await_count == 1
 
 
@@ -480,3 +487,12 @@ def test_accident_before_published_month_defers_without_llm():
         "사고 일자(2026-10-01)가 적용판 synthetic-1 발행월(2026-11)보다 앞선다",
     ]
     assert reviewer.await_count == 0
+
+
+def test_wrong_chart_pointing_at_the_selected_chart_needs_confirmation_without_rerun():
+    """검토기가 고른 도표 자신을 wrong_chart로 적으면 다시 고르지 않고 담당자 확인으로 넘긴다."""
+    _, out, reviewer = run(card(), verdicts=[verdict(True, "wrong_chart", "S-1", ["비율 이상"])])
+    result = out["result"]
+    assert result["status"] == "needs_confirmation"
+    assert result["reasons"][0] == "도표 오선택 반박인데 고를 차순위 후보가 없음: 담당자 확인 필요"
+    assert reviewer.await_count == 1

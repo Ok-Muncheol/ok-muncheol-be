@@ -8,8 +8,10 @@ import pytest
 from app.validation.rebuttal import (
     RESPONSE_SCHEMA,
     SYSTEM_PROMPT,
+    UNCONFIRMED_CLAIM_NOTE,
     VERDICTS,
     ReviewerNotConfigured,
+    claim_confirmed,
     openai_reviewer,
     parse_verdict,
     review_payload,
@@ -33,7 +35,6 @@ def test_wrong_chart_requires_alternative_and_other_kinds_drop_preferred():
 @pytest.mark.parametrize("raw", [
     "not json", json.dumps(["none"]),
     json.dumps({"verdict": "typo", "preferred_chart_id": None, "reasons": ["r"]}),
-    json.dumps({"verdict": "wrong_chart", "preferred_chart_id": "S-9", "reasons": ["r"]}),
     json.dumps({"verdict": "contradiction", "preferred_chart_id": None, "reasons": []}),
     json.dumps({"verdict": "none", "preferred_chart_id": None, "reasons": "x"}),
     # 예전 형식은 받지 않는다. 이 모순(반박 성립인데 종류 없음)이 실제로 나왔다(11/12)
@@ -144,3 +145,47 @@ def test_verdict_is_one_value_so_rebuttal_and_kind_cannot_disagree():
 def test_prompt_explains_the_any_value():
     # 진입 순서 `*`인 도표에서 모델이 판정을 헷갈렸다. `*`이 반박 사유가 아님을 알린다
     assert "'*'" in SYSTEM_PROMPT and "verdict" in SYSTEM_PROMPT
+
+
+def test_wrong_chart_outside_alternatives_goes_to_staff_instead_of_failing():
+    """차순위 후보가 아닌 도표(고른 도표 자신 등)를 가리키면 멈추지 않고 담당자에게 넘긴다."""
+    out = parse_verdict(verdict(True, "wrong_chart", "S-1", ["B 과실이 더 커야 한다"]), ["S-2"])
+    assert (out["holds"], out["kind"], out["preferred_chart_id"]) == (True, "wrong_chart", None)
+    assert out["reasons"][-1] == \
+        "반박 검토가 차순위 후보가 아닌 도표(S-1)를 골라 다시 고르지 않았다"
+
+
+def test_prompt_limits_the_reviewer_to_comparing_conditions():
+    # gpt-4o-mini가 과실비율을 따져 맞는 도표를 '모순'으로 돌린 일(11/12)을 막는다
+    assert "과실비율이 타당한지" in SYSTEM_PROMPT and "칸마다 대조" in SYSTEM_PROMPT
+
+
+def test_claims_are_checked_field_by_field():
+    """모순은 같은 칸 값이 다를 때, 사실 누락은 '*' 아닌 조건 칸이 사실에 없을 때만 확인된다."""
+    cands = candidates()
+    sel = chosen(cands)  # S-1: 카드와 모든 칸이 같다
+    assert claim_confirmed("contradiction", card(), sel, cands) is False
+    assert claim_confirmed("missing_fact", card(), sel, cands) is False
+    other = {**sel, "chart_id": "S-2"}  # S-2는 movement_B가 straight라 카드(left_turn)와 다르다
+    assert claim_confirmed("contradiction", card(), other, cands) is True
+    unknown = card()
+    del unknown["fields"]["signal_B"]
+    assert claim_confirmed("missing_fact", unknown, sel, cands) is True
+    assert claim_confirmed("contradiction", card(), {**sel, "chart_id": "ghost"}, cands) is None
+
+
+def test_confirmed_claim_still_blocks_and_unconfirmed_claim_is_a_warning():
+    cands = candidates()
+
+    async def says(kind):
+        async def reviewer(system, user):
+            return verdict(True, kind, reasons=["쟁점"])
+        return reviewer
+
+    other = {**chosen(cands), "chart_id": "S-2"}
+    contradiction = asyncio.run(says("contradiction"))
+    check, _ = asyncio.run(review_rebuttal(card(), other, cands, contradiction))
+    assert (check["passed"], check["rebuttal_kind"]) == (False, "contradiction")
+    check, _ = asyncio.run(review_rebuttal(card(), chosen(cands), cands, contradiction))
+    assert check["passed"] is True and check["rebuttal_kind"] is None
+    assert check["reasons"][0] == UNCONFIRMED_CLAIM_NOTE.format(name="모순")
