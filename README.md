@@ -130,7 +130,7 @@ SAM2는 YOLO만으로 부족한 차로 점유·경계 확인에서 개선 효과
 | API | Python 3.12 · FastAPI · Vercel Functions · PyJWT | 사건·사실 카드·판단 실행·보고서·권한 | 운영 배포. 토큰은 Supabase JWKS(ES256)로 검증 |
 | 비전 워커 | Modal · YOLO11s · OpenCV Farneback · VideoMAE · V-JEPA 2 · CLIP · scikit-learn | 차량 탐지·추적, 촬영 차량 움직임(광류), 영상 분류(미세조정), 작은 분류기 | 파이프라인 구현(`workers/vision/pipeline.py`: 영상 → 사실 카드 v1, [설명](workers/vision/README.md)). Modal 연결은 진행 중 |
 | 사실 추출 | OpenAI VLM | 사진 12장 + 비전 결과로 사실 카드 초안 작성, 칸별로 비전 모델과 교차 확인 | `gpt-4o`(영상 1건 약 37원). 칸별 정확도는 [사실 카드 v1](docs/contracts/fact-card-v1.md) 3절. `gpt-4o`는 OpenAI가 스냅샷 종료를 2027-01-14로 공지 |
-| 판단 | LangGraph · Postgres 체크포인터(psycopg) · OpenAI LLM | 고정 판단 그래프·구분 질문 재개·반박 검토 | 구현. LLM 모델은 `OPENAI_MODEL`(`.env.example`은 `gpt-5`) |
+| 판단 | LangGraph · Postgres 체크포인터(psycopg) · OpenAI LLM | 고정 판단 그래프·구분 질문 재개·반박 검토 | 구현. LLM 모델은 `OPENAI_MODEL`(비우면 `gpt-4o-mini`. `.env.example`·운영도 `gpt-4o-mini`) |
 | 검색·색인 | pdfplumber · OpenAI 임베딩(`text-embedding-3-small`) · Kiwi BM25 · pgvector | 코퍼스별 파싱·청킹·임베딩, 구조화 검색·한국어 BM25 | 검색은 메모리 색인(`InMemoryIndex`)으로 돈다. 로컬은 `LOAD_KNOWLEDGE_BASE=1`이면 서버 시작에서 db_import 파일로 켜고, 운영(Vercel)에는 색인 파일이 없어 꺼져 있다. pgvector는 `VectorIndex` 교체 지점으로 남아 있다. LangChain은 LangGraph 설정 타입(`langchain_core`)만 쓴다 |
 | 데이터·파일·인증 | Supabase Postgres · Storage · Auth · RLS | 사건·근거·비공개 영상·담당자 접근 통제 | 사건 접근·판단·보고서 마이그레이션 3개(`supabase/migrations/`) |
 | 진행·관측 | Supabase Realtime · LangSmith · Vercel Observability | 작업 변경 알림·단계별 비용·처리 시간 | Realtime은 `judgment_runs`·`judgment_questions`를 발행한다. LangSmith는 아직 연결하지 않았다 |
