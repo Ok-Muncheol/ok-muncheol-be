@@ -54,6 +54,9 @@ SYSTEM_PROMPT = (
     "- missing_fact: '*'가 아닌 그 조건 칸이 confirmed_facts에 없다\n"
     "- wrong_chart: alternative_charts 중 하나가 확인한 사실에 더 맞는다. preferred_chart_id에 "
     "그 후보 ID를 적는다. alternative_charts가 비었거나 선택한 도표 자신이면 고르지 않는다\n"
+    "칸 이름이 정확히 같은 칸끼리만 대조한다. signal_A·signal_B는 교차로에 들어갈 때 신호, "
+    "collision_signal_A·collision_signal_B는 충돌할 때 신호라 서로 다른 칸이다. 한 차의 두 신호 "
+    "값이 달라도 모순이 아니다\n"
     "도표 조건 값 '*'는 그 도표가 그 칸으로 갈리지 않는다는 뜻이라 어떤 사실 값과도 맞는다. "
     "'*'인 칸은 반박 사유가 아니다. unknown_facts는 담당자가 모른다고 확인한 칸이고, "
     "party_note가 있으면 그 안내대로 A/B를 읽는다. 서술(narrative)은 참고만 한다.\n"
@@ -63,7 +66,13 @@ SYSTEM_PROMPT = (
 RESPONSE_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
+    # 이유를 판정보다 먼저 쓰게 한다. 구조화 출력은 이 순서로 생성되므로, 판정이 먼저면 작은
+    # 모델(gpt-4o-mini)이 대조하기 전에 판정을 정하고 "일치함"이라 쓰면서 모순을 낸다(11/13 시범)
     "properties": {
+        "reasons": {
+            "type": "array", "items": {"type": "string"},
+            "description": "칸마다 대조한 결과. verdict보다 먼저 쓴다",
+        },
         "verdict": {
             "type": "string", "enum": list(VERDICTS),
             "description": "none = 반박 없음(선택한 도표가 맞다). 나머지는 반박 종류",
@@ -72,9 +81,8 @@ RESPONSE_SCHEMA = {
             "type": ["string", "null"],
             "description": "verdict가 wrong_chart일 때만 차순위 후보 ID, 아니면 null",
         },
-        "reasons": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["verdict", "preferred_chart_id", "reasons"],
+    "required": ["reasons", "verdict", "preferred_chart_id"],
 }
 
 
@@ -242,7 +250,9 @@ async def review_rebuttal(
         return {"layer": "rebuttal", "passed": True, "reasons": [note, *verdict["reasons"]],
                 "rebuttal_kind": None}, None
     check: ValidationCheck = {
-        "layer": "rebuttal", "passed": not verdict["holds"], "reasons": verdict["reasons"],
+        "layer": "rebuttal", "passed": not verdict["holds"],
+        # 반박 없음이면 모델이 판정 전에 쓴 칸 대조(reasons)는 싣지 않는다. 통과 사유가 길어진다
+        "reasons": verdict["reasons"] if verdict["holds"] else [],
         "rebuttal_kind": verdict["kind"],
     }
     return check, verdict["preferred_chart_id"]
