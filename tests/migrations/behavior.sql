@@ -3,7 +3,8 @@
 --
 -- 사용자 A 00000000-0000-0000-0000-00000000000a  사건 1 10000000-0000-0000-0000-000000000001
 -- 사용자 B 00000000-0000-0000-0000-00000000000b  사건 2 10000000-0000-0000-0000-000000000002
--- 실행 r1·r2·r3 2000…0001~0003(사건 1), 질문 q1 3000…0001
+-- 카드 버전: 사건 1 v1~v3, 사건 2 v1(판단·응답·보고서가 가리킨다)
+-- 실행 r1·r2·r3 2000…0001~0003(사건 1), 질문 q1·q2 3000…0001~0002
 
 \set ON_ERROR_STOP on
 set client_min_messages = warning;
@@ -75,11 +76,32 @@ language sql immutable as $$
     'checks', '[]'::jsonb, 'questions', '[]'::jsonb, 'reasons', '[]'::jsonb)
 $$;
 
+-- FactCard 모양의 카드(fact_cards.card)
+create function test_helpers.card(case_id uuid, version integer, status text, confirmed_by uuid) returns json
+language sql immutable as $$
+  select json_build_object('case_id', case_id, 'version', version, 'status', status, 'fields', '{}'::json,
+    'confirmed_by', confirmed_by, 'confirmed_at', case when confirmed_by is null then null else '2026-11-11T15:00:00Z' end)
+$$;
+
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-00000000000a'), ('00000000-0000-0000-0000-00000000000b');
 insert into public.cases (id, assignee_id) values
   ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a'),
   ('10000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000b');
+-- 판단·응답·보고서는 실제 카드 버전만 가리킨다(10절). 카드 자체의 제약은 8절에서 본다
+insert into public.fact_cards (case_id, version, card, origin) values
+  ('10000000-0000-0000-0000-000000000001', 1,
+   test_helpers.card('10000000-0000-0000-0000-000000000001', 1, 'draft', null), 'vision');
+insert into public.fact_cards (case_id, version, card, origin, reason, created_by) values
+  ('10000000-0000-0000-0000-000000000001', 2,
+   test_helpers.card('10000000-0000-0000-0000-000000000001', 2, 'confirmed', '00000000-0000-0000-0000-00000000000a'),
+   'edit', '영상 다시 봄', '00000000-0000-0000-0000-00000000000a'),
+  ('10000000-0000-0000-0000-000000000001', 3,
+   test_helpers.card('10000000-0000-0000-0000-000000000001', 3, 'confirmed', '00000000-0000-0000-0000-00000000000a'),
+   'edit', '구분 질문 답 반영', '00000000-0000-0000-0000-00000000000a'),
+  ('10000000-0000-0000-0000-000000000002', 1,
+   test_helpers.card('10000000-0000-0000-0000-000000000002', 1, 'confirmed', '00000000-0000-0000-0000-00000000000b'),
+   'manual', null, '00000000-0000-0000-0000-00000000000b');
 insert into public.judgment_runs
   (id, case_id, judgment_version, fact_card_version, criteria_version, rule_version, requested_by)
 values ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
@@ -254,10 +276,11 @@ select test_helpers.expect_error(null, null, $sql$
   values ('10000000-0000-0000-0000-000000000001', 4, 4, 'criteria-2023', 'rules-v1', '00000000-0000-0000-0000-00000000000a',
     'failed', '{"code": "x", "message": "m", "retryable": false}', now(), '20000000-0000-0000-0000-000000000002')
 $sql$, '23505', '한 실행은 한 번만 이어진다');
+-- 사건 2의 실제 카드 버전(v1)을 써서 실행 잇기 외래키만 걸리게 한다
 select test_helpers.expect_error(null, null, $sql$
   insert into public.judgment_runs (case_id, judgment_version, fact_card_version, criteria_version, rule_version,
     requested_by, status, error, completed_at, resumed_from_run_id)
-  values ('10000000-0000-0000-0000-000000000002', 3, 5, 'criteria-2023', 'rules-v1', '00000000-0000-0000-0000-00000000000b',
+  values ('10000000-0000-0000-0000-000000000002', 3, 1, 'criteria-2023', 'rules-v1', '00000000-0000-0000-0000-00000000000b',
     'failed', '{"code": "x", "message": "m", "retryable": false}', now(), '20000000-0000-0000-0000-000000000003')
 $sql$, '23503', '다른 사건의 실행을 잇지 않는다');
 select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000a',
@@ -325,23 +348,12 @@ select test_helpers.assert_equal((select count(*) from public.judgment_runs
   where id = '20000000-0000-0000-0000-000000000003' and updated_at > created_at), 1, 'updated_at 트리거');
 
 -- 8. 사실 카드 버전(A): 담당자만 읽기·브라우저 쓰기 금지·버전 유일·카드와 행 일치·확정 기록·만든 사람·Realtime
-create function test_helpers.card(case_id uuid, version integer, status text, confirmed_by uuid) returns json
-language sql immutable as $$
-  select json_build_object('case_id', case_id, 'version', version, 'status', status, 'fields', '{}'::json,
-    'confirmed_by', confirmed_by, 'confirmed_at', case when confirmed_by is null then null else '2026-11-11T15:00:00Z' end)
-$$;
-insert into public.fact_cards (case_id, version, card, origin) values
-  ('10000000-0000-0000-0000-000000000001', 1,
-   test_helpers.card('10000000-0000-0000-0000-000000000001', 1, 'draft', null), 'vision');
-insert into public.fact_cards (case_id, version, card, origin, reason, created_by) values
-  ('10000000-0000-0000-0000-000000000001', 2,
-   test_helpers.card('10000000-0000-0000-0000-000000000001', 2, 'confirmed', '00000000-0000-0000-0000-00000000000a'),
-   'edit', '영상 다시 봄', '00000000-0000-0000-0000-00000000000a');
+-- 카드 행은 판단보다 먼저 맨 앞에서 넣었다(사건 1 v1~v3, 사건 2 v1)
 select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000a',
-  'select count(*) from public.fact_cards'), 2, 'A는 자기 사건의 카드 버전을 본다');
+  'select count(*) from public.fact_cards'), 3, 'A는 자기 사건의 카드 버전을 본다');
 select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000b',
-  'select count(*) from public.fact_cards'), 0, 'B는 A 사건의 카드를 못 본다');
-select test_helpers.assert_equal((select count(*) from public.fact_cards where status = 'confirmed'), 1,
+  'select count(*) from public.fact_cards'), 1, 'B는 자기 사건의 카드만 보고 A 사건의 카드는 못 본다');
+select test_helpers.assert_equal((select count(*) from public.fact_cards where status = 'confirmed'), 3,
   'status는 card.status에서 만든다');
 select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a', $sql$
   update public.fact_cards set reason = 'x'
@@ -351,17 +363,17 @@ select test_helpers.expect_error('service_role', null, $sql$
     test_helpers.card('10000000-0000-0000-0000-000000000001', 1, 'draft', null), 'vision')
 $sql$, '23505', '같은 사건의 같은 카드 버전은 하나');
 select test_helpers.expect_error('service_role', null, $sql$
-  insert into public.fact_cards (case_id, version, card, origin) values ('10000000-0000-0000-0000-000000000001', 3,
-    test_helpers.card('10000000-0000-0000-0000-000000000001', 4, 'draft', null), 'vision')
+  insert into public.fact_cards (case_id, version, card, origin) values ('10000000-0000-0000-0000-000000000001', 4,
+    test_helpers.card('10000000-0000-0000-0000-000000000001', 5, 'draft', null), 'vision')
 $sql$, '23514', 'card.version은 행의 버전과 같다');
 select test_helpers.expect_error('service_role', null, $sql$
-  insert into public.fact_cards (case_id, version, card, origin, reason, created_by) values ('10000000-0000-0000-0000-000000000001', 3,
-    test_helpers.card('10000000-0000-0000-0000-000000000001', 3, 'confirmed', null), 'edit', 'r',
+  insert into public.fact_cards (case_id, version, card, origin, reason, created_by) values ('10000000-0000-0000-0000-000000000001', 4,
+    test_helpers.card('10000000-0000-0000-0000-000000000001', 4, 'confirmed', null), 'edit', 'r',
     '00000000-0000-0000-0000-00000000000a')
 $sql$, '23514', '확정 카드는 확정한 사람·시각이 있다');
 select test_helpers.expect_error('service_role', null, $sql$
-  insert into public.fact_cards (case_id, version, card, origin) values ('10000000-0000-0000-0000-000000000001', 3,
-    test_helpers.card('10000000-0000-0000-0000-000000000001', 3, 'draft', null), 'edit')
+  insert into public.fact_cards (case_id, version, card, origin) values ('10000000-0000-0000-0000-000000000001', 4,
+    test_helpers.card('10000000-0000-0000-0000-000000000001', 4, 'draft', null), 'edit')
 $sql$, '23514', '담당자 수정은 만든 사람과 사유가 있다');
 select test_helpers.assert_equal((select count(*) from (values ('insert'), ('update'), ('delete'), ('truncate')) p(priv)
   where has_table_privilege('authenticated', 'public.fact_cards', p.priv)), 0, 'authenticated는 카드를 쓸 수 없다');
@@ -413,5 +425,59 @@ select test_helpers.assert_equal((select count(*) from (values ('insert'), ('upd
 select test_helpers.assert_equal((select count(*) from pg_publication_tables
   where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'analysis_tasks'), 1,
   'Realtime은 분석 작업 상태를 알린다');
+
+-- 10. 카드 버전 외래키(B): 판단·응답·보고서는 그 사건의 실제 카드 버전만 가리키고, 가리킨 카드 버전은 지울 수 없다
+-- 판단은 실패한 실행으로 넣는다. 사건마다 진행 중 하나·같은 입력 재판단 제약을 피해서 카드 외래키만 걸리게 한다
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.judgment_runs (case_id, judgment_version, fact_card_version, criteria_version, rule_version,
+    requested_by, status, error, completed_at)
+  values ('10000000-0000-0000-0000-000000000001', 9, 9, 'criteria-2023', 'rules-v1', '00000000-0000-0000-0000-00000000000a',
+    'failed', '{"code": "x", "message": "m", "retryable": false}', now())
+$sql$, '23503', '판단의 카드 버전은 실제 카드 버전이다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.judgment_runs (case_id, judgment_version, fact_card_version, criteria_version, rule_version,
+    requested_by, status, error, completed_at)
+  values ('10000000-0000-0000-0000-000000000002', 9, 2, 'criteria-2023', 'rules-v1', '00000000-0000-0000-0000-00000000000b',
+    'failed', '{"code": "x", "message": "m", "retryable": false}', now())
+$sql$, '23503', '다른 사건의 카드 버전은 가리킬 수 없다');
+insert into public.judgment_runs
+  (case_id, judgment_version, fact_card_version, criteria_version, rule_version, requested_by, status, error, completed_at)
+values ('10000000-0000-0000-0000-000000000002', 9, 1, 'criteria-2023', 'rules-v1', '00000000-0000-0000-0000-00000000000b',
+        'failed', '{"code": "x", "message": "m", "retryable": false}', now());
+select test_helpers.assert_equal((select count(*) from public.judgment_runs
+  where case_id = '10000000-0000-0000-0000-000000000002' and judgment_version = 9), 1,
+  '대조군: 같은 행이 자기 사건의 카드 버전을 가리키면 들어간다');
+insert into public.judgment_questions (id, run_id, case_id, field_key, text, options)
+values ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000003',
+        '10000000-0000-0000-0000-000000000001', 'signal_B', 'B 차량의 신호는?', array['green', 'yellow', 'red']);
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.judgment_answers (question_id, case_id, expected_card_version, value, answered_by)
+  values ('30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 9, 'red',
+          '00000000-0000-0000-0000-00000000000a')
+$sql$, '23503', '응답이 본 카드 버전은 실제 카드 버전이다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.judgment_answers (question_id, case_id, expected_card_version, value, resulting_card_version, answered_by)
+  values ('30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 3, 'red', 9,
+          '00000000-0000-0000-0000-00000000000a')
+$sql$, '23503', '응답을 반영한 카드 버전은 실제 카드 버전이다');
+-- ReviewReport 모양의 보고서. 제약이 읽는 versions·approval_status만 채운다
+create function test_helpers.report(case_id uuid, report integer, judgment integer, card integer) returns json
+language sql immutable as $$
+  select json_build_object('versions', json_build_object('case_id', case_id, 'report_version', report,
+    'judgment_version', judgment, 'fact_card_version', card), 'approval_status', 'draft')
+$$;
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.review_reports (case_id, report_version, judgment_version, fact_card_version, report, created_by)
+  values ('10000000-0000-0000-0000-000000000001', 1, 1, 9,
+    test_helpers.report('10000000-0000-0000-0000-000000000001', 1, 1, 9), '00000000-0000-0000-0000-00000000000a')
+$sql$, '23503', '보고서의 카드 버전은 실제 카드 버전이다');
+insert into public.review_reports (case_id, report_version, judgment_version, fact_card_version, report, created_by)
+values ('10000000-0000-0000-0000-000000000001', 1, 1, 1,
+  test_helpers.report('10000000-0000-0000-0000-000000000001', 1, 1, 1), '00000000-0000-0000-0000-00000000000a');
+select test_helpers.assert_equal((select count(*) from public.review_reports
+  where case_id = '10000000-0000-0000-0000-000000000001'), 1, '대조군: 실제 카드 버전을 가리키는 보고서는 들어간다');
+select test_helpers.expect_error(null, null, $sql$
+  delete from public.fact_cards where case_id = '10000000-0000-0000-0000-000000000001' and version = 2
+$sql$, '23503', '판단·응답이 가리킨 카드 버전은 지울 수 없다');
 
 select 'MIGRATION_BEHAVIOR_OK' as result;
