@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from typing import Literal
 
 from app.schemas.chart_scope import FIELD_OPTIONS
-from app.schemas.facts import FACT_FIELD_OPTIONS, FactCard, FactField
+from app.schemas.facts import BOOL_FIELDS, FACT_FIELD_OPTIONS, FactCard, FactField
 
 CardFormat = Literal["v1", "v1_ko", "legacy"]
 
@@ -67,7 +67,8 @@ _V1_VALUE_SET = frozenset(v for values in V1_OPTIONS.values() for v in values)
 # 모름은 선택지가 아니라 '모른다' 응답이다. night는 참거짓이라 문자열 선택지를 둔다
 V1_EN_OPTIONS: dict[str, tuple[str, ...]] = {
     **{key: values for key, values in FACT_FIELD_OPTIONS.items() if key in FIELD_OPTIONS},
-    "night": ("true", "false"),
+    # 참거짓 칸(night·unprotected_left_sign)은 문자열 선택지를 둔다
+    **{key: ("true", "false") for key in BOOL_FIELDS if key in FIELD_OPTIONS},
 }
 
 # 한국어 안에만 있는 칸(확정본에서는 비전 안에서만 쓰고 내보내지 않는다, v1 7절)
@@ -77,13 +78,20 @@ _V1_KO_ONLY_KEYS = frozenset({
     "motion_trend_A", "motion_trend_B", "weather",
 })
 # 확정본에서 생긴 칸·값(도표 선택 칸별). 11/6 카드에는 없다
-_V1_ONLY_KEYS = frozenset({"relative_position", "collision_time_ms", "narrative"})
+_V1_ONLY_KEYS = frozenset({
+    "relative_position", "collision_time_ms", "narrative",
+    # 11/13 담당자 입력 칸(#160)
+    "collision_signal_A", "collision_signal_B", "lane_marking_A", "lane_marking_B",
+    "unprotected_left_sign",
+})
 # 11/6 도표 선택 값. 지금 `chart_scope`는 v1 값이라, 형식 판정은 이 값과 견준다
 # (여기 없는 v1 값이 있으면 확정본 카드다). 나머지 칸은 11/6과 지금 값이 같다
 _LEGACY_OPTIONS: dict[str, frozenset[str]] = {
     "road_priority": frozenset({"same_width", "major_minor", "stop_sign"}),
     "movement_A": frozenset({"straight", "left_turn", "right_turn", "u_turn"}),
     "movement_B": frozenset({"straight", "left_turn", "right_turn", "u_turn"}),
+    "signal_A": frozenset({"green", "yellow", "red", "green_left_arrow", "no_signal"}),
+    "signal_B": frozenset({"green", "yellow", "red", "green_left_arrow", "no_signal"}),
     "entry_order": frozenset({"first", "second", "simultaneous"}),
 }
 _V1_ONLY_VALUES: dict[str, frozenset[str]] = {
@@ -95,6 +103,8 @@ _V1_ONLY_VALUES: dict[str, frozenset[str]] = {
 _SWAP_KEYS: dict[str, str] = {
     "movement_A": "movement_B", "movement_B": "movement_A",
     "signal_A": "signal_B", "signal_B": "signal_A",
+    "collision_signal_A": "collision_signal_B", "collision_signal_B": "collision_signal_A",
+    "lane_marking_A": "lane_marking_B", "lane_marking_B": "lane_marking_A",
 }
 _SWAP_VALUES: dict[str, dict[str, str]] = {
     "road_priority": {

@@ -273,3 +273,45 @@ def test_priority_side_separates_charts():
                               entry_order=field("second"))
     _, out, _, _ = start(swapped, cands=[a_stop, b_stop], thread="run-swap-stop")
     assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("Q-2", 30)
+
+
+def test_lane_marking_separates_charts_and_is_asked_when_unfilled():
+    """차로 노면표시로 갈리는 도표(차11-x)는 그 칸을 묻고, 답이 있으면 맞는 도표를 고른다."""
+    base = {"location_type": "signalized_intersection", "movement_A": "straight",
+            "movement_B": "left_turn", "signal_A": "green", "signal_B": "red",
+            "relative_position": "opposite"}
+    in_left_lane = candidate("L-1", {**base, "lane_marking_A": "left_only",
+                                     "lane_marking_B": "straight_left"}, 100, score=0.9)
+    plain = candidate("L-2", {**base, "lane_marking_A": "straight_only",
+                              "lane_marking_B": "straight_left"}, 20, score=0.8)
+    asked = en_v1_card()
+    _, out, _, _ = start(asked, cands=[in_left_lane, plain], thread="run-lane-ask")
+    keys = [q["field_key"] for q in out["__interrupt__"][0].value["questions"]]
+    assert keys == ["lane_marking_A", "lane_marking_B"]
+    filled = en_v1_card(lane_marking_A=field("left_only"), lane_marking_B=field("straight_left"))
+    _, out, _, _ = start(filled, cands=[in_left_lane, plain], thread="run-lane")
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("L-1", 100)
+    # 도표 A가 촬영 차량이면 카드의 노면표시 칸도 맞바꿔 읽는다
+    swapped = en_v1_card(swapped=True, lane_marking_A=field("straight_left"),
+                         lane_marking_B=field("left_only"))
+    _, out, _, _ = start(swapped, cands=[in_left_lane, plain], thread="run-lane-swap")
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("L-1", 100)
+
+
+def test_what_if_on_the_unprotected_left_sign_assumes_a_bool_card_value():
+    """비보호 좌회전 표지 가정 값은 카드 값처럼 참거짓으로 넣고 그 표지로 갈리는 도표를 고른다."""
+    from app.api import judgments
+
+    assert judgments._assumed(None, "unprotected_left_sign", "true")["value"] is True
+    assert judgments._assumed(None, "night", "false")["value"] is False
+    base = {**SIGNALIZED_V1, "relative_position": "opposite"}
+    sign = candidate("U-1", {**base, "unprotected_left_sign": "true"}, 30, score=0.9)
+    no_sign = candidate("U-2", {**base, "unprotected_left_sign": "false"}, 20, score=0.8)
+    judgments.configure(deps=Dependencies(retrieve=AsyncMock(return_value=[sign, no_sign]),
+                                          reviewer=AsyncMock(return_value=verdict())))
+    try:
+        result, _ = asyncio.run(judgments._simulate(en_v1_card(),
+                                                    {"unprotected_left_sign": "true"}))
+    finally:
+        judgments.configure(deps=Dependencies())
+    assert (result["status"], result["chart_id"], result["fault_A"]) == ("completed", "U-1", 30)

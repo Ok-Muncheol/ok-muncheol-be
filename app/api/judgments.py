@@ -37,7 +37,7 @@ from app.agents import qa as qa_agent
 from app.api import reports
 from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.schemas.common import ApiError
-from app.schemas.facts import FactCard, FactField
+from app.schemas.facts import BOOL_FIELDS, FactCard, FactField
 from app.schemas.judgment import (
     AnswerView,
     JudgmentRunView,
@@ -471,7 +471,8 @@ def _assumed(base: FactField | None, key: str, value: str) -> FactField:
         "value": None, "model_value": None, "source": "manual", "model_confidence": None,
         "verification_status": "unverified", "evidence_frame_ids": [], "source_document_ids": [],
     }
-    typed: str | bool = value == "true" if key == "night" else value
+    # 참거짓 칸(야간·비보호 좌회전 표지)은 카드 값처럼 bool로 넣는다
+    typed: str | bool = value == "true" if key in BOOL_FIELDS else value
     return {**field_, "value": typed, "verification_status": "human_confirmed"}
 
 

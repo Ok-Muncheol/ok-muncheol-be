@@ -240,7 +240,9 @@ def test_only_v1_cards_are_swapped():
 def test_example_card_from_the_vision_pipeline():
     c = json.loads(EXAMPLE.read_text(encoding="utf-8"))
     for f in c["fields"].values():  # 담당자가 모델 값을 그대로 확정했다고 본다
-        f["verification_status"] = "human_confirmed"
+        # 담당자 입력 칸(#160, null + unverified)은 손대지 않으면 미확인으로 남는다
+        if not (f["value"] is None and f["verification_status"] == "unverified"):
+            f["verification_status"] = "human_confirmed"
     assert confirmed_values(c) == {
         "accident_type": "car_to_car", "location_type": "unsignalized_intersection",
         "road_priority": "same_width", "signal_A": "no_signal", "signal_B": "no_signal",
@@ -255,9 +257,11 @@ def test_example_card_from_the_vision_pipeline():
 def test_chart_values_follow_the_v1_card():
     """도표 선택 값(C 레코드 값)은 카드 v1 확정본 값과 같다. 범위 판정 칸(사고 유형)만 좁다."""
     for key in ("road_priority", "signal_A", "signal_B", "movement_A", "movement_B",
-                "relative_position", "entry_order"):
+                "relative_position", "entry_order", "collision_signal_A", "collision_signal_B",
+                "lane_marking_A", "lane_marking_B"):
         assert FIELD_OPTIONS[key] == FACT_FIELD_OPTIONS[key], key
     assert set(FIELD_OPTIONS["accident_type"]) < set(FACT_FIELD_OPTIONS["accident_type"])
+    assert FIELD_OPTIONS["unprotected_left_sign"] == ("true", "false")
 
 
 def test_swapped_v1_card_flips_position_and_priority_side():
@@ -275,3 +279,34 @@ def test_v1_value_alone_still_marks_a_v1_card():
     c = card()
     c["fields"]["road_priority"] = field("major_A")
     assert card_format(c) == "v1"
+
+
+def test_swapped_v1_card_swaps_the_new_party_fields():
+    """도표 A가 촬영 차량이면 충돌 순간 신호와 차로 노면표시도 칸끼리 맞바꾼다(v1 2절, #160)."""
+    c = en_v1_card(swapped=True, collision_signal_A=field("red"),
+                   collision_signal_B=field("flashing_yellow"),
+                   lane_marking_A=field("left_only"), lane_marking_B=field("straight_only"),
+                   unprotected_left_sign=field(True))
+    values = confirmed_values(c)
+    assert (values["collision_signal_A"], values["collision_signal_B"]) == \
+        ("flashing_yellow", "red")
+    assert (values["lane_marking_A"], values["lane_marking_B"]) == ("straight_only", "left_only")
+    assert values["unprotected_left_sign"] == "true"
+    assert card_field_key("lane_marking_A", c) == "lane_marking_B"
+    assert question_options("unprotected_left_sign", c) == ["true", "false"]
+
+
+def test_unfilled_manual_fields_are_not_facts_or_unknowns():
+    """영상 카드의 담당자 입력 칸(null + unverified)은 사실도 '모름'도 아니다. 필요하면 질문한다."""
+    unfilled = {"value": None, "model_value": None, "source": "vision", "model_confidence": None,
+                "verification_status": "unverified", "evidence_frame_ids": [],
+                "source_document_ids": []}
+    c = en_v1_card(lane_marking_A=unfilled, unprotected_left_sign=unfilled)
+    assert "lane_marking_A" not in confirmed_values(c)
+    assert confirmed_unknown_fields(c) == []
+
+
+def test_search_query_uses_lane_marking_and_unprotected_sign_words():
+    c = en_v1_card(lane_marking_A=field("left_only"), unprotected_left_sign=field(True))
+    text = build_search_query(c)["text"]
+    assert "좌회전 노면표시차로" in text and "비보호 좌회전" in text
