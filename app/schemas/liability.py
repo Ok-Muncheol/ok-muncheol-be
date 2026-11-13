@@ -36,6 +36,7 @@ class InjuredPersonInput(TypedDict):
     """대인(상대 차 탑승자) 1명."""
 
     person_id: str
+    label: NotRequired[str | None]  # 보고서 표시 이름(예: "상대 운전자")
     grade: int | None  # 자배법 시행령 별표1 상해 급수(1~14). 담당자 입력
     treatment_cost: int | None  # 치료관계비(원). 담당자 입력
     is_driver: NotRequired[bool | None]  # 차량운전자 여부(12~14급 특례 확인용)
@@ -58,6 +59,7 @@ class PropertyDamageResult(TypedDict):
 class InjuryResult(TypedDict):
     status: LiabilityStatus
     person_id: str
+    label: NotRequired[str | None]
     grade: int | None
     treatment_cost: int | None
     consolation: int | None  # 급수별 부상 위자료(별표1 나 2)

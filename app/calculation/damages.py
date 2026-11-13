@@ -40,6 +40,16 @@ def calculate_damages(
         if d.get("kind") == "repair_estimate"
         and (party_id is None or d.get("party_id") == party_id)
     ]
+    # 당사자를 모르는데 견적서 당사자가 여럿이면(예: 상대 차 견적 업로드) 섞어 고르지 않는다
+    parties = {d.get("party_id") for d in estimates}
+    if party_id is None and len(parties) > 1:
+        return {
+            "status": "needs_documents",
+            "party_id": None,
+            "amount": None,
+            "source_document_ids": [str(d["document_id"]) for d in estimates],
+            "reasons": ["우리 차 당사자 미지정 — 여러 당사자의 견적서가 있어 손해액을 고르지 않음"],
+        }
     confirmed = [
         d
         for d in estimates

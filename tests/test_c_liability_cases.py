@@ -17,6 +17,13 @@ CASES = json.loads(
 VALUES = ScheduleValues(injury_property_values.build({"document_id": CASES["document_id"]}))
 DATE = CASES["accident_date"]
 STATUS = {"계산": "draft", "배상책임 확인": "needs_review"}
+# 정답 예시의 대물 "확인 필요" 이름 → 계산 결과 flags[].key (대차료·휴차료는 한 표시)
+PROPERTY_REVIEW_KEYS = {
+    "전부손해": "total_loss",
+    "시세하락손해": "depreciation",
+    "대차료": "rental",
+    "휴차료": "rental",
+}
 
 
 def estimate(amount):
@@ -51,6 +58,8 @@ class PropertyCasesTest(unittest.TestCase):
                 self.assertEqual(r["status"], STATUS[e["status"]])
                 self.assertEqual(r["amount"], e["amount_krw"])
                 self.assertEqual(r["limit_applied"], e["capped_by_limit"])
+                want = {PROPERTY_REVIEW_KEYS[n] for n in e["needs_review"]}
+                self.assertEqual({f["key"] for f in r["flags"]}, want)
                 cited = {x for f in r["flags"] for x in f["clause_ids"]}
                 self.assertLessEqual(set(case["basis_record_ids"]), cited)
 

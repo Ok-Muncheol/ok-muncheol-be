@@ -26,12 +26,13 @@ import os
 import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import UTC
+from datetime import UTC, date
 from functools import wraps
 from pathlib import Path
 
 from app import storage
 from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
+from app.calculation.damages import received_at
 from app.calculation.estimate_reader import read_estimate_pdf
 from app.calculation.exclusions import (
     EXCLUSION_FACT_KEYS,
@@ -43,6 +44,7 @@ from app.calculation.exclusions import (
     review_exclusions_from_facts,
 )
 from app.calculation.insurance import calculate_insurance
+from app.calculation.liability import liability_from_report
 from app.calculation.rules import DEFAULT_RULES, RuleSet
 from app.claims.package import ClaimPackageBlocked, build_claim_package, compute_recovery
 from app.reports.assembler import assemble_review
@@ -142,7 +144,14 @@ class EstimateNotPdf(ValueError):
     """내려받은 견적서가 PDF가 아니거나 PDF로 읽을 수 없음."""
 
 
-DOCUMENT_KINDS = ("repair_estimate", "own_damage_contract", "evidence")
+DOCUMENT_KINDS = (
+    "repair_estimate",
+    "own_damage_contract",
+    "evidence",
+    # 계약 변경(C): 대물·대인 담당자 입력(app/schemas/reports.py, docs/contracts/liability-input.md)
+    "injured_person",
+    "property_damage_input",
+)
 # 견적서 Storage 내려받기(upload_estimate_from_storage)
 ESTIMATE_MAX_BYTES = 10 * 1024 * 1024
 PDF_HEADER = b"%PDF-"
@@ -208,6 +217,8 @@ class ReportServices:
     judge: Judge = flag_judge
     # app.retrieval.common.fetch_by_parent. 없으면 면책은 담당자 입력으로 판정
     fetch_clauses: object | None = None
+    # 약관 schedule_value 레코드 body(대물·대인 숫자). 없으면 대인은 "자료 없음"으로 금액 없음
+    schedule_values: tuple[dict, ...] = ()
 
 
 services = ReportServices()
@@ -250,7 +261,8 @@ def configure_with_knowledge_base() -> ReportServices:
     configure_retrieval(index=index, embedder=embedder, default_terms_edition=edition)
     if store is not None:
         configure_evidence_store(lambda: store)
-    return configure(fetch_clauses=fetch_by_parent, judge=judge)
+    values = tuple(r["body"] for r in corpus.records if r.get("kind") == "schedule_value")
+    return configure(fetch_clauses=fetch_by_parent, judge=judge, schedule_values=values)
 
 
 def _now() -> str:
@@ -312,7 +324,9 @@ async def _draft(
     )
     return assemble_review(
         judgment, calc, recovery=_recovery(rec, base, calc), now=_now(),
-        clauses=await _report_clauses(base, calc), **kw,  # type: ignore[arg-type]
+        clauses=await _report_clauses(base, calc),
+        liability=liability_from_report(base, rec.documents, services.schedule_values),
+        **kw,  # type: ignore[arg-type]
     )
 
 
@@ -346,6 +360,49 @@ def validate_documents(documents: list[dict[str, object]]) -> None:
             raise DocumentsInvalid(
                 f"documents[{i}].kind는 {', '.join(DOCUMENT_KINDS)} 중 하나여야 합니다"
             )
+        problem = _liability_input_problem(doc)
+        if problem:
+            raise DocumentsInvalid(f"documents[{i}]: {problem}")
+
+
+def _is_int(v: object) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _liability_input_problem(doc: dict[str, object]) -> str | None:
+    """대물·대인 입력 칸 검사. 모르는 값은 null(0으로 채우지 않음)."""
+    kind = doc.get("kind")
+    if kind not in ("injured_person", "property_damage_input"):
+        return None
+    try:
+        received_at(doc)
+    except (KeyError, TypeError, ValueError):
+        return "received_at은 ISO 8601 시각이어야 합니다"
+    if kind == "injured_person":
+        if not str(doc.get("person_id") or "").strip():
+            return "injured_person에 person_id가 없습니다"
+        grade = doc.get("grade")
+        if grade is not None and not (_is_int(grade) and 1 <= grade <= 14):  # type: ignore[operator]
+            return "grade는 1~14 정수 또는 null이어야 합니다"
+        cost = doc.get("treatment_cost")
+        if cost is not None and not (_is_int(cost) and cost >= 0):  # type: ignore[operator]
+            return "treatment_cost는 0 이상 정수(원) 또는 null이어야 합니다"
+        if doc.get("is_driver") is not None and not isinstance(doc.get("is_driver"), bool):
+            return "is_driver는 true/false/null이어야 합니다"
+        if doc.get("label") is not None and not isinstance(doc.get("label"), str):
+            return "label은 문자열 또는 null이어야 합니다"
+        return None
+    for key in ("property_damage_limit", "vehicle_value"):
+        v = doc.get(key)
+        if v is not None and not (_is_int(v) and v >= 0):  # type: ignore[operator]
+            return f"{key}는 0 이상 정수(원) 또는 null이어야 합니다"
+    release = doc.get("release_date")
+    if release is not None:
+        try:
+            date.fromisoformat(str(release))
+        except ValueError:
+            return "release_date는 YYYY-MM-DD 날짜여야 합니다"
+    return None
 
 
 def validate_case_facts(case_facts: dict[str, object]) -> None:
@@ -367,7 +424,11 @@ def _same_inputs(a: ReviewReport | None, b: ReviewReport) -> bool:
     ca, cb = a.get("calculation"), b.get("calculation")
     if ca is None or cb is None:
         return ca is cb
-    return ca.get("inputs_hash") == cb.get("inputs_hash") and a.get("recovery") == b.get("recovery")
+    return (
+        ca.get("inputs_hash") == cb.get("inputs_hash")
+        and a.get("recovery") == b.get("recovery")
+        and a.get("liability") == b.get("liability")  # 예전 보고서는 키가 없어 None
+    )
 
 
 @_api_boundary
