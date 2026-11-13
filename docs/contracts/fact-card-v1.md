@@ -1,6 +1,7 @@
 # 사고 사실 카드 v1 (A 정지원 → 전원)
 
-작성: 2026-11-11 · 상태: **확정** (영어 값 12칸). v0(11/5 초안)과 11/11 오전 한국어 22칸안을 대체한다.
+작성: 2026-11-11 · 상태: **확정** (영어 값 17칸). v0(11/5 초안)과 11/11 오전 한국어 22칸안을 대체한다.
+11/13: 남은 도표(차11-x, 1-2·2-3·2-5·3-5, 1-5·3-7·3-8, 2-2)를 가르려고 **담당자 입력 칸 5개**(`collision_signal_A/B`, `lane_marking_A/B`, `unprotected_left_sign`)와 **점멸 신호 값**(`flashing_yellow`, `flashing_red`)을 더했다(B 요청).
 예시: [fact-card-v1.example.json](fact-card-v1.example.json) — 지금 코드로 만든 실제 카드 1장(AI Hub 신호 없는 사거리 영상)
 
 판단(B)·도표 레코드(C)·검색 필터(D)·화면(FE)은 이 문서의 칸 이름과 값을 쓴다.
@@ -13,7 +14,7 @@
 | 키 | 내용 |
 | --- | --- |
 | `case_id`, `version`, `accident_date`, `status`, `confirmed_by`, `confirmed_at` | 기존 계약 그대로 |
-| `fields` | 칸 이름 → `FactField` (3절 12칸) |
+| `fields` | 칸 이름 → `FactField` (3절 17칸) |
 | `party_mapping` | 기존 그대로. 1인칭 영상이면 `video_ego_party_id = "P1"`, 기본값 `chart_party_A_id = "P2"`, `chart_party_B_id = "P1"` |
 | `evidence_frames` | 기존 그대로. `timestamp_ms`는 **올린 원본 영상** 기준(긴 영상을 잘라 분석해도 되돌려 준다) |
 | **`parties`** (추가) | `[{"party_id": "P1", "role": "촬영 차량", "track_id": null}, {"party_id": "P2", "role": "상대 차량", "track_id": null}]` |
@@ -31,7 +32,7 @@
 
 | 칸 | 맞바뀔 때 |
 | --- | --- |
-| `movement_A` ↔ `movement_B`, `signal_A` ↔ `signal_B` | 칸끼리 맞바꿈 |
+| `movement_A` ↔ `movement_B`, `signal_A` ↔ `signal_B`, `collision_signal_A` ↔ `collision_signal_B`, `lane_marking_A` ↔ `lane_marking_B` | 칸끼리 맞바꿈(값은 그대로) |
 | `road_priority` | `major_A` ↔ `major_B`, `stop_A` ↔ `stop_B` (나머지 그대로) |
 | `entry_order` | `first` ↔ `second` (나머지 그대로) |
 | `relative_position` | `left` ↔ `right`, `same_direction_front` ↔ `same_direction_rear` (`opposite` 그대로) |
@@ -46,11 +47,14 @@
 | `accident_type` | `car_to_car` · `other` (3대 이상·차대차 아님) | 범위 | 30/30 |
 | `location_type` | `signalized_intersection` · `unsignalized_intersection` · `roundabout` · `straight_road` · `highway` · `other` | ✅ | 74/92 (80%) |
 | `road_priority` | `same_width` · `major_A` · `major_B` · `stop_A` · `stop_B` · `other` · `none` | ✅ 신호 없는 교차로 | 21/30 |
-| `signal_A`, `signal_B` | `green` · `yellow` · `red` · `green_left_arrow` · `no_signal` | ✅ 신호 교차로 | 0/4 → **신호 교차로에서 늘 확인 표시** |
+| `signal_A`, `signal_B` | `green` · `yellow` · `red` · `green_left_arrow` · `flashing_yellow` · `flashing_red` · `no_signal` | ✅ 신호 교차로(**진입 시점** 신호) | 0/4 → **신호 교차로에서 늘 확인 표시** |
+| `collision_signal_A`, `collision_signal_B` | `signal_*`와 같은 값 | 진입 시와 충돌 시 신호가 다른 도표(차1-2, 2-3, 2-5, 3-5) | 담당자 입력 |
 | `movement_A`, `movement_B` | `straight` · `left_turn` · `right_turn` · `u_turn` · `lane_change` · `other` | ✅ | A 60/92 (65%), B 69/92 (75%) |
+| `lane_marking_A`, `lane_marking_B` | `left_only` · `straight_left` · `straight_only` · `straight_right` · `right_only` · `none` | 교차로 노면 표시 위반(차11-1~11-6) | 담당자 입력 |
 | `relative_position` | `same_direction_front` · `same_direction_rear` · `opposite` · `left` · `right` | 맞은편·측면·좌우 도표 | 19/30 (좌·우 구분) |
 | `entry_order` | `first` · `second` · `simultaneous` · `none` | ✅ 신호 없는 교차로 | 14/30 |
 | `night` | `true` · `false` | 참고(수정요소 자동 적용 안 함) | — |
+| `unprotected_left_sign` | `true` · `false` | 비보호 좌회전 표지(차2-2 `false`, 차2-6·4-2 `true`) | 담당자 입력 |
 | `collision_time_ms` | 정수(원본 영상 시작부터 ms) · `null` | 근거 프레임 | 17/30 (±200ms) |
 | `narrative` | 자유 서술(한국어) | 보고서 참고 | — |
 
@@ -59,7 +63,10 @@
 - `unsignalized_intersection`: 신호 없는 사거리와 T자형 교차로. `other`: 주차장, 차도와 차도 아닌 곳.
 - `major_A` = A가 대로(B가 소로). `stop_A` = A 쪽에 일시정지 표지. `other` = 한쪽에만 신호등. `none` = 교차로가 아님.
 - `lane_change` = 진로변경·추월·합류(화면에서 거의 구분되지 않아 묶음). `other` = 정차 후 출발, 주정차, 출차, 후진, 회전교차로 진입·회전.
-- `green_left_arrow` = 녹색 좌회전, 녹색 직진+좌회전 동시 신호.
+- `green_left_arrow` = 녹색 좌회전, 녹색 직진+좌회전 동시 신호. `flashing_yellow`·`flashing_red` = 황색·적색 점멸.
+- `signal_*` = 그 차가 **교차로에 들어갈 때** 신호, `collision_signal_*` = **충돌할 때** 신호. 둘이 같으면 같은 값을 넣는다.
+- `lane_marking_*` = 그 차가 있던 **차로의 방향 화살표**. `left_only` 좌회전 전용, `straight_left` 직진·좌회전, `straight_only` 직진 전용, `straight_right` 직진·우회전, `right_only` 우회전 전용, `none` 표시 없음. 예: 차11-1은 A가 `left_only`에서 직진, B가 `straight_left`에서 좌회전.
+- `unprotected_left_sign`: 비보호 좌회전 표지가 있으면 `true`.
 - `relative_position`: **B의 진행 방향에서 볼 때 A가 충돌 직전 어디 있었나(어디서 왔나).** `left` = A가 B의 왼쪽(왼쪽 도로에서 진입), `opposite` = 마주 오는 차, `same_direction_front` = B 앞에서 같은 방향.
 - `entry_order`: A 기준. `first` = A가 교차로에 먼저 진입.
 - `night`: 야간이면 `true`. JSON 참거짓 값이다(`FIELD_OPTIONS`의 문자열 `"true"`와 비교할 때 맞춘다).
@@ -78,6 +85,7 @@
 | `relative_position` | VLM ≠ 영상 모델 v3(좌·우는 측면으로 묶어 비교) |
 | `collision_time_ms` | 긴 영상을 잘라 분석했을 때 항상 |
 | 그 밖 | 값이 `null`, VLM 자신감 < 0.7, 탐지·VLM 불일치 |
+| 담당자 입력 칸(`collision_signal_*`, `lane_marking_*`, `unprotected_left_sign`) | **표시하지 않음.** 영상 카드에서는 `null` + `unverified`(출처 `manual`)로 나가 확정을 막지 않는다. 도표를 가르는 데 필요할 때 판단이 빈 칸 질문으로 묻는다(9절) |
 
 B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참고값이다(VLM 자신감은 0.8~0.9로 거의 일정).
 
@@ -122,6 +130,7 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 | `entry_order` | `entry_order` | A먼저/B먼저/동시/해당없음 → `first`/`second`/`simultaneous`/`none` |
 | `night` | `time_condition` | 야간 → `true`, 나머지 → `false` |
 
+담당자 입력 칸 5개는 내부 칸이 없다(`V1_FIELDS`의 내부 칸 `None`, `MANUAL_FIELDS`).
 `불명`은 모두 `null` + `needs_review`. 내부에만 있고 v1에 내지 않는 칸: `party_count`, `lane_change_*`, `centerline_cross_*`,
 `collision_part_*`, `motion_trend_*`, `weather`.
 

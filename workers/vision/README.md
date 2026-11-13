@@ -1,6 +1,6 @@
 # workers/vision — 블랙박스 영상 → 사실 카드 (A 정지원)
 
-영상 파일 하나를 받아 팀 계약 사실 카드 v1(영어 12칸, [docs/contracts/fact-card-v1.md](../../docs/contracts/fact-card-v1.md))을 만든다.
+영상 파일 하나를 받아 팀 계약 사실 카드 v1(영어 17칸, [docs/contracts/fact-card-v1.md](../../docs/contracts/fact-card-v1.md))을 만든다.
 학습·평가 스크립트는 [evals/vision/README.md](../../evals/vision/README.md).
 
 ## 흐름
@@ -17,7 +17,7 @@ analyze_video(case_id, 로컬 영상 경로)                          pipeline.p
  │    └ 사고 유형 × 방향 자신감                                  type_model.py, accident_types.py
  ├ 3. VLM 질문 (gpt-4o, 영상 1건 약 37원)                        prompts.py → vlm.py
  ├ 4. 의견 모으기·값 고르기·확인 표시 → 내부 카드(한국어)        fact_card.py (칸·값: fields.py)
- └ 5. 내부 카드 → v1 카드(영어 12칸) + 칸별 평가 정확도          contract.py
+ └ 5. 내부 카드 → v1 카드(영어 17칸, 담당자 입력 5칸 포함) + 칸별 평가 정확도          contract.py
 ```
 
 ## 한국어 값과 영어 값

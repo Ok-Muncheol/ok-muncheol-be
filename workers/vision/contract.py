@@ -1,4 +1,4 @@
-"""A: 비전 내부 카드(한국어 22칸) → 팀 계약 사실 카드 v1(영어 12칸, 2026-11-11 확정).
+"""A: 비전 내부 카드(한국어 22칸) → 팀 계약 사실 카드 v1(영어 17칸, 2026-11-11 확정·11-13 5칸 추가).
 
 내부 카드는 학습·평가에 쓰는 세분 값 그대로 두고, 판단(B)·화면(FE)에 넘길 때만 이 변환을 거친다.
 채점(evals/vision/score_v1.py)도 같은 표를 쓴다. 표를 바꾸면 docs/contracts/fact-card-v1.md도 함께
@@ -8,6 +8,8 @@
   바꾸고,
   vision_detail에는 내부 값(internal_value)을 남긴다.
 - '불명'·빈값은 null + needs_review. A/B는 그대로(B = 블랙박스 차).
+- 담당자 입력 칸(MANUAL_FIELDS: 충돌 시점 신호·차로 노면표시·비보호 좌회전 표지)은 비전이 채우지
+  않는다. null + unverified(출처 manual)로 내고 확정을 막지 않는다.
 - 충돌 시각·근거 프레임 시각에는 영상을 잘라 분석했을 때 자른 시작 시각(offset_ms)을 더해 원본 영상
   기준으로 돌려준다.
 """
@@ -15,6 +17,8 @@
 from __future__ import annotations
 
 import copy
+
+from app.schemas.facts import MANUAL_FIELDS
 
 LOCATION = {
     "사거리_신호있음": "signalized_intersection",
@@ -63,18 +67,23 @@ POSITION = {
 ENTRY = {"A먼저": "first", "B먼저": "second", "동시": "simultaneous", "해당없음": "none"}
 ACCIDENT = {"차대차": "car_to_car"}
 
-# v1 칸 → (내부 칸, 값 표). 값 표가 None이면 값을 그대로 둔다
-V1_FIELDS: dict[str, tuple[str, dict | None]] = {
+# v1 칸 → (내부 칸, 값 표). 값 표가 None이면 값을 그대로 둔다. 내부 칸이 None이면 담당자 입력 칸
+V1_FIELDS: dict[str, tuple[str | None, dict | None]] = {
     "accident_type": ("accident_object", ACCIDENT),
     "location_type": ("location_type", LOCATION),
     "road_priority": ("road_priority", ROAD),
     "signal_A": ("signal_A", SIGNAL),
     "signal_B": ("signal_B", SIGNAL),
+    "collision_signal_A": (None, None),
+    "collision_signal_B": (None, None),
     "movement_A": ("movement_A", MOVE),
     "movement_B": ("movement_B", MOVE),
+    "lane_marking_A": (None, None),
+    "lane_marking_B": (None, None),
     "relative_position": ("relative_position", POSITION),
     "entry_order": ("entry_order", ENTRY),
     "night": ("time_condition", None),
+    "unprotected_left_sign": (None, None),
     "collision_time_ms": ("collision_time_ms", None),
     "narrative": ("narrative", None),
 }
@@ -156,6 +165,14 @@ def _convert_value(v1_name: str, internal: str, field: dict, offset_ms: int) -> 
     return out
 
 
+def manual_field() -> dict:
+    """비전이 채우지 않는 담당자 입력 칸. 값을 넣으면 PATCH가 human_confirmed로 바꾼다."""
+    return {
+        "value": None, "model_value": None, "source": "manual", "model_confidence": None,
+        "verification_status": "unverified", "evidence_frame_ids": [], "source_document_ids": [],
+    }
+
+
 def to_contract_card(
     card: dict, *, accident_date: str | None = None, version: int = 1, offset_ms: int = 0
 ) -> dict:
@@ -163,7 +180,9 @@ def to_contract_card(
     fields = card.get("fields", {})
     out_fields = {}
     for v1_name, (internal, _) in V1_FIELDS.items():
-        if internal in fields:
+        if v1_name in MANUAL_FIELDS:
+            out_fields[v1_name] = manual_field()
+        elif internal in fields:
             out_fields[v1_name] = _convert_field(v1_name, internal, fields[internal], offset_ms)
     # 3대 이상이면 범위 밖(차대차 도표 아님)
     count = (fields.get("party_count") or {}).get("value")
