@@ -16,6 +16,7 @@ from urllib.parse import urlsplit, urlunsplit
 import psycopg
 import pytest
 from psycopg.rows import dict_row
+from psycopg.types.json import Json
 
 from app import db
 from app.agents import qa as qa_agent
@@ -81,12 +82,23 @@ def service(database_url):
     reports.configure(repo=InMemoryReportRepository())
 
 
+# 사건마다 미리 넣는 카드 버전. 판단·응답·보고서는 실제 카드 버전만 가리킨다(카드 버전 외래키).
+# 합성 카드는 기본 v3이고, 카드를 고친 뒤의 새 판단은 v4, SQL로 직접 넣는 실행은 v2를 쓴다
+CARD_VERSIONS = (1, 2, 3, 4)
+
+
 def new_case(url: str, assignee: str = ACTOR) -> str:
     case_id = str(uuid.uuid4())
     with psycopg.connect(url, autocommit=True) as conn:
         conn.execute(
             "insert into public.cases (id, assignee_id) values (%s, %s)", (case_id, assignee)
         )
+        for version in CARD_VERSIONS:
+            conn.execute(
+                "insert into public.fact_cards (case_id, version, card, origin, created_by)"
+                " values (%s, %s, %s, 'manual', %s)",
+                (case_id, version, Json(card(case_id=case_id, version=version)), assignee),
+            )
     return case_id
 
 

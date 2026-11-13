@@ -100,11 +100,19 @@ def new_case(url: str, assignee: str = ACTOR) -> str:
 
 
 def judged(url: str, case_id: str, status: str = "draft_ready", version: int = 1):
-    """B가 끝낸 판단 실행 1건(judgment_runs)을 넣고, 같은 버전의 (카드, 판단 결과)를 돌려준다."""
+    """B가 끝낸 판단 실행 1건(judgment_runs)을 넣고, 같은 버전의 (카드, 판단 결과)를 돌려준다.
+
+    판단·보고서는 실제 카드 버전만 가리키므로(카드 버전 외래키) A의 카드 버전 행을 먼저 넣는다.
+    """
     card = {**fx.card(), "case_id": case_id}
     result = fx.judgment(status, judgment_version=version)
     result["versions"] = {**result["versions"], "case_id": case_id}
     with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute(
+            "insert into public.fact_cards (case_id, version, card, origin, created_by)"
+            " values (%s, %s, %s, 'manual', %s) on conflict (case_id, version) do nothing",
+            (case_id, card["version"], Json(card), ACTOR),
+        )
         conn.execute(
             "insert into public.judgment_runs (case_id, judgment_version, fact_card_version,"
             " criteria_version, rule_version, status, stage, result, requested_by, completed_at)"

@@ -9,9 +9,10 @@
 | `20261109163900_case_access_base.sql` | 구준휘(통합) | `cases` 최소 골격, `private.can_access_case()`, `private.set_updated_at()` |
 | `20261109163901_judgment_runs.sql` | 구준휘 | 판단 실행·구분 질문/응답·검증 로그·요청 멱등성, `langgraph` 스키마 |
 | `20261111090000_review_reports.sql` | 옥석현 | 검토 보고서 버전·서류·면책/협의 입력·구상 청구서(`review_reports`·`case_documents`·`report_case_inputs`·`claim_packages`), 시퀀스 권한 회수 |
-| `20261111150000_fact_cards.sql` | 정지원 | 사실 카드 버전(`fact_cards`, 한 버전 = 한 행 = 수정 이력), 확정 기록, Realtime. 판단·보고서의 카드 버전 외래키는 통합 뒤 새 파일로 |
+| `20261111150000_fact_cards.sql` | 정지원 | 사실 카드 버전(`fact_cards`, 한 버전 = 한 행 = 수정 이력), 확정 기록, Realtime. 판단·보고서의 카드 버전 외래키는 `20261113120000`이 더한다 |
 | `20261111160000_case_intake.sql` | 정지원 | `cases`에 `accident_date`·`input_path`(video·manual) 추가. 범위 검사는 접수 API가 한다 |
 | `20261111170000_analysis_tasks.sql` | 정지원 | 영상 분석 작업(`analysis_tasks`): 사건마다 진행 중 하나, 같은 Idempotency-Key 한 번, 콜백 토큰은 SHA-256만, 완료는 `fact_cards` 버전 외래키, Realtime |
+| `20261113120000_fact_card_version_fks.sql` | 구준휘(통합) | 판단(`judgment_runs.fact_card_version`)·응답(`judgment_answers`의 `expected_card_version`·`resulting_card_version`)·보고서(`review_reports.fact_card_version`)를 `fact_cards (case_id, version)` 외래키로 묶는다. 다른 사건의 카드 버전은 가리킬 수 없고, 가리킨 카드 버전은 지울 수 없다 |
 
 ## 공통 원칙
 
@@ -28,7 +29,7 @@
 
 | 담당 | 테이블/규칙 | 이 기반과 맞출 점 |
 | --- | --- | --- |
-| 정지원 | 사건 범위·상태 칼럼, 파일·작업·사실 카드 버전·수정/확정 이력, Storage RLS | `cases`는 새 파일의 ADD COLUMN으로 넓힌다. 카드 버전 테이블이 생기면 판단 테이블의 `(case_id, fact_card_version)`·`expected_card_version`·`resulting_card_version` 외래키를 새 파일로 추가한다 |
+| 정지원 | 사건 범위·상태 칼럼, 파일·작업·사실 카드 버전·수정/확정 이력, Storage RLS | `cases`는 새 파일의 ADD COLUMN으로 넓힌다. 카드 버전 행은 지우지 않는다(판단·응답·보고서가 외래키로 가리킨다, `20261113120000`) |
 | 김지은 | 도표·수정요소·관계·참고 판례·결정례·약관·문서/청크·임베딩 메타데이터 | 사건 단위가 아니므로 원문 이용조건에 맞춰 공개 범위를 정한다 |
 | 옥석현 | 공통 검색 함수·인덱스·코퍼스별 통계, 산정·보고서·승인·구상 버전 | 보고서는 `judgment_runs (case_id, judgment_version)`을 참조한다 |
 
@@ -38,9 +39,9 @@ pgvector 차원·pg_trgm·Kiwi 토큰 통계는 김지은·옥석현 계약 후 
 
 | 테이블 | 핵심 제약 |
 | --- | --- |
-| `judgment_runs` | 작업 상태(`status`)와 판정 상태(`judgment_status`) 분리, 반박 재실행 1회, A+B=100, 결과의 `versions` = 행의 버전, 사건마다 진행 중인 판단 하나, 같은 입력(카드·인정기준·규칙 버전) 재판단 금지 |
+| `judgment_runs` | 작업 상태(`status`)와 판정 상태(`judgment_status`) 분리, 반박 재실행 1회, A+B=100, 결과의 `versions` = 행의 버전, 사건마다 진행 중인 판단 하나, 같은 입력(카드·인정기준·규칙 버전) 재판단 금지, 카드 버전은 `fact_cards` 외래키 |
 | `judgment_questions` | 실행마다 카드 칸 하나에 질문 하나 |
-| `judgment_answers` | 질문마다 응답 하나, 모른다면 값 없음, 반영한 카드는 새 버전 |
+| `judgment_answers` | 질문마다 응답 하나, 모른다면 값 없음, 반영한 카드는 새 버전, 본 카드·반영한 카드 버전은 `fact_cards` 외래키 |
 | `validation_checks` | 시도(0·1)·겹마다 결과 하나, 실패하면 이유 필수 |
 | `api_idempotency_keys` | 키 8~128자, 같은 키는 한 번, 브라우저 접근 없음 |
 
@@ -69,7 +70,7 @@ Realtime publication을 흉내 내고, `tests/migrations/behavior.sql`이 RLS·�
 
 `main`에 머지된 파일만 공용 Supabase DB에 파일명 순으로 적용한다. 대시보드 SQL Editor 또는
 `psql "$DATABASE_URL" --single-transaction -f <파일>`. 적용은 사람이 하고 ship은 안내만 한다(`automation/pipeline.md` 「DB 마이그레이션 원칙」).
-파괴적 변경은 2단계로 나눈다.
+파괴적 변경은 2단계로 나눈다. 외래키를 더하는 파일은 적용 전에 짝이 없는 행이 있는지 먼저 센다. 하나라도 있으면 적용이 실패한다.
 
 LangGraph 체크포인트 테이블은 마이그레이션 뒤 한 번 `.venv/bin/python scripts/setup_checkpointer.py`로 `langgraph` 스키마에
 만든다(`DATABASE_URL`, 여러 번 실행해도 된다). `langgraph-checkpoint-postgres`를 올리면 다시 실행한다.
