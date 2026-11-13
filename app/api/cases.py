@@ -20,7 +20,9 @@ from app.schemas.common import UploadKind
 from app.workflow import runs
 
 # 담당자가 올릴 수 있는 형식 → 확장자. 버킷(case-files)은 PDF·video/*·image/jpeg를 받는다
-# (image/jpeg는 근거 사진용으로 Modal 워커만 올린다)
+# (image/jpeg는 근거 사진용으로 Modal 워커가 올리고, 대인 증빙 사진도 담당자가 올린다).
+# medical_document는 대인 보상 증빙(진단서·진료비 영수증 — 스캔 PDF나 휴대폰 사진)이다.
+# 첨부만 하고 읽지 않는다.
 UPLOAD_TYPES: dict[str, dict[str, str]] = {
     "estimate": {"application/pdf": "pdf"},
     "video": {
@@ -30,8 +32,13 @@ UPLOAD_TYPES: dict[str, dict[str, str]] = {
         "video/webm": "webm",
         "video/x-matroska": "mkv",
     },
+    "medical_document": {"application/pdf": "pdf", "image/jpeg": "jpg"},
 }
-UPLOAD_FOLDERS: dict[str, str] = {"estimate": "estimates", "video": "videos"}
+UPLOAD_FOLDERS: dict[str, str] = {
+    "estimate": "estimates",
+    "video": "videos",
+    "medical_document": "medical",
+}
 
 
 INPUT_PATHS = ("video", "manual")
@@ -258,7 +265,7 @@ async def request_upload(
 
     순서: 사건 권한 확인 → 형식 확인 → 경로 만들기 → 서명 URL 발급(바꾸지 않는다).
     경로: `case-files/{case_id}/videos/{uuid}.{확장자}`,
-    `case-files/{case_id}/estimates/{uuid}.pdf`.
+    `case-files/{case_id}/estimates/{uuid}.pdf`, `case-files/{case_id}/medical/{uuid}.pdf|jpg`.
     파일 이름은 uuid로 만든다(Supabase가 한글 이름을 400 InvalidKey로 거절한다).
     응답의 `storage_path`는 FE가 PUT 한 뒤 받는 `Key`와 같고, 분석 접수·견적서 경로에 그대로 넘긴다.
     """
@@ -266,7 +273,9 @@ async def request_upload(
     await _require_assignee(actor_id, case_id)
     types = UPLOAD_TYPES.get(str(kind))
     if types is None:
-        raise unprocessable("invalid_upload_type", "kind는 video 또는 estimate여야 합니다.")
+        raise unprocessable(
+            "invalid_upload_type", "kind는 video, estimate, medical_document 중 하나여야 합니다."
+        )
     ext = types.get((content_type or "").split(";")[0].strip().lower())
     if ext is None:
         allowed = ", ".join(types)

@@ -3,7 +3,7 @@
 네트워크·DB 없이 가짜 연결(cases.configure)과 가짜 Storage(httpx.MockTransport)로 확인한다.
 - 권한(404·403)이 서명 URL 발급보다 먼저(가짜 발급 함수가 불리지 않음)
 - kind·content_type 확인(422 invalid_upload_type)
-- 경로는 case-files/{case}/videos|estimates/{uuid}.{ext}
+- 경로는 case-files/{case}/videos|estimates|medical/{uuid}.{ext}
 - 서명 URL = SUPABASE_URL/storage/v1 + 응답 url, 키는 apikey 헤더로만, 오류 메시지에 키 없음
 """
 
@@ -84,6 +84,14 @@ def test_estimate_upload_is_pdf_in_estimates_folder(fake):
     assert re.fullmatch(rf"case-files/{CASE}/estimates/[0-9a-f-]{{36}}\.pdf", out["storage_path"])
 
 
+@pytest.mark.parametrize(
+    ("content_type", "ext"), [("application/pdf", "pdf"), ("image/jpeg", "jpg")]
+)
+def test_medical_document_is_pdf_or_jpeg_in_medical_folder(fake, content_type, ext):
+    out = run(cases.request_upload(ACTOR, CASE, "medical_document", content_type))
+    assert re.fullmatch(rf"case-files/{CASE}/medical/[0-9a-f-]{{36}}\.{ext}", out["storage_path"])
+
+
 def test_each_request_gets_new_file_name(fake):
     a = run(cases.request_upload(ACTOR, CASE, "video", "video/mp4"))
     b = run(cases.request_upload(ACTOR, CASE, "video", "video/mp4"))
@@ -105,7 +113,9 @@ def test_permission_checked_before_signing(fake, actor, case, status, code):
 @pytest.mark.parametrize(
     ("kind", "content_type"),
     [("video", "application/pdf"), ("estimate", "video/mp4"), ("video", "text/html"),
-     ("photo", "image/png"), (None, "video/mp4"), ("video", None)],
+     ("photo", "image/png"), (None, "video/mp4"), ("video", None),
+     ("medical_document", "image/png"), ("medical_document", "video/mp4"),
+     ("estimate", "image/jpeg")],
 )
 def test_rejects_wrong_kind_or_type(fake, kind, content_type):
     with pytest.raises(ApiException) as exc_info:
