@@ -51,14 +51,6 @@ async def setup_checkpoints(conn: AsyncConnection) -> None:
     await AsyncPostgresSaver(conn).setup()
 
 
-# 대인 담당자 칼럼(마이그레이션 20261113190000)을 읽는 SQL 식. 사건 별칭은 c여야 한다.
-# 머지하면 코드는 바로 배포되고 마이그레이션은 사람이 나중에 적용한다. 그 사이에 칼럼을 직접
-# 참조하면 모든 권한 검사가 UndefinedColumn으로 깨지므로, 행을 jsonb로 바꿔 읽는다
-# (칼럼이 없으면 null → 지금처럼 대물 담당자만).
-# 공용 DB 적용이 끝난 뒤에는 c.injury_assignee_id 직접 참조로 바꾼다.
-INJURY_ASSIGNEE_SQL = "(to_jsonb(c) ->> 'injury_assignee_id')::uuid"
-
-
 def assignees_of(row: Row) -> tuple[str, ...]:
     """사건 행의 담당자들 — 대물 담당자(assignee_id)와, 있으면 대인 담당자(injury_assignee_id)."""
     ids = (row["assignee_id"], row["injury_assignee_id"])
@@ -72,10 +64,7 @@ async def case_assignees(conn: AsyncConnection, case_id: str) -> tuple[str, ...]
     브라우저 쪽 같은 판정은 RLS 함수 private.can_access_case다(둘은 함께 바뀌어야 한다).
     """
     row = await _one(
-        conn,
-        f"select c.assignee_id, {INJURY_ASSIGNEE_SQL} as injury_assignee_id"
-        " from public.cases c where c.id = %s",
-        (case_id,),
+        conn, "select assignee_id, injury_assignee_id from public.cases where id = %s", (case_id,)
     )
     return assignees_of(row) if row else None
 
