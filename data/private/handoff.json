@@ -42,14 +42,14 @@
         {
           "path": "data/private/01_fault_standards/processed/charts.jsonl",
           "role": "charts",
-          "bytes": 471150,
-          "sha256": "3606da2be7b301543a30e779d78e077078a776291269aea9a0507338c6fdbceb"
+          "bytes": 498169,
+          "sha256": "06b73ce7e3d25f352e2eb22abac5ca023dff6b96669014558ce776ce58c56acd"
         },
         {
           "path": "data/private/01_fault_standards/processed/modifiers.jsonl",
           "role": "modifiers",
-          "bytes": 381249,
-          "sha256": "2b58b6365694a1556f7a9bb849b8a5c415b398119abf4bd859adac72c3623bba"
+          "bytes": 381053,
+          "sha256": "9c0f0df1bd08657ed62b46d11fb02ad3a6e76ec09bc327ea6a2599f9ca0b3561"
         },
         {
           "path": "data/private/01_fault_standards/processed/attributes.jsonl",
@@ -154,7 +154,7 @@
       "record_counts": {
         "clauses": 184,
         "appendices": 208,
-        "schedule_values": 119
+        "schedule_values": 171
       },
       "files": [
         {
@@ -190,8 +190,8 @@
         {
           "path": "data/private/03_policy_terms/processed/schedule_values.jsonl",
           "role": "schedule_values",
-          "bytes": 115762,
-          "sha256": "b21c9b54dac4f59271a43ae5435b44b36638c92587ae3b740858ffc441f36766"
+          "bytes": 182378,
+          "sha256": "fef984b14051660873c26d29bfaf744d40833568b241a4fb377f535974b0bf84"
         }
       ],
       "documents": [
@@ -214,7 +214,7 @@
       "source_review_status": "unreviewed business rules; machine-reviewed evaluation references",
       "unknown_effective_periods": true,
       "payment_standard_status": "별표1~5 items are appendices.record_type=payment_standard_item (chunk metadata clause_type=payment_standard); accident_date_from/to restrict some items, and hits outside the request accident_date are rejected by validate_hits",
-      "schedule_value_status": "schedule_values.jsonl holds 별표4·5 numbers machine-matched to source text; calculation_ready=false until business review"
+      "schedule_value_status": "schedule_values.jsonl holds 별표4·5 numbers machine-matched to source text (calculation_ready=false until business review) and 52 injury/property values for 별표1·2·3 checked against the PDF (calculation_ready=true, source_parent_id)"
     }
   ],
   "index_import_contract": {

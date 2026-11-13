@@ -42,7 +42,9 @@ Git에는 코드·`data/corpora/*/manifest.json`·합성 견본만 둔다.
 
 - 약관 검색은 `filters.schedule`(예: `"별표3"`)을 받아요.
 - 청크의 적용 사고일 범위가 요청 `accident_date` 밖이면 `validate_hits`가 거절해요. 그래서 공통 검색이 먼저 걸러야 해요.
-- 계산에 쓰는 수치(별표4 감액 비율, 별표5 급별 금액)는 청크가 아니라 `schedule_value` 레코드에서 가져와요. 원문과 기계 대조만 했기 때문에 `calculation_ready=false`예요.
+- 계산에 쓰는 수치는 청크가 아니라 `schedule_value` 레코드에서 가져와요.
+  - 별표4 감액 비율, 별표5 급별 금액(119개): 원문과 기계 대조만 했기 때문에 `calculation_ready=false`예요.
+  - 대인·대물 1차 판정 숫자(별표1 부상 한도·위자료, 별표2 시세하락·전부손해, 별표3 과실상계, 52개, #159): PDF와 대조 검수해 `calculation_ready=true`예요. 원문 위치는 `source_parent_id`에 있어요(`parent_id`는 null).
 
 ## 검증 어댑터 (`app/tools/_evidence.py`의 `EvidenceStore`)
 
