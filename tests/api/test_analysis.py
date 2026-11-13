@@ -24,10 +24,11 @@ from app import storage
 from app.api import analysis
 from app.api.errors import ApiException
 from app.config import Settings
-from tests.api.test_fact_cards import MemoryRepo
+from tests.api.test_fact_cards import MemoryRepo, assignees_of
 
 ACTOR, OTHER = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
 CASE = "33333333-3333-3333-3333-333333333333"
+INJURY = "55555555-5555-5555-5555-555555555555"  # 대인 담당자
 VIDEO = f"case-files/{CASE}/videos/{uuid.UUID(int=7)}.mp4"
 KEY = "analysis-key-0001"
 EXAMPLE = Path(__file__).resolve().parents[2] / "docs/contracts/fact-card-v1.example.json"
@@ -39,12 +40,12 @@ def run(coro):
 
 class MemoryAnalysisRepo:
     def __init__(self, assignees):
-        self.assignees = assignees
+        self.by_case = assignees  # 사건 → 담당자. 대인 담당자가 있으면 (대물 담당자, 대인 담당자)
         self.tasks: dict[str, dict] = {}
         self.stale: set[str] = set()  # 15분이 지났다고 칠 작업
 
-    async def assignee(self, case_id):
-        return self.assignees.get(case_id)
+    async def assignees(self, case_id):
+        return assignees_of(self.by_case, case_id)
 
     async def get(self, task_id):
         return copy.deepcopy(self.tasks.get(task_id))
@@ -413,6 +414,18 @@ def test_evidence_never_signs_other_paths(env):
     out = run(analysis.get_evidence(ACTOR, CASE))
     assert [f["url"] for f in out["frames"]] == [None, None]
     assert out["preview_url"] is None
+
+
+def test_injury_assignee_starts_analysis_and_reads_evidence(env):
+    """대인 담당자(cases.injury_assignee_id)도 분석을 접수하고 근거를 본다."""
+    tasks, _, _ = _evidence_env(env, uploaded=set())
+    tasks.by_case[CASE] = (ACTOR, INJURY)
+    out = start(actor=INJURY)
+    assert out["status"] == "running" and tasks.tasks[out["task_id"]]["requested_by"] == INJURY
+    assert run(analysis.get_evidence(INJURY, CASE))["frames"] == []
+    with pytest.raises(ApiException) as e:
+        start(actor=OTHER, key="analysis-key-0002")
+    assert error(e) == (403, "forbidden")
 
 
 def test_evidence_empty_before_analysis_and_checks_assignee(env):

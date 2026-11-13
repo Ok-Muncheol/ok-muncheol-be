@@ -14,6 +14,7 @@
 | `20261111170000_analysis_tasks.sql` | 정지원 | 영상 분석 작업(`analysis_tasks`): 사건마다 진행 중 하나, 같은 Idempotency-Key 한 번, 콜백 토큰은 SHA-256만, 완료는 `fact_cards` 버전 외래키, Realtime |
 | `20261113120000_fact_card_version_fks.sql` | 구준휘(통합) | 판단(`judgment_runs.fact_card_version`)·응답(`judgment_answers`의 `expected_card_version`·`resulting_card_version`)·보고서(`review_reports.fact_card_version`)를 `fact_cards (case_id, version)` 외래키로 묶는다. 다른 사건의 카드 버전은 가리킬 수 없고, 가리킨 카드 버전은 지울 수 없다 |
 | `20261113180000_case_documents_liability_kinds.sql` | 김지은 | `case_documents.kind`에 대물·대인 담당자 입력 `injured_person`·`property_damage_input` 추가(제약 다시 걸기). 칸은 `docs/contracts/liability-input.md` |
+| `20261113190000_case_injury_assignee.sql` | 구준휘(통합) | `cases.injury_assignee_id`(대인 담당자, 없으면 null). `private.can_access_case()`가 대물·대인 담당자 모두 통과시키고, `cases`에 대인 담당자용 조회 정책을 더한다. BE는 이 칼럼을 직접 읽으므로(`runs.case_assignees`) 새 DB에는 이 파일을 코드보다 먼저 적용한다 |
 
 ## 공통 원칙
 
@@ -24,6 +25,9 @@
 - **사건 단위 테이블은 `case_id`와 `private.can_access_case(case_id)`로 정책을 건다.** 자식 테이블도 `case_id` 사본을 두고
   부모와 `(id, case_id)` 복합 외래키로 묶는다. 행마다 조인 없이 RLS를 판정하고 사본이 어긋나지 않는다.
 - **RLS 도우미는 `private` 스키마에 둔다.** Data API에 노출되지 않는다(security definer 함수 노출 금지).
+- **사건 담당자는 두 명까지다.** 대물 담당자(`cases.assignee_id`, 필수)와 대인 담당자(`cases.injury_assignee_id`, 없을 수 있음)이고
+  권한이 같다. 같은 판정을 브라우저 쪽은 `private.can_access_case()`가, BE는 `app/workflow/runs.py`의 `case_assignees`가 한다.
+  한쪽만 바꾸지 않는다. 배정·이관은 BE가 이 두 칼럼을 바꾸는 일이다.
 - 타 담당 사건/파일 차단, 서버 전용 비밀키, 카드/판단/보고서 버전 외래키, 중복 실행 방지를 검수한다.
 
 ## 담당별로 더할 것

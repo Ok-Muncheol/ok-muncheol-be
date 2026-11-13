@@ -17,7 +17,16 @@ end;
 $$;
 
 create schema auth;
-create table auth.users (id uuid primary key);
+-- 실제 auth.users 가운데 BE가 읽는 칼럼만 둔다(담당자 목록 — app/api/admin.py STAFF_SQL)
+create table auth.users (
+  id uuid primary key,
+  email text,
+  raw_app_meta_data jsonb,
+  raw_user_meta_data jsonb,
+  created_at timestamptz not null default now(),
+  banned_until timestamptz,
+  deleted_at timestamptz
+);
 
 -- Supabase의 auth.uid()와 같은 규칙: request.jwt.claim.sub 또는 request.jwt.claims의 sub
 create function auth.uid() returns uuid

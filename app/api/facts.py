@@ -28,7 +28,7 @@ from app.workflow import runs
 
 
 class FactRepo(Protocol):
-    async def assignee(self, case_id: str) -> str | None: ...
+    async def assignees(self, case_id: str) -> tuple[str, ...] | None: ...
     async def latest(self, case_id: str) -> FactCard | None: ...
     async def insert(
         self, card: FactCard, origin: str, reason: str | None, actor_id: str | None
@@ -42,8 +42,8 @@ class PostgresFactRepo:
     def __init__(self, conn: Any):
         self.conn = conn
 
-    async def assignee(self, case_id: str) -> str | None:
-        return await runs.case_assignee(self.conn, case_id)
+    async def assignees(self, case_id: str) -> tuple[str, ...] | None:
+        return await runs.case_assignees(self.conn, case_id)
 
     async def latest(self, case_id: str) -> FactCard | None:
         cur = await self.conn.execute(
@@ -202,10 +202,10 @@ def confirmed_card(card: FactCard, actor_id: str, now: str) -> FactCard:
 
 
 async def _require_assignee(repo: FactRepo, actor_id: str, case_id: str) -> None:
-    assignee = await repo.assignee(case_id)
-    if assignee is None:
+    assignees = await repo.assignees(case_id)
+    if assignees is None:
         raise not_found("사건을 찾을 수 없습니다.")
-    if assignee != actor_id:
+    if actor_id not in assignees:
         raise forbidden()
 
 
@@ -290,6 +290,6 @@ async def save_vision_card(case_id: str, card: FactCard) -> FactCard:
     case_id = _case_uuid(case_id)
     async with services.connect() as conn:
         repo = services.repo(conn)
-        if await repo.assignee(case_id) is None:
+        if await repo.assignees(case_id) is None:
             raise not_found("사건을 찾을 수 없습니다.")
         return await store_vision_card(repo, case_id, card)

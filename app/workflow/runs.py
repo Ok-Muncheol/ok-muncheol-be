@@ -51,9 +51,22 @@ async def setup_checkpoints(conn: AsyncConnection) -> None:
     await AsyncPostgresSaver(conn).setup()
 
 
-async def case_assignee(conn: AsyncConnection, case_id: str) -> str | None:
-    row = await _one(conn, "select assignee_id from public.cases where id = %s", (case_id,))
-    return str(row["assignee_id"]) if row else None
+def assignees_of(row: Row) -> tuple[str, ...]:
+    """사건 행의 담당자들 — 대물 담당자(assignee_id)와, 있으면 대인 담당자(injury_assignee_id)."""
+    ids = (row["assignee_id"], row["injury_assignee_id"])
+    return tuple(str(value) for value in ids if value is not None)
+
+
+async def case_assignees(conn: AsyncConnection, case_id: str) -> tuple[str, ...] | None:
+    """사건의 담당자들. 사건이 없으면 None.
+
+    두 담당자는 권한이 같다. 권한 검사는 `actor_id in 담당자들`로 한다.
+    브라우저 쪽 같은 판정은 RLS 함수 private.can_access_case다(둘은 함께 바뀌어야 한다).
+    """
+    row = await _one(
+        conn, "select assignee_id, injury_assignee_id from public.cases where id = %s", (case_id,)
+    )
+    return assignees_of(row) if row else None
 
 
 async def case_accident_date(conn: AsyncConnection, case_id: str) -> datetime | None:

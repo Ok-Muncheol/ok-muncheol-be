@@ -116,7 +116,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 
 - 서비스 함수는 요청마다 사건 기록을 DB에서 불러와 고친 뒤 한 트랜잭션으로 저장한다(`repo.get` → 수정 → `repo.save`).
 - 사건은 A가 만든다. DB 저장소는 없는 사건을 만들지 않는다. 접근 검사는 판단 서비스와 같다
-  (uuid 아님·사건 없음 404, `cases.assignee_id`와 다르면 403).
+  (uuid 아님·사건 없음 404, 대물 담당자 `cases.assignee_id`도 대인 담당자 `cases.injury_assignee_id`도 아니면 403).
 - 원본 칼럼은 `json`이다(`jsonb`는 키 순서를 바꿔 보고서 본문·청구서 HTML 항목 순서가 달라진다).
 - 브라우저(authenticated)는 담당 사건 행을 읽기만 한다. 쓰기는 BE만. `case_documents.seq` 시퀀스 권한도 anon·authenticated에서 회수한다.
 

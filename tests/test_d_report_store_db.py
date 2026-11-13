@@ -34,6 +34,8 @@ ACTOR = str(uuid.uuid4())
 OTHER = str(uuid.uuid4())
 NO_FLAGS = {"무면허": False, "음주": False, "고의": False}
 D_MIGRATION = "20261111090000_review_reports.sql"
+# 사건 접근 검사가 읽는 칼럼(대인 담당자). D 표와 무관하게 cases만 고친다
+CASE_ACCESS_MIGRATION = "20261113190000_case_injury_assignee.sql"
 
 
 def _temp_database(prefix: str, migrations) -> tuple[str, str]:
@@ -338,6 +340,32 @@ def test_access_checks_match_judgment_service(database_url, store):
     assert api_error(lambda: api.submit_judgment(ACTOR, ghost, result)) == (404, "not_found")
 
 
+def test_injury_assignee_has_the_same_access(database_url, store):
+    """대인 담당자(cases.injury_assignee_id)도 보고서를 읽고 서류·대인 입력을 더한다."""
+    case_id = new_case(database_url)
+    card, result = judged(database_url, case_id)
+    run(api.submit_judgment(ACTOR, card, result))
+    assert api_error(lambda: api.get_report(OTHER, case_id, 1)) == (403, "forbidden")
+    with psycopg.connect(database_url, autocommit=True) as conn:
+        conn.execute(
+            "update public.cases set injury_assignee_id = %s where id = %s", (OTHER, case_id)
+        )
+
+    assert run(api.get_report(OTHER, case_id, 1))["versions"]["report_version"] == 1
+    person = {
+        "kind": "injured_person", "document_id": "synthetic-inj-2", "person_id": "synthetic-p",
+        "label": "상대 운전자", "grade": 7, "treatment_cost": 3_000_000, "is_driver": True,
+        "received_at": "2026-10-26T10:00:00+09:00",
+    }
+    run(api.add_documents(OTHER, case_id, [fx.contract(), fx.estimate(), person], NO_FLAGS))
+    # 대물 담당자가 대인 담당자의 입력과 다시 산정한 보고서를 본다
+    rec = run(store().get(ACTOR, case_id))
+    assert rec.documents[-1] == person
+    assert rec.latest["liability"]["injuries"][0]["label"] == "상대 운전자"
+    stranger = str(uuid.uuid4())
+    assert api_error(lambda: api.get_report(stranger, case_id, 1)) == (403, "forbidden")
+
+
 def test_stale_and_concurrent_versions_are_409(database_url, store):
     case_id = new_case(database_url)
     card, result = judged(database_url, case_id)
@@ -478,8 +506,8 @@ def test_claim_package_must_match_an_existing_report_version(database_url, store
 
 
 def test_tables_missing_is_503_reports_db_not_ready():
-    """마이그레이션 적용 전(판단 테이블까지만) 공용 DB를 흉내 낸다."""
-    before = [m for m in MIGRATIONS if m.name < D_MIGRATION]
+    """D 마이그레이션 적용 전(판단 테이블까지만) 공용 DB를 흉내 낸다."""
+    before = [m for m in MIGRATIONS if m.name < D_MIGRATION or m.name == CASE_ACCESS_MIGRATION]
     name, url = _temp_database("okm_reports_old", before)
     try:
         case_id = new_case(url)

@@ -1,7 +1,7 @@
 """A: 사실 카드 조회·수정·확정 — app/api/facts.py.
 
 DB 없이 메모리 저장소(facts.configure)로 확인한다. SQL 표 제약은 tests/migrations/behavior.sql 8절.
-- 권한: 다른 담당자 403, 없는 사건 404, 카드 없으면 404
+- 권한: 다른 담당자 403, 없는 사건 404, 카드 없으면 404, 대인 담당자는 대물 담당자와 같다
 - 수정: 기대 버전 409, 값 검사 422, 사유 필수, 고친 칸 human_confirmed·모델 원값 보존, 새 버전 draft
 - 확정: needs_review·매핑 문제면 422, 값 있는 칸은 human_confirmed, 같은 확정 다시 보내도 같은 결과
 - 비전 카드 저장: 버전이 1부터 늘고 늘 draft
@@ -22,6 +22,7 @@ from app.schemas.facts import FACT_FIELDS, FactCard
 
 ACTOR, OTHER = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
 CASE = "33333333-3333-3333-3333-333333333333"
+INJURY = "55555555-5555-5555-5555-555555555555"  # 대인 담당자
 EXAMPLE = Path(__file__).resolve().parents[2] / "docs/contracts/fact-card-v1.example.json"
 NOW = "2026-11-11T15:00:00+00:00"
 
@@ -30,13 +31,21 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def assignees_of(by_case: dict, case_id: str) -> tuple[str, ...] | None:
+    """가짜 저장소의 담당자 조회. runs.case_assignees와 같은 모양이다(사건이 없으면 None)."""
+    value = by_case.get(case_id)
+    if value is None:
+        return None
+    return (value,) if isinstance(value, str) else tuple(value)
+
+
 class MemoryRepo:
     def __init__(self, assignees):
-        self.assignees = assignees
+        self.by_case = assignees  # 사건 → 담당자. 대인 담당자가 있으면 (대물 담당자, 대인 담당자)
         self.rows: list[dict] = []  # {"card", "origin", "reason", "actor"}
 
-    async def assignee(self, case_id):
-        return self.assignees.get(case_id)
+    async def assignees(self, case_id):
+        return assignees_of(self.by_case, case_id)
 
     async def latest(self, case_id):
         rows = [r for r in self.rows if r["card"]["case_id"] == case_id]
@@ -136,6 +145,22 @@ def test_get_checks_assignee(repo, actor, case, code):
     with pytest.raises(ApiException) as e:
         run(facts.get_fact_card(actor, case))
     assert error(e) == code
+
+
+def test_injury_assignee_has_the_same_rights(repo):
+    """대인 담당자(cases.injury_assignee_id)도 조회·수정·확정한다. 누가 했는지는 그대로 남는다."""
+    repo.by_case[CASE] = (ACTOR, INJURY)
+    saved(repo)
+    assert run(facts.get_fact_card(INJURY, CASE))["version"] == 1
+    out = run(facts.patch_fact_card(INJURY, CASE, patch(1, REVIEW_FIX)))
+    assert out["version"] == 2 and repo.rows[-1]["actor"] == INJURY
+    confirmed = run(facts.confirm_fact_card(INJURY, CASE, 2))
+    assert confirmed["status"] == "confirmed" and confirmed["confirmed_by"] == INJURY
+    # 대물 담당자도 같은 카드를 보고, 둘 다 아닌 사람은 여전히 막힌다
+    assert run(facts.get_fact_card(ACTOR, CASE)) == confirmed
+    with pytest.raises(ApiException) as e:
+        run(facts.get_fact_card(OTHER, CASE))
+    assert error(e) == (403, "forbidden")
 
 
 def test_get_without_card_is_404(repo):

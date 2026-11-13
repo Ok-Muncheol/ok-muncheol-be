@@ -4,6 +4,7 @@
 tests/api/test_app.py가 그 표·계약 문서와 서버 OpenAPI를 대조한다.
 
 이 파일은 경로·인증·요청 모양만 정한다. 권한·상태·버전 판단은 각 담당 서비스 함수가 한다.
+`/admin` 경로만 예외로 경로가 관리자 여부를 건다(`AdminId` — 토큰의 app_metadata.staff_role).
 서비스는 모듈 속성으로 호출해(`cases.create_case`) 테스트에서 바꿔 끼울 수 있게 한다.
 미구현 서비스는 `NotImplementedError` → 501 `not_implemented`로 응답한다(app/api/errors.py).
 Modal 콜백(`/internal/analysis/{task_id}`)만 사용자 토큰 대신 작업별 일회용 토큰으로 확인하고
@@ -15,9 +16,10 @@ import json
 from fastapi import APIRouter, Header, Request
 from pydantic import BaseModel, Field
 
-from app.api import analysis, cases, facts, judgments, reports
-from app.api.deps import ActorId, IdempotencyKey
+from app.api import admin, analysis, cases, facts, judgments, reports
+from app.api.deps import ActorId, AdminId, IdempotencyKey
 from app.api.errors import ApiException, unprocessable, version_conflict
+from app.schemas.admin import AdminOverview
 from app.schemas.common import UploadKind, UploadTicket
 from app.schemas.facts import FactCard, FactPatch
 from app.schemas.judgment import QuestionAnswer
@@ -247,3 +249,10 @@ async def set_agreed_fault(
         actor_id, case_id, agreed_counterparty_fault=body.agreed_counterparty_fault,
         fault_change_reason=body.fault_change_reason, clear=body.clear,
     )
+
+
+# ── B: 관리자(관제) ────────────────────────────────────────────────
+@router.get("/admin/overview", tags=["B admin"])
+async def get_admin_overview(admin_id: AdminId) -> AdminOverview:
+    """담당자 목록과 전체 사건의 배정 현황. 관리자(토큰 app_metadata.staff_role = admin)만."""
+    return await admin.get_overview(admin_id)

@@ -84,7 +84,7 @@ def token_hash(token: str) -> str:
 
 
 class AnalysisRepo(Protocol):
-    async def assignee(self, case_id: str) -> str | None: ...
+    async def assignees(self, case_id: str) -> tuple[str, ...] | None: ...
     async def get(self, task_id: str) -> dict | None: ...
     async def by_key(self, case_id: str, key: str) -> dict | None: ...
     async def expire(self, case_id: str) -> None: ...
@@ -109,8 +109,8 @@ class PostgresAnalysisRepo:
         cur = await self.conn.execute(sql, params)
         return await cur.fetchone()
 
-    async def assignee(self, case_id: str) -> str | None:
-        return await runs.case_assignee(self.conn, case_id)
+    async def assignees(self, case_id: str) -> tuple[str, ...] | None:
+        return await runs.case_assignees(self.conn, case_id)
 
     async def get(self, task_id: str) -> dict | None:
         return await self._one("select * from public.analysis_tasks where id = %s", (task_id,))
@@ -278,10 +278,10 @@ async def start_analysis(
         )
     async with services.connect() as conn:
         repo = services.repo(conn)
-        assignee = await repo.assignee(case_id)
-        if assignee is None:
+        assignees = await repo.assignees(case_id)
+        if assignees is None:
             raise not_found("사건을 찾을 수 없습니다.")
-        if assignee != actor_id:
+        if actor_id not in assignees:
             raise forbidden()
         await repo.expire(case_id)
         existing = await repo.by_key(case_id, idempotency_key)
@@ -376,10 +376,10 @@ async def get_evidence(actor_id: str, case_id: str) -> dict[str, object]:
     case_id = _uuid(case_id, "사건")
     async with services.connect() as conn:
         repo = services.repo(conn)
-        assignee = await repo.assignee(case_id)
-        if assignee is None:
+        assignees = await repo.assignees(case_id)
+        if assignees is None:
             raise not_found("사건을 찾을 수 없습니다.")
-        if assignee != actor_id:
+        if actor_id not in assignees:
             raise forbidden()
         card = await services.fact_repo(conn).latest(case_id)
         task = await repo.latest_completed(case_id)

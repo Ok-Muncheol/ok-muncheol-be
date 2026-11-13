@@ -46,7 +46,8 @@ KST = timezone(timedelta(hours=9))
 
 # 사건 + 최신 카드·판단(대체되지 않은 것)·보고서 + 남은 질문 수. where 절은 호출하는 쪽이 붙인다
 SUMMARY_SQL = """
-select c.id, c.assignee_id, c.accident_date, c.input_path, c.created_at, c.updated_at,
+select c.id, c.assignee_id, c.injury_assignee_id, c.accident_date, c.input_path,
+       c.created_at, c.updated_at,
        fc.version as card_version, fc.updated_at as card_at,
        jr.judgment_version, jr.fact_card_version as run_card_version, jr.status as run_status,
        jr.judgment_status, jr.updated_at as run_at,
@@ -107,11 +108,13 @@ class PostgresCaseRepo:
     async def summaries(
         self, *, case_id: str | None = None, assignee_id: str | None = None
     ) -> list[dict]:
+        """사건 하나(case_id) 또는 그 사람이 대물·대인 담당자인 사건 모두(assignee_id)."""
         if case_id is not None:
             cur = await self.conn.execute(SUMMARY_SQL + " where c.id = %s", (case_id,))
         else:
             cur = await self.conn.execute(
-                SUMMARY_SQL + " where c.assignee_id = %s order by c.updated_at desc",
+                SUMMARY_SQL
+                + " where %s in (c.assignee_id, c.injury_assignee_id) order by c.updated_at desc",
                 (assignee_id,),
             )
         return list(await cur.fetchall())
@@ -143,12 +146,15 @@ def _case_uuid(value: object) -> str:
 
 
 async def _require_assignee(actor_id: str, case_id: str) -> None:
-    """담당 사건인지 확인한다. 서버 키는 RLS를 건너뛰므로 Storage 작업 전에 반드시 부른다."""
+    """담당 사건인지 확인한다(대물·대인 담당자 모두 통과).
+
+    서버 키는 RLS를 건너뛰므로 Storage 작업 전에 반드시 부른다.
+    """
     async with services.connect() as conn:
-        assignee = await runs.case_assignee(conn, case_id)
-    if assignee is None:
+        assignees = await runs.case_assignees(conn, case_id)
+    if assignees is None:
         raise not_found("사건을 찾을 수 없습니다.")
-    if assignee != actor_id:
+    if actor_id not in assignees:
         raise forbidden()
 
 
@@ -251,7 +257,7 @@ async def create_case(actor_id: str, payload: dict[str, object]) -> dict[str, ob
 
 
 async def list_cases(actor_id: str) -> list[dict[str, object]]:
-    """로그인한 담당자의 사건 요약 목록(최근 바뀐 순)."""
+    """로그인한 담당자가 대물 또는 대인 담당자인 사건의 요약 목록(최근 바뀐 순)."""
     async with services.connect() as conn:
         rows = await services.repo(conn).summaries(assignee_id=actor_id)
     return [summarize(r) for r in rows]
@@ -310,6 +316,6 @@ async def get_case(actor_id: str, case_id: str) -> dict[str, object]:
         rows = await repo.summaries(case_id=case_id)
     if not rows:
         raise not_found("사건을 찾을 수 없습니다.")
-    if str(rows[0]["assignee_id"]) != actor_id:
+    if actor_id not in runs.assignees_of(rows[0]):
         raise forbidden()
     return summarize(rows[0])
