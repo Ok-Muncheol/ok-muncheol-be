@@ -466,6 +466,9 @@ async def add_documents(
     판단·비전은 다시 돌리지 않는다. 추가 확인·보류 사건이면 서류만 저장하고 None."""
     rec = await services.repo.get(actor_id, case_id)
     validate_documents(documents)  # 저장 전에 검사(잘못된 입력이면 아무것도 바꾸지 않음)
+    for doc in documents:  # 진단서·영수증 증빙은 이 사건 medical/ 아래 파일만(서버 키는 RLS 밖)
+        if doc.get("kind") == "evidence" and doc.get("doc_type") in MEDICAL_DOC_TYPES:
+            medical_object_key(case_id, str(doc.get("storage_path") or ""))
     if case_facts:
         validate_case_facts(case_facts)
     known = {str(d["document_id"]) for d in rec.documents}
@@ -517,7 +520,24 @@ def estimate_object_key(case_id: str, storage_path: str) -> str:
     '..'·'%'(인코딩 우회)·역슬래시·빈 조각·제어 문자는 거절한다. 비ASCII(한글 등)도 거절한다 —
     Supabase Storage가 그런 객체 이름을 400 InvalidKey로 거절해 503으로 보이지 않게.
     """
-    prefix = f"{storage.STORAGE_BUCKET}/{case_id}/estimates/"
+    return _case_object_key(case_id, storage_path, "estimates", "견적서")
+
+
+# 진단서·진료비 영수증 증빙(C). 업로드는 A의 kind "medical_document"(PDF·JPEG)
+MEDICAL_DOC_TYPES = ("medical_certificate", "medical_bill")
+MEDICAL_EXTENSIONS = (".pdf", ".jpg", ".jpeg")
+
+
+def medical_object_key(case_id: str, storage_path: str) -> str:
+    """진단서·영수증 증빙 경로: `<STORAGE_BUCKET>/<case_id>/medical/<파일>.pdf|jpg|jpeg`만."""
+    key = _case_object_key(case_id, storage_path, "medical", "진단서·진료비 영수증")
+    if not storage_path.lower().endswith(MEDICAL_EXTENSIONS):
+        raise StoragePathInvalid("진단서·진료비 영수증은 PDF·JPEG 파일이어야 합니다")
+    return key
+
+
+def _case_object_key(case_id: str, storage_path: str, folder: str, label: str) -> str:
+    prefix = f"{storage.STORAGE_BUCKET}/{case_id}/{folder}/"
     name = storage_path.removeprefix(prefix)
     if (
         not storage_path.startswith(prefix)
@@ -527,7 +547,7 @@ def estimate_object_key(case_id: str, storage_path: str) -> str:
         or not storage_path.isprintable()
         or any(part in ("", ".") for part in name.split("/"))
     ):
-        raise StoragePathInvalid(f"견적서 경로는 {prefix} 아래 파일이어야 합니다")
+        raise StoragePathInvalid(f"{label} 경로는 {prefix} 아래 파일이어야 합니다")
     return storage_path.removeprefix(f"{storage.STORAGE_BUCKET}/")
 
 

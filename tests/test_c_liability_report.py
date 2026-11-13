@@ -8,6 +8,7 @@ import asyncio
 import json
 import unittest
 
+from app import storage
 from app.api import reports as api
 from app.calculation.damages import calculate_damages
 from app.calculation.liability import liability_from_report
@@ -78,7 +79,8 @@ class LiabilityReportTest(unittest.TestCase):
         self.assertNotIn(KEY, section(report, 8)["body"])
         # 진단서 등 증빙만 붙여도 대물·대인 입력이 아니라 새 버전·새 칸이 없다
         evidence = {"kind": "evidence", "document_id": "dx-1", "doc_type": "medical_certificate"}
-        again = self.add([{**evidence, "storage_path": "synthetic/dx-1.pdf"}])
+        path = f"{storage.STORAGE_BUCKET}/synthetic-case/medical/dx-1.pdf"
+        again = self.add([{**evidence, "storage_path": path}])
         self.assertEqual(again["versions"]["report_version"], report["versions"]["report_version"])
         self.assertNotIn("liability", again)
 
@@ -147,6 +149,28 @@ class LiabilityReportTest(unittest.TestCase):
         person = self.add([injured()])["liability"]["injuries"][0]
         self.assertEqual((person["status"], person["bodily_1"]), ("needs_input", None))
         self.assertTrue(any("자료 없음" in r for r in person["reasons"]))
+
+    def test_medical_evidence_only_from_this_case_medical_folder(self):
+        self.ready()
+        bucket = storage.STORAGE_BUCKET
+        ok = [f"{bucket}/synthetic-case/medical/a.pdf", f"{bucket}/synthetic-case/medical/b.JPG"]
+        bad = [
+            f"{bucket}/other-case/medical/a.pdf",  # 다른 사건
+            f"{bucket}/synthetic-case/estimates/a.pdf",  # 다른 폴더
+            f"{bucket}/synthetic-case/medical/a.png",  # PNG는 아직 안 받음
+            f"{bucket}/synthetic-case/medical/../x.pdf",
+            "synthetic/a.pdf",
+        ]
+        for i, path in enumerate(ok):
+            doc = {"kind": "evidence", "document_id": f"ok-{i}", "doc_type": "medical_bill"}
+            self.add([{**doc, "storage_path": path}])
+        for i, path in enumerate(bad):
+            doc = {"kind": "evidence", "document_id": f"bad-{i}", "doc_type": "medical_certificate"}
+            with self.subTest(path=path), fx.raises_api(self, 422, "invalid_storage_path"):
+                self.add([{**doc, "storage_path": path}])
+        saved = {d["document_id"] for d in fx.record(self.actor, self.case).documents}
+        self.assertLessEqual({"ok-0", "ok-1"}, saved)
+        self.assertFalse(any(x.startswith("bad-") for x in saved))
 
     def test_invalid_injured_input_is_rejected_before_saving(self):
         self.ready()

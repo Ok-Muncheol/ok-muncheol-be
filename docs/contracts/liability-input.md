@@ -39,6 +39,9 @@
 
 진단서·진료비 영수증 파일은 기존 증빙(`evidence`)으로 붙인다. `doc_type`에 `medical_certificate`(진단서)·`medical_bill`(진료비 영수증)을 더했다. **첨부만 하고 읽지 않는다**(급수 자동 판정은 2차).
 
+- 업로드: `POST /cases/{id}/uploads`의 `kind: "medical_document"`(PDF·JPEG, 정지원 추가) → `case-files/{case_id}/medical/{uuid}.pdf|jpg`
+- 첨부 검사: 이 두 `doc_type`의 `storage_path`는 **이 사건 `medical/` 아래 `.pdf`·`.jpg`·`.jpeg` 파일만** 받는다. 다른 사건·다른 폴더·PNG·`..`·인코딩 우회는 저장 전에 422 `invalid_storage_path`(견적서 경로 검사와 같은 규칙, 서버 키가 RLS 밖이라 이 검사가 방어선)
+
 잘못된 값(급수 15, 음수 금액, 날짜 형식 등)은 저장 전에 422 `invalid_documents`로 거절한다.
 
 ## 계산 (사람마다, 우리 과실 = 판단의 보험가입자 쪽 과실)
