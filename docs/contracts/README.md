@@ -31,7 +31,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 메서드 | 경로 | 담당 | 비고 |
 | --- | --- | --- | --- |
 | POST | `/cases` | A | 201. 본문 `{accident_date?, input_path?: video·manual, accident_type?, party_count?}` → `CaseSummary`(FE `types.ts`). 차대차 2대가 아니면 422 `case_out_of_scope`, 형식 오류 422 `invalid_case` |
-| POST | `/cases/{id}/uploads` | A | `{kind, content_type}` → `UploadTicket` `{storage_path, upload_url, expires_in}`. kind가 `estimate`·`video`가 아니면 422 `invalid_request`, 형식이 kind와 안 맞으면 422 `invalid_upload_type`. 아래 「파일 업로드」 |
+| POST | `/cases/{id}/uploads` | A | `{kind, content_type}` → `UploadTicket` `{storage_path, upload_url, expires_in}`. kind가 `estimate`·`video`·`medical_document`가 아니면 422 `invalid_request`, 형식이 kind와 안 맞으면 422 `invalid_upload_type`. 아래 「파일 업로드」 |
 | POST | `/cases/{id}/analysis` | A | `{storage_path}`, `Idempotency-Key` 필수, 202 → `TaskView` + `fact_card_version`·`error`. 영상은 이 사건 `videos/`만(422 `invalid_storage_path`), 안 올라갔으면 422 `video_not_uploaded`, 진행 중이면 409 `analysis_in_progress`, 같은 키는 같은 작업(다른 영상이면 422 `idempotency_key_reused`). Modal 호출 실패·미연결은 작업 `failed`(error에 이유). 결과는 Modal 콜백이 카드로 저장(`app/api/analysis.py`), 15분 안에 안 오면 `analysis_timeout` |
 | GET | `/cases/{id}` | A | 상태 복원. `CaseSummary`: `stage`(intake·facts·judgment·report), `task_status`, `judgment_status`, `approval_status`, `open_questions`, `versions`. 최신 카드 버전의 판단·최신 판단의 보고서만 지금 단계로 친다. 시각은 +09:00 |
 | GET·PATCH | `/cases/{id}/fact-card` | A | GET은 최신 버전 `FactCard`(카드 없으면 404). PATCH 본문 `FactPatch` `{expected_version, fields: {칸: {value}}, party_mapping?, reason}` → 새 버전(draft). 고친 칸은 `human_confirmed`(null = 확인한 모름), 모델 원값 보존. 최신 아님 409, v1 밖 값 422 `invalid_fact_value`·`invalid_fact_field`, 사유 없음 422 `invalid_patch`, 도표 A/B 오류 422 `invalid_party_mapping` |
@@ -57,7 +57,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
 | 409 | `judgment_in_progress`·`judgment_conflict`·`request_in_progress`·`already_answered` | 같은 사건 판단 실행 중·요청 겹침·같은 키 처리 중·이미 답한 질문. 재시도 여부는 `retryable` |
 | 422 | `invalid_request`·업무 코드 | 요청 모양 오류, 또는 `card_not_confirmed`·`question_mismatch`·`question_closed`·`invalid_answer`·`idempotency_key_reused`·`confirm_blocked`·`invalid_case_facts`·`invalid_documents`·`invalid_agreed_fault` 같은 처리 불가 상태 |
-| 422 | `invalid_upload_type` | 업로드 형식이 kind의 허용 목록에 없음(견적서 `application/pdf`, 영상 mp4·mov·avi·webm·mkv) |
+| 422 | `invalid_upload_type` | 업로드 형식이 kind의 허용 목록에 없음(견적서 `application/pdf`, 영상 mp4·mov·avi·webm·mkv, 대인 증빙 `application/pdf`·`image/jpeg`) |
 | 422 | `invalid_storage_path`·`estimate_too_large`·`estimate_not_pdf` | 견적서 경로가 그 사건의 `estimates/` 폴더가 아님(다른 사건·`..`·비ASCII 이름 등)·10MB 초과·PDF가 아니거나 읽을 수 없음 |
 | 413 | `callback_too_large` | Modal 콜백(`/internal/analysis/{task_id}`) 본문이 3MB를 넘음 |
 | 501 | `not_implemented` | 서비스 본문 미구현 |
@@ -89,9 +89,10 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 2. FE가 `upload_url`에 키 없이 파일 본문과 `Content-Type`만 넣어 `PUT` → 200 `{"Key": "<storage_path>"}`
 3. 견적서는 `POST /cases/{id}/estimates` `{storage_path, party_id}`, 영상은 `POST /cases/{id}/analysis` `{storage_path}`
 
-- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`·`image/jpeg`만 받는다. `image/jpeg`는 근거 사진용(11/13, Modal 워커가 올린다. 담당자 업로드 `kind`에는 없다).
+- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`·`image/jpeg`만 받는다. `image/jpeg`는 근거 사진용(11/13, Modal 워커가 올린다)과 대인 증빙 사진(`medical_document`)에 쓴다.
+- `medical_document`(11/13)는 대인 보상 증빙(진단서·진료비 영수증)이다. PDF·JPEG를 받고 첨부만 하며 BE가 내용을 읽지 않는다. 건강 정보라 견본·테스트에 실제 서류를 넣지 않는다.
 - 무료 플랜이라 파일 하나 50MB가 고정 한도다. 영상은 사고 구간만 잘라 올리는 것을 권한다(정지원: 지금 영상 중앙값 6.3MB, 최대 24MB).
-- 경로는 `case-files/{case_id}/estimates/{uuid}.pdf`·`case-files/{case_id}/videos/{uuid}.{확장자}`이고, 이름은 BE가 만든다. Supabase는 한글 객체 이름을 거절한다(400 `InvalidKey`).
+- 경로는 `case-files/{case_id}/estimates/{uuid}.pdf`·`case-files/{case_id}/videos/{uuid}.{확장자}`·`case-files/{case_id}/medical/{uuid}.pdf|jpg`이고, 이름은 BE가 만든다. 증빙을 받는 쪽은 그 사건의 해당 폴더 아래 경로만 받는다. Supabase는 한글 객체 이름을 거절한다(400 `InvalidKey`).
 - 서명 업로드 URL은 7200초 유효하고 한 번만 쓸 수 있다. Storage는 아래 두 경우 모두 HTTP 400과 본문 `statusCode`로 응답한다.
   - 같은 URL로 다시 올리면 `statusCode` 409(`Duplicate`)
   - 허용하지 않은 형식이면 `statusCode` 415(`invalid_mime_type`)
