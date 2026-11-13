@@ -68,6 +68,24 @@ def test_dispatch_posts_the_job_with_proxy_auth_and_returns_call_id(configured):
     }
 
 
+def test_dispatch_forwards_preview_and_frame_upload_slots_when_present(configured):
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"call_id": "fc-9"})
+
+    slots = [{"storage_path": f"case-files/{JOB['case_id']}/frames/{TASK}/01.jpg",
+              "upload_url": "https://example.supabase.co/storage/v1/object/upload/sign/x?token=t"}]
+    job = {**JOB, "preview_upload_url": "https://example.supabase.co/p?token=t",
+           "frame_uploads": slots}
+    asyncio.run(modal_dispatch.dispatch_to_modal(job, transport=httpx.MockTransport(handler)))
+    dispatch(handler)  # 없으면 보내지 않는다
+    assert (seen[0]["preview_upload_url"], seen[0]["frame_uploads"]) == (
+        job["preview_upload_url"], slots)
+    assert "preview_upload_url" not in seen[1] and "frame_uploads" not in seen[1]
+
+
 @pytest.mark.parametrize(("response", "retryable"), [
     (httpx.Response(500), True), (httpx.Response(503), True), (httpx.Response(429), True),
     (httpx.Response(401), False), (httpx.Response(404), False),
