@@ -6,6 +6,9 @@
 - 고객 자기부담금 검토액(자기부담금 × 상대 과실)은 보고서 9번(내부 참고)에만, 패키지에는 청구
   금액만(ClaimAmounts).
 - 사건 1건 = 구상 1행. 증빙은 사건에 바로 연결한다(지급 내역 없음).
+- 청구서 증빙은 우리 자차 구상 증빙만(claim_evidence, #198): 상대 차 견적서(대물 판정 근거)와
+  진단서·진료비 영수증(대인 판정 근거)은 사건 서류에는 남지만 상대 보험사로 가는 청구서에는 넣지
+  않는다.
 - 확인 완료는 막지 않고 청구서만 만들지 않는 경우(사유를 돌려줌): 견적서 없음, 지급
   불가(not_payable),
   보험금 0원, 보험금 산정 불가(매핑 불명·가입금액 없음 등), 상대 과실 0%(협의 0% 포함).
@@ -22,7 +25,9 @@
 
 import hashlib
 import json
+import posixpath
 from datetime import UTC, datetime
+from urllib.parse import unquote
 
 from app.calculation.insurance import ZERO_PAYMENT_REASON, insured_and_counterparty_side
 from app.calculation.rules import DEFAULT_RULES, RuleSet, share
@@ -41,6 +46,7 @@ from app.schemas.reports import (
     RecoveryAmounts,
     ReviewReport,
 )
+from app.storage import STORAGE_BUCKET
 
 EXAMPLE_RULE_NOTICE = EXAMPLE_NOTICE
 NEEDS_ESTIMATE = "견적서 필요 — 견적서 추가 후 청구서 생성"
@@ -70,6 +76,81 @@ _NOT_CONTENT = (
     "package_version", "created_at", "report_version", "confirmed_by", "confirmed_at",
     "idempotency_key",
 )
+
+
+# 대인 판정 근거로만 쓰는 증빙 종류(EvidenceDoc.doc_type, #185). 상대 차 탑승자 건강 정보다
+INJURY_EVIDENCE_DOC_TYPES = ("medical_certificate", "medical_bill")
+# 대인 증빙 업로드 폴더(POST /uploads kind="medical_document" → case-files/{case_id}/medical/…)
+MEDICAL_FOLDER = "medical"
+
+
+def _medical_folder_path(storage_path: object) -> bool:
+    """저장 경로가 어느 사건이든 `medical/` 폴더(대인 증빙) 아래인가.
+
+    문자열 포함 검사가 아니라 정규화한 경로 조각으로 본다: 퍼센트 인코딩을 풀고(여러 번),
+    역슬래시를 '/'로, 대소문자를 무시하고, 앞쪽 '/'·'.'·'..'·빈 조각을 정리한 뒤
+    `[case-files/]<사건 ID>/medical/<파일>` 모양인지 본다. 다른 사건의 medical/ 경로도 뺀다
+    (그 사건 피해자의 건강 정보이고, 우리 구상 청구서에 들어갈 이유가 없다).
+    """
+    if not isinstance(storage_path, str) or not storage_path:
+        return False
+    text = storage_path
+    for _ in range(3):  # %25 2중 인코딩까지 푼다
+        decoded = unquote(text)
+        if decoded == text:
+            break
+        text = decoded
+    text = text.replace("\\", "/").lower()
+    parts = [p for p in posixpath.normpath("/" + text).split("/") if p]
+    if parts and parts[0] == STORAGE_BUCKET:
+        parts = parts[1:]
+    return len(parts) >= 3 and parts[1] == MEDICAL_FOLDER
+
+
+# upload_estimate가 견적서 PDF를 증빙으로 자동 등록할 때의 종류·ID 접두어
+# (document_id="ev-<견적 ID>")
+ESTIMATE_EVIDENCE_DOC_TYPE = "repair_estimate"
+ESTIMATE_EVIDENCE_PREFIX = "ev-"
+
+
+def claim_evidence(
+    documents: list[dict[str, object]], insured_party_id: object
+) -> list[dict[str, object]]:
+    """구상 청구서에 넣을 증빙: 사건 증빙 중 우리 자차 구상 증빙만.
+
+    - 진단서·진료비 영수증(doc_type)은 뺀다. 대인 판정 근거로만 쓴다.
+    - 종류와 상관없이 저장 경로가 `medical/` 폴더(대인 증빙 업로드) 아래인 증빙도 뺀다. 진단서
+      파일을 영수증 같은 일반 증빙으로 붙여도 청구서에 들어가지 않게 한다(_medical_folder_path).
+    - 견적서 PDF에서 자동 등록된 증빙(doc_type="repair_estimate", "ev-<견적 ID>")에는 당사자가
+      없다. 그래서 원래 견적서(kind="repair_estimate")의 party_id로 판단해, 당사자가 우리 차가
+      아닌 견적서(상대 차, 대물 판정 근거)의 증빙은 뺀다. 당사자가 비어 있는 견적서는 예전처럼
+      우리 것으로 본다.
+    - 사진·영수증·수리 명세 등 그 밖의 증빙은 그대로 둔다.
+    """
+    others = {
+        str(d["document_id"])
+        for d in documents
+        if d.get("kind") == "repair_estimate"
+        and d.get("party_id") is not None
+        and d.get("party_id") != insured_party_id
+    }
+
+    def counterparty_estimate(e: dict[str, object]) -> bool:
+        doc_id = str(e.get("document_id"))
+        return (
+            e.get("doc_type") == ESTIMATE_EVIDENCE_DOC_TYPE
+            and doc_id.startswith(ESTIMATE_EVIDENCE_PREFIX)
+            and doc_id.removeprefix(ESTIMATE_EVIDENCE_PREFIX) in others
+        )
+
+    return [
+        d
+        for d in documents
+        if d.get("kind") == "evidence"
+        and d.get("doc_type") not in INJURY_EVIDENCE_DOC_TYPES
+        and not _medical_folder_path(d.get("storage_path"))
+        and not counterparty_estimate(d)
+    ]
 
 
 def claim_content(pkg: ClaimPackage) -> dict[str, object]:
@@ -196,11 +277,12 @@ def build_claim_package(
     recovery: RecoveryAmounts = r["recovery"]  # type: ignore[assignment]
     case_id = r["versions"]["case_id"]
     payment = int(calc["insurance_payment"])  # type: ignore[arg-type]
-    evidence = [d for d in documents if d.get("kind") == "evidence"]
+    insured = (r.get("party_mapping") or {}).get("insured_party_id")
+    evidence = claim_evidence(documents, insured)
     claim_no = f"{case_id}-C{package_version}"
     row: ClaimRow = {
         "claim_no": claim_no,
-        "insured_party_id": (r.get("party_mapping") or {}).get("insured_party_id"),
+        "insured_party_id": insured,
         "coverage": "자기차량손해",
         "insurance_payment": payment,
         "counterparty_fault": cp,
