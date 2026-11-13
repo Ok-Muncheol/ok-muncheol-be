@@ -124,19 +124,6 @@ def contract_examples() -> dict[str, object]:
         "claim_blocked_reason": None, "claim_blocked_reasons": [],
         "claim_reused": True, "claim_reused_from": {"package_version": 1, "report_version": 2},
     }
-    # 보고서 8번 「산정 전 검증」 줄: 담당자 입력('아님')과 다른 LLM 의견은 결과를 바꾸지 않고
-    # 그 줄의 '경고' 칸에만 있다(경고가 없는 줄에는 칸이 없다, #204)
-    section8_precheck_warning = {
-        "no": 8, "title": "손해액·보험금", "state": "filled",
-        "body": {"산정 전 검증": [
-            {"항목": "무면허 운전 면책", "결과": "통과", "내용": "담당자 확인 — 해당 없음",
-             "판정": "handler",
-             "경고": "LLM은 면책 가능성 제시(조항 synthetic-clause) — 담당자 확인"},
-            {"항목": "고의 사고 면책", "결과": "통과", "내용": "담당자 확인 — 해당 없음",
-             "판정": "handler"},
-        ]},
-        "evidence_ids": [], "empty_reason": None,
-    }
     return {
         "synthetic": True, "contract_version": "draft-1",
         "note": "필드 모양만 보여 주는 합성 양식. 실행 가능한 시나리오·검수 정답이 아님.",
@@ -145,5 +132,4 @@ def contract_examples() -> dict[str, object]:
         "report_deferred": report, "task_failed": task, "version_conflict": conflict,
         "judgment_run_waiting": run_waiting, "qa_answer": qa_answer,
         "confirm_claim_reused": confirm_reused,
-        "report_section8_precheck_warning": section8_precheck_warning,
     }

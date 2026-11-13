@@ -20,7 +20,6 @@ ASSUMED = "기본 가정(미입력)"
 CONTRACT_ASSUMPTION = (
     "계약 정보: 기본 가정(미입력) — 자차 가입·보험기간 안·운전자 범위 안, 전손 한도 검사 생략"
 )
-EXCLUSION_ASSUMPTION = "면책 사실 미입력 — 해당 없음으로 가정"
 
 
 def deductible_rule_text(rules: RuleSet) -> str:
@@ -44,14 +43,7 @@ def assumptions_of(checks: list[PreCheck], rules: RuleSet) -> list[str]:
         out.append(CONTRACT_ASSUMPTION)
     if "deductible" in keys:
         out.append(f"자기부담금: {deductible_rule_text(rules)}")
-    excl = [k.split(":", 1)[1] for k in sorted(keys) if k.startswith("exclusion:")]
-    if excl:
-        total = sum(1 for c in checks if c["key"].startswith("exclusion:"))
-        out.append(
-            f"면책: {EXCLUSION_ASSUMPTION}"
-            if len(excl) == total
-            else f"면책({'·'.join(excl)}): {EXCLUSION_ASSUMPTION}"
-        )
+    # 면책 미입력은 가정하지 않는다(unknown, 산정 사유에 "면책 확인 필요 — 사실 미입력", #204)
     return out
 
 

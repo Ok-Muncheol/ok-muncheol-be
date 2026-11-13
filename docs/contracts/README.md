@@ -105,21 +105,6 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
   - Modal 쪽(구준휘, 인프라)이 그 URL로 영상을 받아 로컬 경로로 `workers/vision/pipeline.py` `analyze_video`를 부른다. 그래서 `analyze_video`는 Storage를 직접 읽지 않고 로컬 영상 경로를 받는다(정지원).
   - 호출 모양은 구준휘가 정리한다.
 
-### 보고서 8번 「산정 전 검증」 줄
-
-`ReviewReport.sections`의 8번(`no: 8`) `body["산정 전 검증"]`은 산정 전 검증(`CalculationResult.checks`) 한 건마다 한 줄이다. 견본은 `report_section8_precheck_warning`이다.
-
-| 칸 | 타입 | 내용 |
-| --- | --- | --- |
-| `항목` | string | 검증 이름(예: "무면허 운전 면책") |
-| `결과` | string | "통과"·"해당"·"확인 필요"·"기본 가정(미입력)" |
-| `내용` | string | 판정 내용. 담당자 입력이 있으면 담당자 입력 문구(예: "담당자 확인 — 해당 없음") |
-| `판정` | string | `code`·`llm`·`handler` |
-| `경고` | string, **있을 때만** | 결과는 그대로 두되 담당자가 볼 것. 예: 담당자 입력('아님')과 다른 LLM 의견 "LLM은 면책 가능성 제시(조항 …) — 담당자 확인"(11/13, #204). 값은 `checks[].warning`과 같다 |
-
-- `경고`는 #204에서 더한 칸이다. 경고가 없는 줄에는 칸 자체가 없다. 기존 네 칸은 그대로다.
-- 예전에는 같은 LLM 의견이 `내용`과 산정 사유(`body["사유"]`)에 들어갔다. 이제 `내용`·사유에는 담당자 입력 문구가 들어간다.
-
 ## 구분 질문과 재개
 
 판단 그래프(`app/workflow/graph.py`)는 도표를 가르는 칸이 `human_confirmed`가 아니면 `ConfirmationQuestion`을 내고 멈춘다.

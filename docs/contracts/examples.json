@@ -400,29 +400,5 @@
       "package_version": 1,
       "report_version": 2
     }
-  },
-  "report_section8_precheck_warning": {
-    "no": 8,
-    "title": "손해액·보험금",
-    "state": "filled",
-    "body": {
-      "산정 전 검증": [
-        {
-          "항목": "무면허 운전 면책",
-          "결과": "통과",
-          "내용": "담당자 확인 — 해당 없음",
-          "판정": "handler",
-          "경고": "LLM은 면책 가능성 제시(조항 synthetic-clause) — 담당자 확인"
-        },
-        {
-          "항목": "고의 사고 면책",
-          "결과": "통과",
-          "내용": "담당자 확인 — 해당 없음",
-          "판정": "handler"
-        }
-      ]
-    },
-    "evidence_ids": [],
-    "empty_reason": null
   }
 }

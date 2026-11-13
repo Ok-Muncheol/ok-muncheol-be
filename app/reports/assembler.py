@@ -326,8 +326,6 @@ def assemble_review(
                             }[x["result"]],
                             "내용": x["detail"],
                             "판정": x["decided_by"],
-                            # 담당자 입력과 다른 LLM 의견 등(결과는 그대로, #204)
-                            **({"경고": x["warning"]} if x.get("warning") else {}),
                         }
                         for x in c.get("checks", [])
                     ],
@@ -385,7 +383,9 @@ def assemble_review(
                 9,
                 "구상",
                 body9,
-                ["calculation"]
+                # 구상 예정액 = 산정 보험금 × 상대 과실: 보험금의 근거 서류(견적서·계약서)를 근거로
+                # 단다. 예전의 "calculation"은 열어 볼 문서가 아니라 뺐다(#204)
+                list(calculation["source_document_ids"] if calculation else [])
                 # 예시 규칙 버전 문자열은 근거 목록에 넣지 않는다(8번 '규칙 버전'에는 남음, #204)
                 + (
                     [calculation["rule_version"]]

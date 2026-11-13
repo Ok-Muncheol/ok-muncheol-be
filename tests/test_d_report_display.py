@@ -97,24 +97,5 @@ class ExampleRuleIdsTest(unittest.TestCase):
         self.assertIn("reviewed-test", section(report, 9)["evidence_ids"])
 
 
-class PrecheckRowContractTest(unittest.TestCase):
-    """8번 「산정 전 검증」 줄의 칸이 계약 견본(report_section8_precheck_warning)과 같다."""
-
-    def test_rows_match_contract_example(self):
-        from app.schemas.examples import contract_examples
-
-        rows = contract_examples()["report_section8_precheck_warning"]["body"]["산정 전 검증"]
-        base = {"항목", "결과", "내용", "판정"}
-        self.assertEqual([set(r) for r in rows], [base | {"경고"}, base])
-
-        api.configure(repo=api.InMemoryReportRepository(), rules=RuleSet(), fetch_clauses=None)
-        run(api.submit_judgment(ACTOR, fx.card(), fx.judgment()))
-        report = run(api.add_documents(ACTOR, CASE, [fx.contract(), fx.estimate()], NO_FLAGS))
-        actual = section(report, 8)["body"]["산정 전 검증"]
-        self.assertTrue(actual)
-        self.assertTrue(all(set(r) == base for r in actual))  # 경고 없는 줄에는 칸이 없다
-        # 경고가 있는 줄(base | 경고)은 test_d_exclusion_clauses가 실제 흐름으로 확인한다
-
-
 if __name__ == "__main__":
     unittest.main()
