@@ -35,6 +35,7 @@ FORM = ROOT / "data" / "forms" / "car_estimate_form.pdf"
 SAMPLE_10M = FIXTURES / "estimate_sample_10m.pdf"
 SAMPLE_MISMATCH = FIXTURES / "estimate_sample_mismatch.pdf"
 SAMPLE_NO_TOTAL = FIXTURES / "estimate_sample_no_total.pdf"
+SAMPLE_CP = FIXTURES / "estimate_sample_cp_3m.pdf"  # 상대 차 견적(대물 시연, 합계 일치)
 HAS_PDFPLUMBER = importlib.util.find_spec("pdfplumber") is not None
 needs_pdfplumber = unittest.skipUnless(
     HAS_PDFPLUMBER, "pdfplumber 미설치 — 견적서 PDF 읽기 테스트 건너뜀"
@@ -84,6 +85,16 @@ class ReadEstimatePdfTest(unittest.TestCase):
         c = read_estimate_pdf(SAMPLE_MISMATCH, party_id="P1")
         self.assertEqual(a["document_id"], b["document_id"])
         self.assertNotEqual(a["document_id"], c["document_id"])
+
+    def test_counterparty_sample_reads_clean_with_its_own_document_id(self):
+        """상대 차 견적 PDF: 합계 일치(경고 없음). 우리 견적서와 서류 ID가 달라 함께 올린다."""
+        d = read_estimate_pdf(SAMPLE_CP, party_id="P2", received_at=RECEIVED)
+        self.assertEqual(d["amount"], 3_456_789)
+        self.assertEqual((d["parts"], d["labor"], d["vat"]), (1_850_000, 1_292_535, 314_254))
+        self.assertEqual((d["serial_no"], d["party_id"]), ("SYN-2026-0004", "P2"))
+        self.assertEqual(d["extract_reasons"], [])
+        ours = read_estimate_pdf(SAMPLE_10M, party_id="P1")
+        self.assertNotEqual(d["document_id"], ours["document_id"])
 
     def test_mismatch_keeps_total_with_reason(self):
         d = read_estimate_pdf(SAMPLE_MISMATCH, party_id="P1", received_at=RECEIVED)
