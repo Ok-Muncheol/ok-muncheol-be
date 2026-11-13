@@ -332,16 +332,24 @@ class HandlerPriorityTest(SkipValidation):
         self.assertEqual(report["calculation"]["status"], "confirmed")
 
     def test_false_and_llm_fail_passes_with_warning_in_section_8(self):
+        """#204: 담당자 '아님' + LLM '면책' → 통과. 내용·산정 사유는 담당자 입력 문구,
+        LLM 반대 의견은 8번 산정 전 검증 줄의 경고에만(예전에는 내용·사유에 LLM 문구)."""
         report = self.flow("fail", NO_FLAGS)
         calc = report["calculation"]
         self.assertEqual(calc["insurance_payment"], 9_500_000)
         check = self.check(report)
         warning = f"LLM은 면책 가능성 제시(조항 {ARTICLE_23}) — 담당자 확인"
-        self.assertEqual((check["result"], check["warning"]), ("pass", warning))
+        self.assertEqual(
+            (check["result"], check["detail"], check["warning"]),
+            ("pass", "담당자 확인 — 해당 없음", warning),
+        )
         eight = self.section8(report)
         row = next(x for x in eight["산정 전 검증"] if x["항목"] == TOPICS[1])
-        self.assertEqual((row["결과"], row["내용"]), ("통과", warning))
-        self.assertTrue(any(warning in r for r in eight["사유"]))
+        self.assertEqual(
+            (row["결과"], row["내용"], row["경고"]), ("통과", "담당자 확인 — 해당 없음", warning)
+        )
+        self.assertIn(f"{TOPICS[1]}: 담당자 확인 — 해당 없음", eight["사유"])
+        self.assertFalse(any(warning in r for r in eight["사유"]))
         out = asyncio.run(api.confirm_report(self.actor, self.case, 2))
         self.assertIsNotNone(out["package"])  # 막지 않음
 
@@ -349,7 +357,7 @@ class HandlerPriorityTest(SkipValidation):
         report = self.flow("fail", NO_FLAGS)
         warning = f"LLM은 면책 가능성 제시(조항 {ARTICLE_23}) — 담당자 확인"
         eight = self.section8(report)
-        self.assertIn(warning, str(eight["사유"]))
+        self.assertNotIn(warning, str(eight["사유"]))  # #204: 사유가 아니라 검증 줄 경고에만
         self.assertIn(warning, str(eight["산정 전 검증"]))
         pkg = asyncio.run(api.confirm_report(self.actor, self.case, 2))
         for name, text in (("JSON", to_json(pkg["package"])), ("HTML", pkg["html"])):
@@ -364,8 +372,8 @@ class HandlerPriorityTest(SkipValidation):
                 ):
                     self.assertNotIn(internal, text)
         self.assertIn(
-            warning, str(self.section8(report)["사유"])
-        )  # 패키지를 만들어도 보고서는 그대로
+            warning, str(self.section8(report)["산정 전 검증"])
+        )  # 패키지를 만들어도 보고서는 그대로(#204: 경고는 검증 줄에)
 
     def test_unresolved_validation_not_in_package(self):
         judgment = fx.judgment()
@@ -400,7 +408,13 @@ class HandlerPriorityTest(SkipValidation):
         )
         reasons = report["calculation"]["reasons"]
         self.assertEqual(report["calculation"]["status"], "not_payable")
-        self.assertTrue(any("LLM은 면책 가능성 제시" in r for r in reasons), reasons)
+        # #204: 경고가 있는 항목은 사유에 담당자 입력 문구로, LLM 의견은 그 검증 줄 경고로
+        self.assertFalse(any("LLM은 면책 가능성 제시" in r for r in reasons), reasons)
+        warned = [c for c in report["calculation"]["checks"] if c.get("warning")]
+        self.assertTrue(warned)
+        for c in warned:
+            self.assertIn(f"{c['label']}: 담당자 확인 — 해당 없음", reasons)
+            self.assertIn("LLM은 면책 가능성 제시", c["warning"])
 
     def test_false_and_llm_unknown_passes(self):
         check = self.check(self.flow("unknown", NO_FLAGS))

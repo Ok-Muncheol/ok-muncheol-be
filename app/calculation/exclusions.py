@@ -235,7 +235,8 @@ def apply_handler_priority(topic: str, check: PreCheck, facts: dict[str, object]
     """LLM 판정에 담당자 입력을 우선 적용한다. 입력이 없으면 LLM 결과 그대로.
 
     True → LLM 결과와 상관없이 면책(fail), LLM이 인용한 조항은 근거로 표시.
-    False → 통과. LLM이 fail이면 통과하되 경고를 남긴다.
+    False → 통과. 내용(detail)은 담당자 입력 문구다. LLM이 fail이면 반대 의견은 warning에만
+    남겨 8번 산정 전 검증 줄에 경고로 보인다(산정 사유에는 담당자 입력 문구가 들어간다, #204).
     """
     key = _flag_key(topic)
     flag = facts.get(key) if key is not None else None
@@ -248,8 +249,8 @@ def apply_handler_priority(topic: str, check: PreCheck, facts: dict[str, object]
         return {**check, "result": "fail", "decided_by": "handler", "detail": detail}
     passed: PreCheck = {**check, "result": "pass", "decided_by": "handler", "detail": HANDLER_NONE}
     if check["result"] == "fail":
-        warning = f"LLM은 면책 가능성 제시(조항 {ids}) — 담당자 확인"
-        passed.update({"detail": warning, "warning": warning})
+        # 문구는 예전 그대로(산정 입력 해시에 들어가 바꾸면 기존 사건에 새 버전이 생긴다)
+        passed["warning"] = f"LLM은 면책 가능성 제시(조항 {ids}) — 담당자 확인"
     return passed
 
 

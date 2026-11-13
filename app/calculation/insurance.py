@@ -91,7 +91,7 @@ def _contract_checks(
             "result": result,
             "decided_by": decided_by,
             "detail": detail,
-            "clause_ids": list(clauses),
+            "clause_ids": cited(*clauses),
         }
 
     checks: list[PreCheck] = [
@@ -167,6 +167,16 @@ def _contract_checks(
     return checks + _deductible_check(contract, rules)
 
 
+# 예시 규칙(rules.py)의 자리 표시 조항 ID. 열어 볼 문서가 아니라 근거 목록에는 넣지 않는다(#204).
+# 예시 규칙이라는 표시는 rule_version("example-…")과 8번 '근거 상태'·청구서 워터마크로 남는다
+EXAMPLE_CLAUSE_PREFIX = "example:"
+
+
+def cited(*clause_ids: str) -> list[str]:
+    """근거로 내보낼 조항 ID. 예시 규칙 자리 표시 ID(example:)는 뺀다."""
+    return [i for i in clause_ids if i and not i.startswith(EXAMPLE_CLAUSE_PREFIX)]
+
+
 def _deductible_check(contract: OwnDamageContractDoc | None, rules: RuleSet) -> list[PreCheck]:
     if not _uses_default_deductible(contract):
         return []
@@ -177,7 +187,7 @@ def _deductible_check(contract: OwnDamageContractDoc | None, rules: RuleSet) -> 
             "result": "pass",
             "decided_by": "code",  # 규칙 값 사용 — 상태를 낮추지 않음
             "detail": deductible_rule_text(rules),
-            "clause_ids": [rules.clause_deductible],
+            "clause_ids": cited(rules.clause_deductible),
         }
     ]
 
@@ -281,7 +291,7 @@ def calculate_insurance(
         insured_amount = int(contract["insured_amount"])  # type: ignore[arg-type]
         loss_type, recognized = "total", min(insured_amount, int(vehicle_value))
         f_rec = f"전손: min(보험가입금액 {insured_amount:,}, 차량가액 {int(vehicle_value):,})"
-        result["clause_ids"].append(rules.clause_total_loss)
+        result["clause_ids"] += cited(rules.clause_total_loss)
     else:
         insured_amount = int(contract["insured_amount"])  # type: ignore[arg-type]
         loss_type, recognized = "partial", min(amount, insured_amount)
@@ -310,7 +320,7 @@ def calculate_insurance(
             "counterparty_fault": cp_fault,
         }
     )
-    result["clause_ids"] += [rules.clause_payout, rules.clause_deductible]
+    result["clause_ids"] += cited(rules.clause_payout, rules.clause_deductible)
     result["formulas"] = {
         "보상 인정 손해액": f"{f_rec} = {recognized:,}",
         "자기부담금": (

@@ -326,6 +326,8 @@ def assemble_review(
                             }[x["result"]],
                             "내용": x["detail"],
                             "판정": x["decided_by"],
+                            # 담당자 입력과 다른 LLM 의견 등(결과는 그대로, #204)
+                            **({"경고": x["warning"]} if x.get("warning") else {}),
                         }
                         for x in c.get("checks", [])
                     ],
@@ -384,7 +386,12 @@ def assemble_review(
                 "구상",
                 body9,
                 ["calculation"]
-                + ([calculation["rule_version"]] if calculation else [])
+                # 예시 규칙 버전 문자열은 근거 목록에 넣지 않는다(8번 '규칙 버전'에는 남음, #204)
+                + (
+                    [calculation["rule_version"]]
+                    if calculation and not str(calculation["rule_version"]).startswith("example-")
+                    else []
+                )
                 + clause_ids(recovery_refs, clauses),
             )
         )
