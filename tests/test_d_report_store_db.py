@@ -276,6 +276,29 @@ def test_claim_c1_reused_across_report_versions_persists(database_url, store):
         {"package_version": 2, "report_version": 3},
     ]
 
+    # HTTP 경로로도: GET /cases/{id}/reports/3/claim → 200, C1(v2 기준). DB에서 다시 불러온 값
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings, get_settings
+    from app.main import app
+
+    store()
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        app_env="local", on_vercel=False, supabase_url=None, supabase_jwt_secret=None,
+        jwt_audience="authenticated", cors_allow_origins=(), dev_actor_id=ACTOR,
+    )
+    try:
+        res = TestClient(app, raise_server_exceptions=False).get(
+            f"/cases/{case_id}/reports/3/claim"
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert res.status_code == 200, res.text
+    assert res.json()["package"] == json.loads(json.dumps(c1, ensure_ascii=False))
+    assert (res.json()["package"]["package_version"], res.json()["package"]["report_version"]) == (
+        1, 2,
+    )
+
 
 def test_liability_inputs_persist(database_url, store):
     """C: 대물·대인 입력(injured_person·property_damage_input)이 kind 제약을 지나 저장·복원된다."""

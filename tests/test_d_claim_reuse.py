@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import json
 import unittest
 
 from app.api import reports as api
@@ -44,6 +45,25 @@ def ver(report):
 
 def injured(doc_id, cost):
     return {**INJURED, "document_id": doc_id, "treatment_cost": cost}
+
+
+def route_client(actor: str):
+    """실제 앱 경로(인증은 로컬 개발 사용자). 응답 모델(TypedDict)을 거친 결과를 본다."""
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings, get_settings
+    from app.main import app
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        app_env="local",
+        on_vercel=False,
+        supabase_url=None,
+        supabase_jwt_secret=None,
+        jwt_audience="authenticated",
+        cors_allow_origins=(),
+        dev_actor_id=actor,
+    )
+    return app, TestClient(app, raise_server_exceptions=False)
 
 
 class ClaimReuseTest(unittest.TestCase):
@@ -199,6 +219,47 @@ class ClaimReuseTest(unittest.TestCase):
         rec.report(ver(self.v2)).pop("claim_package")
         got = run(api.get_claim(ACTOR, CASE, ver(self.v2)))["package"]
         self.assertIs(got, self.first["package"])
+
+
+class ClaimRouteTest(unittest.TestCase):
+    """HTTP 경로: v3 확인 뒤 GET /cases/{id}/reports/3/claim이 404가 아니라 200으로 C1을 준다."""
+
+    def setUp(self):
+        api.configure(repo=api.InMemoryReportRepository(), rules=RuleSet(), fetch_clauses=None)
+        self.app, self.client = route_client(ACTOR)
+
+    def tearDown(self):
+        self.app.dependency_overrides.clear()
+        api.configure(repo=api.InMemoryReportRepository(), rules=RuleSet(), fetch_clauses=None)
+
+    def test_claim_route_returns_c1_for_v3(self):
+        run(api.submit_judgment(ACTOR, fx.card(), fx.judgment()))
+        body = {"documents": [fx.contract(), fx.estimate(), *fx.evidence()], "case_facts": NO_FLAGS}
+        v2 = self.client.post(f"/cases/{CASE}/documents", json=body).json()["versions"]
+        cp = {"counterparty": fx.counterparty()}
+        c1 = self.client.post(f"/cases/{CASE}/reports/{v2['report_version']}/confirm", json=cp)
+        self.assertEqual(c1.status_code, 200, c1.text)
+        res = self.client.post(f"/cases/{CASE}/documents", json={"documents": [INJURED]})
+        self.assertEqual(res.json()["versions"]["report_version"], 3)
+
+        res = self.client.get(f"/cases/{CASE}/reports/3/claim")  # 확인 전에는 없다
+        self.assertEqual((res.status_code, res.json()["error"]["code"]), (404, "not_found"))
+        res = self.client.post(f"/cases/{CASE}/reports/3/confirm", json=cp)
+        self.assertEqual(res.status_code, 200, res.text)
+        ref = {"package_version": 1, "report_version": 2}
+        self.assertEqual((res.json()["claim_reused"], res.json()["claim_reused_from"]), (True, ref))
+        self.assertEqual(res.json()["report"]["claim_package"], ref)
+
+        res = self.client.get(f"/cases/{CASE}/reports/3/claim")
+        self.assertEqual(res.status_code, 200, res.text)
+        package = res.json()["package"]
+        self.assertEqual(package, c1.json()["package"])  # C1 그대로(응답 모델을 거쳐도 같다)
+        self.assertEqual((package["package_version"], package["report_version"]), (1, 2))
+        self.assertEqual(package["rows"][0]["claim_no"], "synthetic-case-C1")
+        self.assertEqual(
+            res.json(),
+            json.loads(json.dumps(run(api.get_claim(ACTOR, CASE, 3)), ensure_ascii=False)),
+        )
 
 
 if __name__ == "__main__":
