@@ -26,9 +26,12 @@
 | 교차로 종류 | `location_type` | 60% | `human_confirmed` |
 | 도로 관계 (동일폭·대로·일시정지가 어느 쪽인지) | `road_priority` | 60% | `human_confirmed` (신호 없는 교차로일 때) |
 | 진행 방향 | `movement_A`, `movement_B` | 40% | `human_confirmed` (항상 질문) |
-| 신호 | `signal_A`, `signal_B` | 70% / 30% | `human_confirmed` (신호 있는 교차로) |
+| 신호 (진입 시점) | `signal_A`, `signal_B` | 70% / 30% | `human_confirmed` (신호 있는 교차로) |
+| 충돌 순간 신호 | `collision_signal_A`, `collision_signal_B` | 담당자 입력 | 진입 때와 신호가 바뀐 도표가 후보에 남으면 질문(11/13 #160) |
+| 차로 노면표시 (방향 화살표) | `lane_marking_A`, `lane_marking_B` | 담당자 입력 | 노면표시로 갈리는 도표(차11-x)가 후보에 남으면 질문(11/13 #160) |
 | 상대 위치 (맞은편·측면 좌우·같은 방향 앞뒤) | `relative_position` | — | 그 칸으로 갈리는 도표가 후보에 남으면 질문. B가 가는 방향에서 본 A의 위치 |
 | 진입 순서 | `entry_order` | 60% | 신호 없는 교차로에서만 사용. 도표 당사자 A 기준(`first` = A 선진입) |
+| 비보호 좌회전 표지 | `unprotected_left_sign` (참거짓) | 담당자 입력 | 표지로 갈리는 도표(차2-2·2-6·4-2)가 후보에 남으면 질문(11/13 #160) |
 | 야간 | (A가 칸 이름 확정) | — | 도표 선택에 쓰지 않음 (수정요소 자동 적용 안 함) |
 
 정확도는 10건 기준 참고값이며 평가 결과가 아니다. AI Hub 영상 438건 기준 측정값(gpt-5.4-mini)은 `docs/vision-fact-card-eval-report.md`에, 지금 파이프라인의 칸별 정확도는 `docs/contracts/fact-card-v1.md` 3절에 있다. 모든 칸의 `model_confidence`는 참고용이고, 도표 선택은 `verification_status="human_confirmed"`인 값만 사용한다.
@@ -49,13 +52,15 @@
 | `same_width` · `major_A` · `major_B` · `stop_A` · `stop_B` · `other` · `none` | 같은 값(우선 도로 쪽까지 맞아야 한다) |
 | `straight` · `left_turn` · `right_turn` · `u_turn` · `lane_change` · `other` | 같은 값 |
 | `same_direction_front` · `same_direction_rear` · `opposite` · `left` · `right` | 같은 값 |
-| `green` · `yellow` · `red` · `green_left_arrow` · `no_signal` | 같은 값 |
+| `green` · `yellow` · `red` · `green_left_arrow` · `flashing_yellow` · `flashing_red` · `no_signal` (`signal_*`·`collision_signal_*`) | 같은 값 |
+| `left_only` · `straight_left` · `straight_only` · `straight_right` · `right_only` · `none` (`lane_marking_*`) | 같은 값 |
 | `first` · `second` · `simultaneous` · `none` | 같은 값 |
-| `night` 참거짓 | `"true"` · `"false"` |
+| `night`·`unprotected_left_sign` 참거짓 | `"true"` · `"false"` |
 
 - 담당자가 확인한 모름(`value: null` + `human_confirmed`, 한국어 안은 `불명`)은 '모른다' 응답과 같다. 다시 묻지 않고, 그 칸이 `*`인 도표만 남는다. 사고 유형·장소가 모름이면 검색 전에 보류한다. 모델이 몰라 `needs_review`인 `null`은 미확인 칸이라 질문한다.
 - `none`·`other`·`lane_change`와 쪽이 붙은 도로 관계(`major_A`·`stop_B` 등)도 도표 값이다. 도표 레코드가 같은 값이나 `*`를 적었을 때만 맞는다. 11/6 카드의 `major_minor`·`stop_sign`은 쪽이 없어 어떤 도표 값과도 맞지 않는다.
-- A/B(v1 2절): 카드 B = 촬영 차량이다. 도표 A가 카드 B면(`party_mapping.chart_party_A_id` = `video_ego_party_id`) B가 읽을 때 뒤집는다. `movement_*`·`signal_*` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`, `first`↔`second`, `left`↔`right`, `same_direction_front`↔`same_direction_rear`를 바꾼다(`opposite`는 그대로). 질문 문구도 카드 쪽 칸으로 쓴다. 11/6 카드·한국어 안은 카드 A/B를 도표 A/B로 본다.
+- 영상 카드의 담당자 입력 칸(충돌 순간 신호·노면표시·비보호 표지)은 `null` + `unverified`라 사실도 '모름'도 아니다. 그 칸으로 갈리는 도표가 후보에 남을 때만 질문한다.
+- A/B(v1 2절): 카드 B = 촬영 차량이다. 도표 A가 카드 B면(`party_mapping.chart_party_A_id` = `video_ego_party_id`) B가 읽을 때 뒤집는다. `movement_*`·`signal_*`·`collision_signal_*`·`lane_marking_*` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`, `first`↔`second`, `left`↔`right`, `same_direction_front`↔`same_direction_rear`를 바꾼다(`opposite`는 그대로). 질문 문구도 카드 쪽 칸으로 쓴다. 11/6 카드·한국어 안은 카드 A/B를 도표 A/B로 본다.
 - 구분 질문은 카드 형식으로 낸다(계약 문서 「구분 질문과 재개」). 가정 실행(질의응답)도 도표 선택 칸·값을 카드 쪽으로 되돌려 넣는다.
 
 ## 도표 레코드 값 규칙
@@ -102,14 +107,14 @@
 | 사유 | 도표 | 필요한 것 |
 | --- | --- | --- |
 | 범위 밖 상황(일방통행·진로변경·끼어들기·보행자 신호) | 차7-2, 13-2, 20-2, 5-2 | 범위 결정 |
-| 차로 노면표시 | 차11-1~11-6 | 차로 칸(A) |
-| 점멸 신호 | 차1-5, 3-7, 3-8 | `Signal` enum(A) |
-| 진입 시와 충돌 시 신호가 다름 | 차1-2, 2-3, 2-5, 3-5 | 충돌 시점 신호 칸(A). 그전까지 `calculation_ready: false` |
-| 비보호 좌회전 허용 여부 | 차2-2, 2-6 | 표지 칸(A) |
+| 차로 노면표시 | 차11-1~11-6 | `lane_marking_A/B`로 해소(11/13 #160·B). C 검수 대기 |
+| 점멸 신호 | 차1-5, 3-7, 3-8 | `signal`·`collision_signal`의 `flashing_yellow`·`flashing_red`로 해소(11/13 #160). C 검수 대기 |
+| 진입 시와 충돌 시 신호가 다름 | 차1-2, 2-3, 2-5, 3-5 | `collision_signal_A/B`로 해소(11/13 #160·B). C 검수 대기 |
+| 비보호 좌회전 허용 여부 | 차2-2, 2-6 | `unprotected_left_sign`으로 해소(11/13 #160·B). C 검수 대기(차2-6·4-2는 true로 다시 적기) |
 | 상대 위치(맞은편·측면, 좌측·우측) | 차2-1/3-1, 2-4/3-2, 2-2/3-6, 13-1/14-1, 15-1/16-1/16-2, 17-1, 18-1/18-2, 20-1, 21-1 | 카드 v1 `relative_position`으로 해소(#128). 3차 검수 완료(11/12). 차2-2(비보호 표지)·20-1·21-1(동시 회전)은 다른 사유로 보류 |
 | 우선 도로가 어느 당사자 쪽인지(일시정지 표지·대로) | 차7-1, 8-1~8-3, 9-1/9-2, 10-1, 12-2, 13-3/13-4, 16-3~16-5, 17-2 | 카드 v1 `road_priority` `major_A`·`stop_A` 등으로 해소(#128). 3차 검수 완료(11/12) |
-| 한쪽 신호 교차로의 `location_type` | 차5-x, 6-1 | 값 정의(A·B) |
-| 나란히 통행하다 동시 회전 | 차19-1, 20-x, 21-1 | 칸 정의(A) |
+| 한쪽 신호 교차로의 `location_type` | 차5-x, 6-1 | 값 정의(A·B). 마감(11/13) 뒤로 미룸, 알려진 한계 |
+| 나란히 통행하다 동시 회전 | 차19-1, 20-x, 21-1 | 칸 정의(A). 마감(11/13) 뒤로 미룸, 알려진 한계 |
 
 ### 검수 규칙
 

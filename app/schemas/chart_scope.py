@@ -35,12 +35,23 @@ RelativePosition = Literal[
     "same_direction_front", "same_direction_rear", "opposite", "left", "right",
 ]
 EntryOrder = Literal["first", "second", "simultaneous", "none"]
+# 그 당사자가 있던 차로의 방향 노면표시(화살표). 차11-1~11-6(교차로 노면 표시 위반)이
+# 이것으로 갈린다. 실선·점선(차로 변경)이 아니다. `none` = 표시 없음
+LaneMarking = Literal[
+    "left_only", "straight_left", "straight_only", "straight_right", "right_only", "none",
+]
 
 ChartFieldKey = Literal[
     "accident_type", "location_type", "road_priority",
-    "movement_A", "movement_B", "signal_A", "signal_B", "relative_position", "entry_order",
-    "night",
+    "movement_A", "movement_B", "signal_A", "signal_B",
+    "collision_signal_A", "collision_signal_B", "lane_marking_A", "lane_marking_B",
+    "relative_position", "entry_order", "unprotected_left_sign", "night",
 ]
+# 11/13 카드 v1에 담당자 입력 칸 5개가 더해졌다(정지원 #160). 영상 카드는 null + unverified로
+# 내보내므로 판단은 그 칸으로 갈리는 도표가 후보에 남을 때만 구분 질문으로 묻는다.
+# - collision_signal_A/B: 충돌 순간 신호. signal_A/B는 진입 시점 신호다(차1-2·2-3·2-5·3-5)
+# - lane_marking_A/B: 그 당사자가 있던 차로의 노면표시(차11-x)
+# - unprotected_left_sign: 비보호 좌회전 표지가 있는가(차2-2·2-6·4-2)
 FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     "accident_type": ("car_to_car",),
     "location_type": LocationType.__args__,
@@ -49,8 +60,13 @@ FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     "movement_B": Movement.__args__,
     "signal_A": Signal.__args__,
     "signal_B": Signal.__args__,
+    "collision_signal_A": Signal.__args__,
+    "collision_signal_B": Signal.__args__,
+    "lane_marking_A": LaneMarking.__args__,
+    "lane_marking_B": LaneMarking.__args__,
     "relative_position": RelativePosition.__args__,
     "entry_order": EntryOrder.__args__,
+    "unprotected_left_sign": ("true", "false"),
     "night": ("true", "false"),
 }
 

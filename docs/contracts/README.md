@@ -108,6 +108,9 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 - 카드 v1 확정본(영어 12칸, #120)이면 도표 선택 칸 이름에 v1 값으로 묻는다. 예: `accident_type` `["car_to_car", "other"]`,
   `road_priority` `["same_width", "major_A", "major_B", "stop_A", "stop_B", "other", "none"]`.
   도표 A가 카드 B(촬영 차량)면 카드 쪽 칸 이름으로 묻는다(도표 B 진행 방향 → `movement_A`).
+  담당자 입력 칸(`collision_signal_*`·`lane_marking_*`·`unprotected_left_sign`, #160)도 같다. 영상 카드는 이 칸을
+  `null` + `unverified`로 비워 보내므로, 그 칸으로 갈리는 도표가 후보에 남을 때만 묻는다.
+  참거짓 칸(`night`·`unprotected_left_sign`) 선택지는 `["true", "false"]`이고, 카드 수정에는 bool로 적는다.
 - 한국어 안 카드(11/11 오전, `accident_object`·한국어 값)면 그 칸 이름·값으로 묻는다. 예: `accident_object` `["차대차", "차대이륜차", "기타"]`.
 - 이전 형식(11/6 영어 값) 카드면 `chart_scope.FIELD_OPTIONS` 그대로다(11/11부터 v1 값과 같고 `relative_position`도 묻는다).
 - 모름은 선택지에 넣지 않고 '모른다' 응답으로 받는다.

@@ -80,6 +80,13 @@ _KOREAN_VALUES = {
     "yellow": "황색", "red": "적색", "green_left_arrow": "녹색화살표", "no_signal": "신호 없음",
     "opposite": "맞은편", "left": "측면", "right": "측면", "first": "선진입",
     "second": "후진입", "simultaneous": "동시 진입",
+    "flashing_yellow": "황색점멸", "flashing_red": "적색점멸",
+}
+# 차로 노면표시(차11-x 제목 표현). 값이 다른 칸과 겹치지 않게 따로 둔다
+_LANE_WORDS = {
+    "left_only": "좌회전 노면표시차로", "straight_left": "직진좌회전 노면표시차로",
+    "straight_only": "직진 노면표시차로", "straight_right": "직진우회전 노면표시차로",
+    "right_only": "우회전 노면표시차로",
 }
 
 
@@ -114,12 +121,16 @@ def build_search_query(card: FactCard, top_k: int = CHART_SEARCH_TOP_K) -> Searc
     words = [w for k in ("location_type", "road_priority") if (w := word(k))]
     for side in ("A", "B"):
         parts = [w for k in (f"signal_{side}", f"movement_{side}") if (w := word(k))]
+        if lane := _LANE_WORDS.get(values.get(f"lane_marking_{side}", "")):
+            parts.append(lane)
         if parts:
             words.append(f"{side} {' '.join(parts)}")
     if position := word("relative_position"):
         words.append(position)
     if order := word("entry_order"):
         words.append(order)
+    if values.get("unprotected_left_sign") == "true":
+        words.append("비보호 좌회전")
     return {
         "text": " ".join(words) or "차대차 교차로 사고",
         "accident_date": card["accident_date"], "filters": {}, "top_k": top_k,
