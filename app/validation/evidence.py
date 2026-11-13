@@ -18,14 +18,18 @@ PERIOD_UNKNOWN_WARNING = (
 PUBLISHED_SAME_MONTH_WARNING = (
     "경고: 사고가 적용판 {edition} 발행월({month})과 같은 달이라 시행 전 사고일 수 있다"
 )
+NO_ACCIDENT_DATE = "사고 일자가 없어 적용판 유효기간을 확인할 수 없다"
 
 
-def edition_covers(candidate: ChartCandidate, accident_date: str) -> str | None:
+def edition_covers(candidate: ChartCandidate, accident_date: str | None) -> str | None:
     """사고 일자에 유효한 적용판인지. 문제가 있으면 이유를 돌려준다.
 
     시행일이 비어 있으면 끝 날짜만 본다. 발행월이 있으면 그보다 앞선 달의 사고도 막는다.
     시행일 미확인·발행월과 같은 달 경고는 `check_evidence`가 남긴다.
+    사고 일자가 없으면(카드·사건 모두 없음) 날짜를 지어내지 않고 막는다.
     """
+    if not accident_date:
+        return NO_ACCIDENT_DATE
     try:
         accident = date.fromisoformat(accident_date)
         start = date.fromisoformat(candidate["effective_from"]) if candidate["effective_from"] \
@@ -44,7 +48,7 @@ def edition_covers(candidate: ChartCandidate, accident_date: str) -> str | None:
 
 
 def check_evidence(
-    selection: ChartSelection, candidates: list[ChartCandidate], accident_date: str
+    selection: ChartSelection, candidates: list[ChartCandidate], accident_date: str | None
 ) -> ValidationCheck:
     """도표 ID·적용판·원문 페이지·수정요소 연결 대조. 생성 인용 차단."""
     reasons: list[str] = []

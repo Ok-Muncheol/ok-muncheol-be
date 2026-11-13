@@ -6,6 +6,7 @@ api_idempotency_keys. 제약은 `supabase/migrations/20261109163901_judgment_run
 모두 `public.`을 붙인다. 쓰기는 BE만 한다.
 """
 
+from datetime import datetime
 from typing import Any
 
 from psycopg import AsyncConnection
@@ -53,6 +54,12 @@ async def setup_checkpoints(conn: AsyncConnection) -> None:
 async def case_assignee(conn: AsyncConnection, case_id: str) -> str | None:
     row = await _one(conn, "select assignee_id from public.cases where id = %s", (case_id,))
     return str(row["assignee_id"]) if row else None
+
+
+async def case_accident_date(conn: AsyncConnection, case_id: str) -> datetime | None:
+    """사건의 사고 일시(cases.accident_date, timestamptz). 없거나 사건이 없으면 None."""
+    row = await _one(conn, "select accident_date from public.cases where id = %s", (case_id,))
+    return row["accident_date"] if row else None
 
 
 # ── 멱등성 키 ─────────────────────────────────────────────────────
