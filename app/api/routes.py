@@ -130,6 +130,12 @@ async def get_case(actor_id: ActorId, case_id: str) -> dict[str, object]:
     return await cases.get_case(actor_id, case_id)
 
 
+@router.get("/cases/{case_id}/evidence", tags=["A facts"])
+async def get_evidence(actor_id: ActorId, case_id: str) -> dict[str, object]:
+    """근거 사진·미리보기 영상의 보기용 서명 URL(1시간). 비공개 버킷이라 화면은 이 URL로만 연다."""
+    return await analysis.get_evidence(actor_id, case_id)
+
+
 # ── A: 사실 카드 ──────────────────────────────────────────────────
 @router.get("/cases/{case_id}/fact-card", tags=["A facts"])
 async def get_fact_card(actor_id: ActorId, case_id: str) -> FactCard:

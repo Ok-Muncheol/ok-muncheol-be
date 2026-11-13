@@ -3,7 +3,8 @@
 - 인증은 `apikey` 헤더 하나(`SUPABASE_SECRET_KEY`). 서버 키는 RLS를 건너뛰므로
   **호출하는 쪽이 먼저 사건 권한과 경로를 확인한다**(예: app/api/reports.py
   `upload_estimate_from_storage`).
-- 버킷은 `STORAGE_BUCKET` 상수 하나(`case-files`, 11/11 확정 — 비공개, PDF·video/*만).
+- 버킷은 `STORAGE_BUCKET` 상수 하나(`case-files`, 11/11 확정 — 비공개, PDF·video/*·image/jpeg만.
+  image/jpeg는 11/13 근거 사진용으로 추가).
   Storage 경로는 버킷을 포함한 `<버킷>/<객체 키>` 모양이고, API 호출에는 버킷을 뗀 객체 키를 쓴다.
 - `SUPABASE_URL`이나 `SUPABASE_SECRET_KEY`가 없으면 503 `storage_not_configured`
   (app/db.py의 `db_not_configured`와 같은 방식). 연결 실패·Storage 오류는 503 `storage_unavailable`.

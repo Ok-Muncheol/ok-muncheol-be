@@ -19,7 +19,8 @@ from app.api.errors import forbidden, not_found, unprocessable
 from app.schemas.common import UploadKind
 from app.workflow import runs
 
-# 올릴 수 있는 형식 → 확장자. 버킷(case-files)도 PDF와 video/*만 받는다
+# 담당자가 올릴 수 있는 형식 → 확장자. 버킷(case-files)은 PDF·video/*·image/jpeg를 받는다
+# (image/jpeg는 근거 사진용으로 Modal 워커만 올린다)
 UPLOAD_TYPES: dict[str, dict[str, str]] = {
     "estimate": {"application/pdf": "pdf"},
     "video": {

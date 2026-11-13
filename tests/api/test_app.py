@@ -56,10 +56,10 @@ def test_health_is_open(client):
 
 
 def test_openapi_matches_fe_api_client():
-    # FE src/lib/api/client.ts ApiClient 메서드 17개
-    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 16
+    # FE src/lib/api/client.ts ApiClient 메서드 17개 + getEvidence(11/13, FE 추가 예정)
+    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 17
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 17
+    assert ops == 18
 
 
 def test_missing_token_is_401_api_error(client):

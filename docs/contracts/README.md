@@ -35,6 +35,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | GET | `/cases/{id}` | A | 상태 복원. `CaseSummary`: `stage`(intake·facts·judgment·report), `task_status`, `judgment_status`, `approval_status`, `open_questions`, `versions`. 최신 카드 버전의 판단·최신 판단의 보고서만 지금 단계로 친다. 시각은 +09:00 |
 | GET·PATCH | `/cases/{id}/fact-card` | A | GET은 최신 버전 `FactCard`(카드 없으면 404). PATCH 본문 `FactPatch` `{expected_version, fields: {칸: {value}}, party_mapping?, reason}` → 새 버전(draft). 고친 칸은 `human_confirmed`(null = 확인한 모름), 모델 원값 보존. 최신 아님 409, v1 밖 값 422 `invalid_fact_value`·`invalid_fact_field`, 사유 없음 422 `invalid_patch`, 도표 A/B 오류 422 `invalid_party_mapping` |
 | POST | `/cases/{id}/fact-card/confirm` | A | `{expected_version}` → 확정 `FactCard`. 값 있는 칸은 모두 `human_confirmed`, 확정한 사람·시각 기록. `needs_review` 칸이나 도표 A/B 오류가 남으면 422 `card_not_confirmable`, 최신 아님 409. 이미 확정이면 그대로 돌려준다 |
+| GET | `/cases/{id}/evidence` | A | 근거 사진·미리보기 영상의 보기용 서명 URL(1시간) `{frames: [{frame_id, timestamp_ms, url}], preview_url, expires_in}`. 사진은 최신 카드 `evidence_frames`, 미리보기는 최신 완료 분석. 이 사건 `frames/`·`previews/` 경로만 서명하고 파일이 없으면 `null`. 담당자 아님 403 |
 | POST | `/cases/{id}/judgments` | B | `{card_version}`, `Idempotency-Key` 필수, 202. 버전 불일치 409, 미확정 422 |
 | GET | `/cases/{id}/judgment` | B | 최신 판단 실행 `JudgmentRunView`, 판단 전이면 `null`. 새로고침·재접속 복원 |
 | POST | `/cases/{id}/questions/{question_id}/answer` | B | 본문은 `QuestionAnswer`. 본문 `question_id`가 경로와 다르면 422 `question_mismatch` |
@@ -87,7 +88,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 2. FE가 `upload_url`에 키 없이 파일 본문과 `Content-Type`만 넣어 `PUT` → 200 `{"Key": "<storage_path>"}`
 3. 견적서는 `POST /cases/{id}/estimates` `{storage_path, party_id}`, 영상은 `POST /cases/{id}/analysis` `{storage_path}`
 
-- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`만 받는다.
+- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`·`image/jpeg`만 받는다. `image/jpeg`는 근거 사진용(11/13, Modal 워커가 올린다. 담당자 업로드 `kind`에는 없다).
 - 무료 플랜이라 파일 하나 50MB가 고정 한도다. 영상은 사고 구간만 잘라 올리는 것을 권한다(정지원: 지금 영상 중앙값 6.3MB, 최대 24MB).
 - 경로는 `case-files/{case_id}/estimates/{uuid}.pdf`·`case-files/{case_id}/videos/{uuid}.{확장자}`이고, 이름은 BE가 만든다. Supabase는 한글 객체 이름을 거절한다(400 `InvalidKey`).
 - 서명 업로드 URL은 7200초 유효하고 한 번만 쓸 수 있다. Storage는 아래 두 경우 모두 HTTP 400과 본문 `statusCode`로 응답한다.

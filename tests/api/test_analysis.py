@@ -84,6 +84,11 @@ class MemoryAnalysisRepo:
         t.update(status=status, fact_card_version=card_version, error=error)
         return copy.deepcopy(t)
 
+    async def latest_completed(self, case_id):
+        done = [t for t in self.tasks.values() if t["case_id"] == case_id
+                and t["status"] == "completed"]
+        return copy.deepcopy(done[-1]) if done else None
+
     def transaction(self):
         return contextlib.AsyncExitStack()
 
@@ -355,3 +360,68 @@ def test_callback_keeps_only_this_tasks_frame_paths(env):
     callback(task, jobs[0]["callback_token"], {"status": "completed", "card": body})
     saved = cards.rows[-1]["card"]
     assert [f["storage_path"] for f in saved["evidence_frames"]] == [own, None, None, None]
+
+
+# ---------------------------------------------------------------- 근거 보기 URL
+
+
+def _evidence_env(env, uploaded):
+    """sign_download이 uploaded에 있는 경로만 서명한다(Storage에 있는 파일)."""
+    tasks, cards, jobs = env
+
+    async def sign(object_key, expires_in):
+        path = f"case-files/{object_key}"
+        if path == VIDEO:
+            return "https://x/video"
+        assert expires_in == analysis.EVIDENCE_URL_SECONDS
+        return f"https://x/view/{path}" if path in uploaded else None
+
+    analysis.configure(sign_download=sign)
+    return tasks, cards, jobs
+
+
+def test_evidence_signs_own_frames_and_preview(env):
+    uploaded: set[str] = set()
+    _, _, jobs = _evidence_env(env, uploaded)
+    task = start()["task_id"]
+    own = [f"case-files/{CASE}/frames/{task}/0{i}.jpg" for i in (1, 2)]
+    uploaded.update([own[0], f"case-files/{CASE}/previews/{task}.mp4"])
+    body = card()
+    body["evidence_frames"] = [
+        {"frame_id": "f001", "timestamp_ms": 100, "storage_path": own[0]},
+        {"frame_id": "f002", "timestamp_ms": 200, "storage_path": own[1]},  # 아직 안 올라감
+        {"frame_id": "f003", "timestamp_ms": 300, "storage_path": None},
+    ]
+    callback(task, jobs[0]["callback_token"], {"status": "completed", "card": body})
+    out = run(analysis.get_evidence(ACTOR, CASE))
+    assert [(f["frame_id"], f["url"]) for f in out["frames"]] == [
+        ("f001", f"https://x/view/{own[0]}"), ("f002", None), ("f003", None)]
+    assert out["preview_url"] == f"https://x/view/case-files/{CASE}/previews/{task}.mp4"
+    assert out["expires_in"] == 3600
+
+
+def test_evidence_never_signs_other_paths(env):
+    _, cards, _ = _evidence_env(env, uploaded=set())
+    body = card()
+    body["evidence_frames"] = [
+        {"frame_id": "f001", "timestamp_ms": 0, "storage_path": VIDEO},
+        {"frame_id": "f002", "timestamp_ms": 0,
+         "storage_path": f"case-files/{CASE}/frames/../videos/a.mp4"},
+    ]
+    cards.rows.append({"card": {**body, "case_id": CASE, "version": 1}, "origin": "vision",
+                       "reason": None, "actor": None})
+    out = run(analysis.get_evidence(ACTOR, CASE))
+    assert [f["url"] for f in out["frames"]] == [None, None]
+    assert out["preview_url"] is None
+
+
+def test_evidence_empty_before_analysis_and_checks_assignee(env):
+    _evidence_env(env, uploaded=set())
+    assert run(analysis.get_evidence(ACTOR, CASE)) == {
+        "frames": [], "preview_url": None, "expires_in": 3600}
+    with pytest.raises(ApiException) as e:
+        run(analysis.get_evidence("99999999-9999-9999-9999-999999999999", CASE))
+    assert error(e) == (403, "forbidden")
+    with pytest.raises(ApiException) as e:
+        run(analysis.get_evidence(ACTOR, "not-a-uuid"))
+    assert error(e)[0] == 404
