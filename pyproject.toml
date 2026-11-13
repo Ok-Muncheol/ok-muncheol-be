@@ -15,6 +15,9 @@ dependencies = [
     # D: 견적서 경로(POST /cases/{id}/estimates) — Storage 내려받기(app/storage.py)·서식 견적서 PDF 읽기
     "httpx>=0.27",
     "pdfplumber>=0.11,<0.12",
+    # 질의 임베더(app/retrieval/embedding.py OpenAIEmbedder.from_env)가 .env를 읽으려고 늘 부른다.
+    # 운영(Vercel)은 기본 의존성만 설치하므로 여기 둔다. 없으면 운영 지식베이스가 켜지지 않는다(11/13)
+    "python-dotenv>=1,<2",
 ]
 
 # 비전·임베딩 의존성은 API 런타임과 분리한다(견적서 PDF 읽기 pdfplumber만 기본 의존성).
