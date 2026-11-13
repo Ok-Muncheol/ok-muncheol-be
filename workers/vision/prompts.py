@@ -1,7 +1,8 @@
 """A: VLM에 보낼 사진 고르기·그리기와 질문문(버전별).
 
-- 기본 버전은 PROMPT_VERSION(v0.2). v0.1·v0.3·v0.4는 지난 실험 재현용(evals/vision/run_cards.py
-  --prompt)으로 남긴다. 결과는 각 함수 주석과 evals/vision/README.md에 있다.
+- 기본 버전은 PROMPT_VERSION(v0.5 = v0.2 + 상대 위치 규칙). v0.1~v0.4는 지난 실험 재현용
+  (evals/vision/run_cards.py --prompt)으로 남긴다. 결과는 각 함수 주석과
+  evals/vision/README.md에 있다.
 - 칸 이름·허용값은 내부 한국어 값(workers/vision/fields.py)이다. 팀에 넘길 때는 contract.py가
   영어 v1으로 바꾼다.
 """
@@ -14,8 +15,10 @@ from typing import Any
 from workers.vision.fields import FIELDS, FPS
 from workers.vision.tracks import draw_boxes
 
-PROMPT_VERSIONS = ("v0.1", "v0.2", "v0.3", "v0.4")
-PROMPT_VERSION = "v0.2"  # 기본값: 지금까지 가장 좋은 버전(개선용 10건 65%)
+PROMPT_VERSIONS = ("v0.1", "v0.2", "v0.3", "v0.4", "v0.5")
+#  기본값 v0.5(2026-11-13): v0.2(지금까지 가장 좋은 버전, 개선용 10건 65%) + 상대 위치 규칙
+# (RELPOS_RULE). 칸별 정확도(contract.FIELD_ACCURACY)는 아직 v0.2로 잰 값이다.
+PROMPT_VERSION = "v0.5"
 # v0.1: 충돌(hint=75) 기준 간격. 충돌 뒤 장면은 움직임 판단을 망치므로 앞쪽 위주
 FRAME_OFFSETS = [-45, -35, -27, -20, -14, -9, -5, -2, 0, 6]
 #  v0.2: 앞쪽 2장(도로 모양 파악용) + 충돌 구간(약 3~6.5초)을 촘촘하게. 충돌 시점을 미리 알려 주지
@@ -121,7 +124,20 @@ def build_prompt(
         return _build_prompt_v02(viewpoint, frames, context, notes={"2"}, rules=V03_RULES[:2])
     if version == "v0.3":
         return _build_prompt_v02(viewpoint, frames, context, notes={"2", "4"}, rules=V03_RULES)
+    if version == "v0.5":
+        return _build_prompt_v02(viewpoint, frames, context, rules=[RELPOS_RULE])
     return _build_prompt_v02(viewpoint, frames, context)
+
+
+#  v0.5(2026-11-13, B·C 요청): 같은 방향 옆 차로에서 나란히 가던 차를 '왼쪽'·'오른쪽'으로
+# 답해 측면 진입 도표(차3-x)와 겹치고 노면 표시 도표(차11-x)가 빠짐. 계약 v1 4절 정의
+# (왼쪽 = 왼쪽 도로에서 진입)에 맞춘다. 영상 모델 v3는 이런 차를 '옆'으로 보므로 VLM이
+# 같은방향으로 답하면 확인 표시가 붙는다
+RELPOS_RULE = (
+    "- relative_position 보충: A가 B와 같은 방향으로 옆 차로에서 나란히 가다 부딪히면 "
+    "'왼쪽'·'오른쪽'이 아니다. 충돌 직전 A가 B보다 앞서 있으면 '같은방향_앞', 뒤처져 있으면 "
+    "'같은방향_뒤'. '왼쪽'·'오른쪽'은 A가 옆 도로에서 B의 진행 방향을 가로질러 들어올 때만 고른다."
+)
 
 
 # v0.3에서 바뀌는 문장(v0.2 오답 분석, gpt-4o 개선용 10건)

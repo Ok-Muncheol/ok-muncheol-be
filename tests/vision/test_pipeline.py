@@ -266,3 +266,14 @@ def test_v1_tables_only_produce_allowed_values():
         if table is not None and v1_name != "accident_type":
             assert set(table.values()) <= set(FACT_FIELD_OPTIONS[v1_name]), v1_name
     assert set(contract.MOVE.values()) | {"other"} <= set(FACT_FIELD_OPTIONS["movement_A"])
+
+
+def test_default_prompt_has_same_direction_lane_rule():
+    """v0.5(11/13): 같은 방향 옆 차로 차는 '왼쪽'·'오른쪽'이 아니라 같은방향_앞/뒤(계약 4절)."""
+    from workers.vision import prompts
+
+    assert prompts.PROMPT_VERSION == "v0.5"
+    default = prompts.build_prompt(1, prompts.FRAMES_V02, 75)
+    assert prompts.RELPOS_RULE in default
+    old = prompts.build_prompt(1, prompts.FRAMES_V02, 75, version="v0.2")
+    assert prompts.RELPOS_RULE not in old
