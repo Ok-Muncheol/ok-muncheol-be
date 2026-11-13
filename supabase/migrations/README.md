@@ -13,6 +13,7 @@
 | `20261111160000_case_intake.sql` | 정지원 | `cases`에 `accident_date`·`input_path`(video·manual) 추가. 범위 검사는 접수 API가 한다 |
 | `20261111170000_analysis_tasks.sql` | 정지원 | 영상 분석 작업(`analysis_tasks`): 사건마다 진행 중 하나, 같은 Idempotency-Key 한 번, 콜백 토큰은 SHA-256만, 완료는 `fact_cards` 버전 외래키, Realtime |
 | `20261113120000_fact_card_version_fks.sql` | 구준휘(통합) | 판단(`judgment_runs.fact_card_version`)·응답(`judgment_answers`의 `expected_card_version`·`resulting_card_version`)·보고서(`review_reports.fact_card_version`)를 `fact_cards (case_id, version)` 외래키로 묶는다. 다른 사건의 카드 버전은 가리킬 수 없고, 가리킨 카드 버전은 지울 수 없다 |
+| `20261113180000_case_documents_liability_kinds.sql` | 김지은 | `case_documents.kind`에 대물·대인 담당자 입력 `injured_person`·`property_damage_input` 추가(제약 다시 걸기). 칸은 `docs/contracts/liability-input.md` |
 
 ## 공통 원칙
 

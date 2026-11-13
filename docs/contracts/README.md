@@ -10,6 +10,7 @@ FE 전달본의 `src/lib/api/types.ts`는 이 타입의 수동 대응 초안이�
 | SearchChunk·EmbeddedChunk·SearchRequest·EvidenceHit | 김지은, 옥석현 공동 검토 | 구준휘 판단/QA·옥석현 산정/보고서·김지은 FE |
 | JudgmentState·JudgmentResult·QuestionAnswer·JudgmentRunView | 구준휘 | 정지원 카드 재확인·옥석현 보고서·구준휘 FE |
 | CalculationResult·RecoveryAmounts·ReviewReport | 옥석현 | 구준휘 가정 실행·옥석현 FE |
+| InjuredPersonDoc·PropertyDamageInputDoc·LiabilityResult(대물·대인 1차 판정, [liability-input.md](liability-input.md)) | 김지은, 숫자 자료 옥석현 | 보고서 8번·FE 입력 칸 |
 | TaskView·VersionRef·ApiError·UploadTicket | 구준휘 통합, 전원 검토 | 전원 |
 
 `model_confidence=null`은 수동 입력에서 해당 없음을 뜻한다. 미확정 비율/금액도 `null`로 표시하고 0으로 채우지 않는다.

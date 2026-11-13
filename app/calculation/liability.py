@@ -19,7 +19,7 @@
 from collections.abc import Iterable, Mapping
 from datetime import date
 
-from app.calculation.damages import calculate_damages
+from app.calculation.damages import calculate_damages, received_at
 from app.calculation.rules import share
 from app.schemas.liability import (
     InjuredPersonInput,
@@ -265,6 +265,7 @@ def calculate_property(
         return out
     if insured_fault == 0:
         reasons.append(ZERO_FAULT)
+        flags.clear()  # 배상책임부터 확인 — 전손·시세하락·대차료는 그 뒤의 일
         out["status"] = "needs_review"
         return out
     amount = share(repair, insured_fault)
@@ -358,6 +359,7 @@ def calculate_injury(
     out: InjuryResult = {
         "status": "needs_input",
         "person_id": p["person_id"],
+        "label": p.get("label"),
         "grade": grade,
         "treatment_cost": treatment,
         "consolation": None,
@@ -447,3 +449,89 @@ def calculate_liability(
         ],
         "notice": NOTICE,
     }
+
+
+def _latest(docs: list[dict[str, object]]) -> dict[str, object]:
+    return max(docs, key=lambda d: (received_at(d), str(d["document_id"])))
+
+
+def _report_accident_date(report: Mapping[str, object]) -> str | None:
+    for section in report.get("sections") or []:  # type: ignore[attr-defined]
+        if section.get("no") == 2 and isinstance(section.get("body"), dict):
+            value = section["body"].get("사고 일자")
+            return str(value) if value else None
+    return None
+
+
+def liability_from_report(
+    report: Mapping[str, object],
+    documents: list[dict[str, object]],
+    schedule_values: Iterable[Mapping[str, object]] = (),
+    *,
+    agreed_counterparty_fault: int | None = None,
+) -> LiabilityResult | None:
+    """보고서(과실비율·당사자 매핑·사고 일자)와 서류로 대물·대인 1차 판정. 입력이 없으면 None.
+
+    입력: 상대 차 견적서(repair_estimate, party_id=상대), property_damage_input, injured_person.
+    같은 종류·같은 사람 서류가 여러 번 오면 가장 늦게 받은 것을 쓴다. 우리 과실은 판단의
+    보험가입자 쪽 과실(fault_A/B)이다. 협의 과실(9번 구상과 같은 값)이 있으면 우리 과실 =
+    100 - 협의 상대 과실. 매핑이 없으면 상대 차·우리 과실을 알 수 없어 금액이 없다.
+    """
+    mapping = report.get("party_mapping") or {}
+    judgment = report.get("judgment") or {}
+    insured = mapping.get("insured_party_id")  # type: ignore[union-attr]
+    side = next(
+        (s for s in ("A", "B") if insured and mapping.get(f"chart_party_{s}_id") == insured),  # type: ignore[union-attr]
+        None,
+    )
+    other = {"A": "B", "B": "A"}.get(side or "")
+    counterparty = str(mapping.get(f"chart_party_{other}_id") or "") if other else ""  # type: ignore[union-attr]
+    injured_docs = [d for d in documents if d.get("kind") == "injured_person"]
+    property_docs = [d for d in documents if d.get("kind") == "property_damage_input"]
+    estimates = counterparty and any(
+        d.get("kind") == "repair_estimate" and d.get("party_id") == counterparty for d in documents
+    )
+    if not (injured_docs or property_docs or estimates):
+        return None
+    fault = judgment.get(f"fault_{side}") if side else None  # type: ignore[union-attr]
+    agreed = side is not None and agreed_counterparty_fault is not None
+    if agreed:
+        fault = 100 - int(agreed_counterparty_fault)  # type: ignore[arg-type]
+    property_input: PropertyDamageInput | None = None
+    if property_docs or estimates:
+        latest = _latest(property_docs) if property_docs else {}
+        property_input = {
+            "counterparty_id": counterparty,
+            "vehicle_value": latest.get("vehicle_value"),  # type: ignore[typeddict-item]
+            "release_date": latest.get("release_date"),  # type: ignore[typeddict-item]
+            "property_limit": latest.get("property_damage_limit"),  # type: ignore[typeddict-item]
+        }
+    people: dict[str, list[dict[str, object]]] = {}
+    for d in injured_docs:
+        people.setdefault(str(d.get("person_id")), []).append(d)
+    injured: list[InjuredPersonInput] = []
+    for person_id, docs in people.items():
+        d = _latest(docs)
+        injured.append(
+            {
+                "person_id": person_id,
+                "label": d.get("label"),  # type: ignore[typeddict-item]
+                "grade": d.get("grade"),  # type: ignore[typeddict-item]
+                "treatment_cost": d.get("treatment_cost"),  # type: ignore[typeddict-item]
+                "is_driver": d.get("is_driver"),  # type: ignore[typeddict-item]
+            }
+        )
+    result = calculate_liability(
+        documents,
+        insured_fault=fault,  # type: ignore[arg-type]
+        accident_date=_report_accident_date(report),
+        property_input=property_input,
+        injured=injured,
+        schedule_values=schedule_values,
+    )
+    result["fault_source"] = "agreed" if agreed else "judgment"
+    if not side:
+        why = "당사자 매핑 없음 — 우리 차·상대 차를 알 수 없어 금액 없음"
+        for part in ([result["property"]] if result["property"] else []) + result["injuries"]:
+            part["reasons"].insert(0, why)
+    return result

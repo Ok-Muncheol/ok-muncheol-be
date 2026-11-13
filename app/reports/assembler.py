@@ -2,7 +2,8 @@
 
 항목은 templates/review.md 설계를 따른다.
 - 1~7: 선행 MVP (과실비율 근거)
-- 8: 손해액·보험금·자기부담금·약관/서류/규칙 버전 (1차 확장)
+- 8: 손해액·보험금·자기부담금·약관/서류/규칙 버전 (1차 확장). 대물·대인 입력이 있으면
+  「대물·대인 1차 판정」 칸을 덧붙인다(C, 기존 칸은 그대로)
 - 9: 구상 예정액·실제 청구액·회수액·고객 자기부담금 검토액·필수 서류 (1차 확장)
 - 8·9 약관 근거 조항: 검증된 조항만(app/reports/clauses.py). 없으면 "연결 안 됨"
 확인/보류 상태에서는 4~6의 수치를 비우고, 8~9는 확정 판단(draft_ready) 과실비율로 바로 채운다(단계별
@@ -25,6 +26,7 @@ from app.reports.clauses import (
 )
 from app.schemas.facts import FactCard
 from app.schemas.judgment import JudgmentResult
+from app.schemas.liability import LiabilityResult
 from app.schemas.reports import CalculationResult, RecoveryAmounts, ReportSection, ReviewReport
 
 STATUS_LABEL = {
@@ -110,6 +112,7 @@ def assemble_review(
     education_mode: bool = False,
     now: str | None = None,
     clauses: ReportClauses | None = None,
+    liability: LiabilityResult | None = None,
 ) -> ReviewReport:
     """MVP 1~7항목, 확장 8~9항목. 확인/보류 상태에서 수치를 채워 넣지 않는다.
 
@@ -334,12 +337,14 @@ def assemble_review(
                         clauses is not None and clauses.connected,
                     ),
                     "근거 조항": payout_basis(clauses),
+                    **({"대물·대인 1차 판정": liability_body(liability)} if liability else {}),
                 },
                 list(
                     dict.fromkeys(
                         c["source_document_ids"]
                         + c.get("clause_ids", [])
                         + clause_ids(clauses.selection.payout if clauses else (), clauses)
+                        + (liability_evidence(liability) if liability else [])
                     )
                 ),
             )
@@ -386,7 +391,7 @@ def assemble_review(
 
     prev_v = previous["versions"]["report_version"] if previous else None
     versions = {**j["versions"], "report_version": (prev_v or 0) + 1}
-    return {
+    report: ReviewReport = {
         "versions": versions,  # type: ignore[typeddict-item]
         "judgment": j,
         "sections": sections,  # type: ignore[typeddict-item]
@@ -401,6 +406,9 @@ def assemble_review(
         "party_mapping": mapping,  # type: ignore[typeddict-item]
         "education_mode": education_mode,
     }
+    if ready and calculation is not None and liability is not None:
+        report["liability"] = liability  # 입력이 없는 사건은 키를 두지 않는다(기존 보고서와 같음)
+    return report
 
 
 def burden_summary(c: CalculationResult) -> dict[str, object]:
@@ -425,3 +433,72 @@ def missing_numeric_evidence(report: ReviewReport) -> list[int]:
         for s in report["sections"]  # type: ignore[misc]
         if s["state"] == "filled" and s["no"] in (3, 4, 6, 8, 9) and not s["evidence_ids"]
     ]
+
+
+LIABILITY_STATUS = {"draft": "초안", "needs_input": "입력 필요", "needs_review": "담당자 확인"}
+
+
+def _flags(flags: list) -> list[dict[str, object]]:
+    return [{"항목": f["label"], "내용": f["detail"]} for f in flags]
+
+
+def liability_body(r: LiabilityResult) -> dict[str, object]:
+    """8번 「대물·대인 1차 판정」. 금액은 app/calculation/liability.py 결과 그대로(모르면 null)."""
+    p = r["property"]
+    body: dict[str, object] = {
+        "주의": r["notice"],
+        "우리 과실": None
+        if r["insured_fault"] is None
+        else f"{r['insured_fault']}%"
+        + (" (협의 과실 적용)" if r.get("fault_source") == "agreed" else ""),
+    }
+    if p is not None:
+        body["대물"] = {
+            "상태": LIABILITY_STATUS[p["status"]],
+            "상대 차 수리비": _won(p["repair_cost"]),
+            "대물 초안": _won(p["amount"]),
+            "대물 한도 적용": p["limit_applied"],
+            "계산식": p["formula"],
+            "확인 필요": _flags(p["flags"]),
+            "기본 가정": p["assumptions"],
+            "사유": p["reasons"],
+        }
+    if r["injuries"]:
+        body["대인"] = [
+            {
+                "피해자": i.get("label") or i["person_id"],
+                "상태": LIABILITY_STATUS[i["status"]],
+                "상해 급수": None if i["grade"] is None else f"{i['grade']}급",
+                "치료관계비": _won(i["treatment_cost"]),
+                "부상 위자료": _won(i["consolation"]),
+                "과실상계 후": _won(i["after_offset"]),
+                "치료관계비 보장 적용": i["treatment_guarantee"],
+                "대인Ⅰ 한도": _won(i["bodily_1_limit"]),
+                "대인Ⅰ": _won(i["bodily_1"]),
+                "대인Ⅱ": _won(i["bodily_2"]),
+                "계산식": i["formula"],
+                "확인 필요": _flags(i["flags"]),
+                "기본 가정": i["assumptions"],
+                "사유": i["reasons"],
+            }
+            for i in r["injuries"]
+        ]
+        drafts = [i for i in r["injuries"] if i["status"] == "draft"]
+        if drafts and len(drafts) == len(r["injuries"]):
+            body["대인 합계"] = {
+                "대인Ⅰ": _won(sum(i["bodily_1"] or 0 for i in drafts)),
+                "대인Ⅱ": _won(sum(i["bodily_2"] or 0 for i in drafts)),
+            }
+    return body
+
+
+def liability_evidence(r: LiabilityResult) -> list[str]:
+    """대물·대인 근거 ID: 상대 견적서, 조항 ID, schedule_value record_id."""
+    ids: list[str] = []
+    p = r["property"]
+    if p is not None:
+        ids += p["source_document_ids"] + p["clause_ids"]
+        ids += [c for f in p["flags"] for c in f["clause_ids"]]
+    for i in r["injuries"]:
+        ids += i["clause_ids"] + [c for f in i["flags"] for c in f["clause_ids"]]
+    return list(dict.fromkeys(ids))

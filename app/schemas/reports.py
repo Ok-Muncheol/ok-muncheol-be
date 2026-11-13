@@ -9,6 +9,7 @@ from typing import Literal, NotRequired, TypedDict
 from app.schemas.common import VersionRef
 from app.schemas.facts import PartyMapping
 from app.schemas.judgment import JudgmentResult
+from app.schemas.liability import LiabilityResult
 
 # 계약 변경: needs_contract_review, not_payable 추가 (기존 3개 값 유지)
 CalculationStatus = Literal[
@@ -69,9 +70,46 @@ class EvidenceDoc(TypedDict):
     kind: Literal["evidence"]
     document_id: str
     doc_type: Literal[
-        "repair_invoice", "receipt", "photo", "estimate", "repair_estimate", "other"
+        "repair_invoice",
+        "receipt",
+        "photo",
+        "estimate",
+        "repair_estimate",
+        "medical_certificate",  # 계약 변경: 진단서(첨부만, 읽지 않음 — 급수는 담당자 입력)
+        "medical_bill",  # 계약 변경: 진료비 영수증(첨부만, 읽지 않음)
+        "other",
     ]  # repair_estimate: upload_estimate가 자동 등록
     storage_path: str
+
+
+class InjuredPersonDoc(TypedDict):
+    """계약 변경(C): 대인 1명의 담당자 입력. 진단서·영수증을 보고 담당자가 적는다(자동 판독 없음).
+
+    같은 person_id가 여러 번 오면 가장 늦게 받은 것(received_at, document_id 순)을 쓴다.
+    치료관계비는 입력 시점까지의 누적 총액이다. 계산은 app/calculation/liability.py."""
+
+    kind: Literal["injured_person"]
+    document_id: str
+    person_id: str
+    label: NotRequired[str | None]  # 보고서 표시 이름(예: "상대 운전자"). 없으면 person_id
+    grade: int | None  # 자배법 시행령 별표1 상해 급수 1~14
+    treatment_cost: int | None  # 치료관계비 누적 총액(원)
+    is_driver: NotRequired[bool | None]  # 차량운전자 여부. null = 모름(12~14급 특례 보류)
+    received_at: str  # ISO 8601
+
+
+class PropertyDamageInputDoc(TypedDict):
+    """계약 변경(C): 대물 담당자 입력(모두 선택). 상대 차 견적서는 upload_estimate(party_id=상대)로.
+
+    여러 번 오면 가장 늦게 받은 것을 쓴다. 자차 계약(own_damage_contract)과 따로 둬서 자차
+    산정 입력(inputs_hash)을 바꾸지 않는다."""
+
+    kind: Literal["property_damage_input"]
+    document_id: str
+    property_damage_limit: NotRequired[int | None]  # 우리 계약 대물배상 가입금액
+    vehicle_value: NotRequired[int | None]  # 상대 차 사고 직전 차량가액(전손·시세하락 확인)
+    release_date: NotRequired[str | None]  # 상대 차 출고일 ISO 날짜(시세하락 확인)
+    received_at: str  # ISO 8601
 
 
 class CounterpartyInfo(TypedDict):
@@ -186,6 +224,8 @@ class ReviewReport(TypedDict):
     supersedes: NotRequired[int | None]
     party_mapping: NotRequired[PartyMapping]
     education_mode: NotRequired[bool]
+    # 계약 변경(C): 대물·대인 1차 판정. 입력(상대 견적·대인·대물 입력)이 없는 사건은 키가 없다
+    liability: NotRequired[LiabilityResult | None]
 
 
 class ClaimRow(TypedDict):

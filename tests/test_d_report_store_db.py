@@ -208,6 +208,29 @@ def test_agreed_fault_and_document_order_persist(database_url, store):
     assert [r["versions"]["report_version"] for r in rec.reports] == [1, 2, 3]
 
 
+def test_liability_inputs_persist(database_url, store):
+    """C: 대물·대인 입력(injured_person·property_damage_input)이 kind 제약을 지나 저장·복원된다."""
+    case_id = new_case(database_url)
+    card, result = judged(database_url, case_id)
+    run(api.submit_judgment(ACTOR, card, result))
+    person = {
+        "kind": "injured_person", "document_id": "synthetic-inj-1", "person_id": "synthetic-p",
+        "label": "상대 운전자", "grade": 7, "treatment_cost": 3_000_000, "is_driver": True,
+        "received_at": "2026-10-26T10:00:00+09:00",
+    }
+    limit = {
+        "kind": "property_damage_input", "document_id": "synthetic-pd-1",
+        "property_damage_limit": 200_000_000, "received_at": "2026-10-26T10:00:00+09:00",
+    }
+    run(api.add_documents(ACTOR, case_id, [fx.contract(), fx.estimate(), person, limit], NO_FLAGS))
+    rec = run(store().get(ACTOR, case_id))
+    kinds = [d["kind"] for d in rec.documents]
+    assert kinds == ["own_damage_contract", "repair_estimate", "injured_person",
+                     "property_damage_input"]
+    assert rec.documents[2] == person
+    assert rec.latest["liability"]["injuries"][0]["label"] == "상대 운전자"
+
+
 def test_access_checks_match_judgment_service(database_url, store):
     case_id = new_case(database_url)
     card, result = judged(database_url, case_id)

@@ -1,0 +1,83 @@
+# 대물·대인 1차 판정 — 입력 칸과 보고서 8번 칸
+
+담당: 김지은(C) · 숫자 자료: 옥석현(D, #159) · 코드: `app/calculation/liability.py`, 타입: `app/schemas/reports.py`·`app/schemas/liability.py`
+
+1차 판정은 담당자를 돕는 초안이다. 확실히 계산되는 것만 계산하고, 나머지는 「확인 필요」로 남긴다. 금액은 원 단위 정수이고, 모르는 값은 `null`이다(0으로 채우지 않음).
+
+## 입력 — `add_documents`(`POST /cases/{id}/documents`)로 보낸다
+
+기존 서류(견적서·자차 계약·증빙)와 같은 흐름이다. 서류를 더하면 자동으로 다시 산정하고, 금액이 바뀌면 새 보고서 버전이 된다(다시 확인 완료 필요).
+
+### 대인: `injured_person` (다친 사람 1명당 1건)
+
+| 칸 | 필수 | 값 | 비고 |
+| --- | --- | --- | --- |
+| `kind` | 예 | `"injured_person"` | |
+| `document_id` | 예 | 문자열 | 같은 ID 재전송은 무시(멱등). 값을 고칠 때는 새 ID로 보낸다 |
+| `person_id` | 예 | 문자열 | 같은 사람이면 같은 값 |
+| `label` | 아니오 | 문자열 또는 `null` | 보고서 표시 이름(예: "상대 운전자"). 없으면 `person_id` |
+| `grade` | 예(값은 `null` 가능) | 1~14 정수 또는 `null` | 자배법 시행령 별표1 상해 급수. 진단서를 보고 담당자가 적는다 |
+| `treatment_cost` | 예(값은 `null` 가능) | 0 이상 정수(원) 또는 `null` | 치료관계비 **입력 시점까지 누적 총액** |
+| `is_driver` | 아니오 | `true`·`false`·`null` | 차량운전자 여부. `null` = 모름 |
+| `received_at` | 예 | ISO 8601 시각 | 같은 `person_id`가 여러 번 오면 가장 늦은 것(`received_at`, `document_id` 순)을 쓴다 |
+
+### 대물: 상대 차 견적서 + `property_damage_input`(선택)
+
+- 상대 차 수리비는 견적서로 받는다: `upload_estimate`(`POST /cases/{id}/estimates`)에 `party_id` = 상대 차 당사자 ID. 우리 차 자차 계산에는 쓰이지 않는다.
+- 아래 칸은 모두 선택이다. 여러 번 오면 가장 늦게 받은 것을 쓴다. 자차 계약(`own_damage_contract`)과 따로 둬서 자차 산정 입력을 바꾸지 않는다.
+
+| 칸 | 값 | 없으면 |
+| --- | --- | --- |
+| `kind` | `"property_damage_input"` | |
+| `document_id` | 문자열 | |
+| `property_damage_limit` | 0 이상 정수(원) 또는 `null` — 우리 계약 대물배상 가입금액 | 한도 검사 생략(기본 가정으로 표시) |
+| `vehicle_value` | 0 이상 정수(원) 또는 `null` — 상대 차 사고 직전 차량가액 | 「전손 여부 확인 필요」 |
+| `release_date` | `YYYY-MM-DD` 또는 `null` — 상대 차 출고일 | 「시세하락손해 확인 필요」 |
+| `received_at` | ISO 8601 시각 | |
+
+### 증빙 파일
+
+진단서·진료비 영수증 파일은 기존 증빙(`evidence`)으로 붙인다. `doc_type`에 `medical_certificate`(진단서)·`medical_bill`(진료비 영수증)을 더했다. **첨부만 하고 읽지 않는다**(급수 자동 판정은 2차).
+
+- 업로드: `POST /cases/{id}/uploads`의 `kind: "medical_document"`(PDF·JPEG, 정지원 추가) → `case-files/{case_id}/medical/{uuid}.pdf|jpg`
+- 첨부 검사: 이 두 `doc_type`의 `storage_path`는 **이 사건 `medical/` 아래 `.pdf`·`.jpg`·`.jpeg` 파일만** 받는다. 다른 사건·다른 폴더·PNG·`..`·인코딩 우회는 저장 전에 422 `invalid_storage_path`(견적서 경로 검사와 같은 규칙, 서버 키가 RLS 밖이라 이 검사가 방어선)
+
+잘못된 값(급수 15, 음수 금액, 날짜 형식 등)은 저장 전에 422 `invalid_documents`로 거절한다.
+
+## 계산 (사람마다)
+
+- 우리 과실 = 판단의 보험가입자 쪽 과실. 담당자가 협의 과실(`PATCH /cases/{id}/agreed-fault`)을 넣으면 9번 구상과 같은 값으로 **우리 과실 = 100 − 협의 상대 과실**을 쓴다(`liability.fault_source` = `agreed`, 8번 `우리 과실`에 "(협의 과실 적용)")
+
+- **대물** = 상대 차 수리비 × 우리 과실(원 미만 버림), 대물 한도를 넘으면 한도
+- **대인** = (치료관계비 + 급수별 부상 위자료) × 우리 과실 → 치료관계비보다 적으면 치료관계비(별표3 1.가.(2)·(3)) → 급수별 대인Ⅰ 한도까지 대인Ⅰ, 나머지 대인Ⅱ
+- 금액 없이 담당자 확인(`needs_review`): 우리 과실 0%, 2022-12-31 이전 사고의 대인, 12~14급이면서 치료관계비가 대인Ⅰ 한도를 넘는 경우(차량운전자 특례, `is_driver`가 `false`면 계산)
+- 금액 없이 입력 필요(`needs_input`): 급수·치료관계비·과실 미입력, 상대 견적서 없음, 당사자 매핑 없음, 숫자 자료(schedule_value) 없음
+- 「확인 필요」로만 표시: 전부손해·수리비 한도, 시세하락손해, 대차료·휴차료, 휴업손해, 간병비, 식대·통원비, 후유장애·사망, 최종 진단
+- 가정: 간병비 0, 입원 식대 미포함, 대인Ⅱ는 한도 없이 대인Ⅰ 초과분 전부
+
+## 보고서
+
+입력(상대 견적서·`injured_person`·`property_damage_input`)이 **없는 사건은 지금 보고서와 같다**(아래 칸이 없음). 8번 기존 칸(자차 손해액·보험금, 근거 상태, 근거 조항 등)과 9번 구상·청구서는 바뀌지 않는다.
+
+### `ReviewReport.liability` (`LiabilityResult`, 입력이 있을 때만)
+
+`insured_fault`, `fault_source`(`judgment`·`agreed`), `accident_date`, `property`(`PropertyDamageResult` 또는 `null`), `injuries`(`InjuryResult` 목록), `notice`. 필드는 `app/schemas/liability.py`.
+
+### 8번 `body["대물·대인 1차 판정"]` (입력이 있을 때만)
+
+| 칸 | 내용 |
+| --- | --- |
+| `주의` | "1차 판정 초안 — …" |
+| `우리 과실` | `"30%"` 또는 `null` |
+| `대물` | `상태`(초안·입력 필요·담당자 확인), `상대 차 수리비`, `대물 초안`, `대물 한도 적용`, `계산식`, `확인 필요`([{항목, 내용}]), `기본 가정`, `사유` |
+| `대인` | 사람마다 `피해자`(label 또는 person_id), `상태`, `상해 급수`, `치료관계비`, `부상 위자료`, `과실상계 후`, `치료관계비 보장 적용`, `대인Ⅰ 한도`, `대인Ⅰ`, `대인Ⅱ`, `계산식`, `확인 필요`, `기본 가정`, `사유` |
+| `대인 합계` | 모든 사람이 `초안`일 때만 `{대인Ⅰ, 대인Ⅱ}` |
+
+8번 `evidence_ids`에는 상대 견적서 ID, 조항 ID, 쓴 `schedule_value` record_id가 더해진다.
+
+## 다른 변경
+
+- DB: `case_documents.kind` 제약에 `injured_person`·`property_damage_input`을 더했다(`supabase/migrations/20261113180000_case_documents_liability_kinds.sql`). 공용 DB에 적용하기 전에는 이 두 서류를 저장할 수 없다.
+
+- 자차 손해액(`calculate_damages`): 우리 차 당사자 ID가 없는데 견적서 당사자가 여럿이면 손해액을 고르지 않는다(`needs_documents`, "우리 차 당사자 미지정"). 상대 차 견적이 자차에 섞이지 않게 하려는 것이다. 당사자가 하나뿐이면 지금과 같다.
+- 숫자 자료는 서버 시작 시 `configure_with_knowledge_base()`가 `corpus_records`의 `schedule_value`를 읽어 둔다. 없으면(테스트·데모) 대인은 「자료 없음」으로 금액이 없다.
