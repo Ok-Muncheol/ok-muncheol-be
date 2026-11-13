@@ -133,7 +133,8 @@ def build_search_query(card: FactCard, top_k: int = CHART_SEARCH_TOP_K) -> Searc
         words.append("비보호 좌회전")
     return {
         "text": " ".join(words) or "차대차 교차로 사고",
-        "accident_date": card["accident_date"], "filters": {}, "top_k": top_k,
+        # 사고 일자를 모르면 빈 값(검색 도구는 YYYY-MM-DD나 빈 값만 받는다)
+        "accident_date": card.get("accident_date") or "", "filters": {}, "top_k": top_k,
     }
 
 

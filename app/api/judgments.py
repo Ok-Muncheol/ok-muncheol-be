@@ -26,6 +26,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.types import Command
@@ -64,8 +65,9 @@ from app.workflow.graph import (
 logger = logging.getLogger(__name__)
 
 START_SCOPE = "POST /cases/{case_id}/judgments"
+KST = timezone(timedelta(hours=9))
 
-Connector = Callable[[], AbstractAsyncContextManager[AsyncConnection]]
+Connector =Callable[[], AbstractAsyncContextManager[AsyncConnection]]
 
 
 @dataclass
@@ -101,6 +103,40 @@ async def _require_assignee(conn: AsyncConnection, actor_id: str, case_id: str) 
         raise not_found("사건을 찾을 수 없습니다.")
     if assignee != actor_id:
         raise forbidden()
+
+
+def accident_day(value: object) -> str | None:
+    """사고 일자 → 'YYYY-MM-DD'(검색 도구·적용판 검사가 받는 형식). 시각이 있으면 KST 날짜다.
+
+    비었거나 읽을 수 없으면 None.
+    """
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, date):
+        return value.isoformat()
+    elif isinstance(value, str) and value.strip():
+        try:
+            moment = datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(KST)
+    return moment.date().isoformat()
+
+
+async def _with_case_accident_date(conn: AsyncConnection, case_id: str, card: FactCard) -> FactCard:
+    """판단에 넘길 카드의 사고 일자. 카드에 없으면 사건의 사고 일시(KST 날짜)로 채운다.
+
+    영상 카드는 사고 일자 없이 온다(분석 작업에 사건 일자를 넘기지 않는다). 그대로 넘기면 도표
+    검색 도구가 날짜 형식 오류로 판단을 실패시킨다. 사건에도 없으면 None으로 두고, 근거 검증이
+    보류로 내린다(적용판 유효기간을 볼 수 없음).
+    """
+    day = accident_day(card.get("accident_date"))
+    if day is None:
+        day = accident_day(await runs.case_accident_date(conn, case_id))
+    return {**card, "accident_date": day}
 
 
 def _task_view(run: runs.Row, *, status: str | None = None, stage: str | None = None) -> dict:
@@ -225,6 +261,7 @@ async def start_judgment(
         if stored is not None:
             return _replay(stored, request_hash)
         try:
+            card = await _with_case_accident_date(conn, case_id, card)
             response = await _start(conn, actor_id, case_id, card)
         except BaseException:
             with contextlib.suppress(Exception):

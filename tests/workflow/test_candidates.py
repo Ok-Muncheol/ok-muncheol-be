@@ -85,6 +85,11 @@ def test_search_query_uses_korean_words_without_attribute_filters():
     assert query["filters"] == {} and query["accident_date"] == "2026-10-01"
 
 
+def test_search_query_sends_an_empty_date_when_the_card_has_none():
+    # 검색 도구는 YYYY-MM-DD나 빈 값만 받는다. None을 넘기면 판단 전체가 실패했다
+    assert build_search_query(card(accident_date=None))["accident_date"] == ""
+
+
 def test_unreviewed_record_becomes_candidate_that_cannot_be_selected():
     parent = f"{DOCUMENT['document_id']}:X-1"
     records = {parent: record("X-1", scope_attributes={"movement_A": "straight"})}
