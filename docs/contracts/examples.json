@@ -303,5 +303,102 @@
       }
     ],
     "fact_change_hint": "가정 결과는 공식 판단·보고서에 반영되지 않습니다. 실제 사실이 다르면 사실 카드를 고쳐 다시 확정한 뒤 판단을 다시 요청하세요."
+  },
+  "confirm_claim_reused": {
+    "report": {
+      "versions": {
+        "case_id": "synthetic-case",
+        "fact_card_version": 2,
+        "judgment_version": 1,
+        "report_version": 3
+      },
+      "judgment": {
+        "versions": {
+          "case_id": "synthetic-case",
+          "fact_card_version": 2,
+          "judgment_version": 1,
+          "report_version": 1
+        },
+        "status": "deferred",
+        "chart_id": null,
+        "edition": null,
+        "fault_A": null,
+        "fault_B": null,
+        "calculation_log": [],
+        "evidence": [],
+        "checks": [
+          {
+            "layer": "evidence",
+            "passed": false,
+            "reasons": [
+              "검수한 도표 근거 없음"
+            ]
+          }
+        ],
+        "questions": [],
+        "reasons": [
+          "합성 계약 양식: 검색/판단 미실행, 수치 미제공"
+        ],
+        "base_fault_A": null,
+        "modifiers": [],
+        "alternatives": []
+      },
+      "sections": [],
+      "calculation": null,
+      "recovery": null,
+      "approval_status": "approved",
+      "approved_by": "synthetic-reviewer",
+      "approved_at": "2026-11-05T11:00:00+09:00",
+      "claim_package": {
+        "package_version": 1,
+        "report_version": 2
+      }
+    },
+    "package": {
+      "case_id": "synthetic-case",
+      "package_version": 1,
+      "created_at": "2026-11-05T10:00:00+09:00",
+      "report_version": 2,
+      "counterparty": null,
+      "counterparty_fault": 70,
+      "fault_change_reason": null,
+      "rows": [
+        {
+          "claim_no": "synthetic-case-C1",
+          "insured_party_id": "P1",
+          "coverage": "자기차량손해",
+          "insurance_payment": 0,
+          "counterparty_fault": 70,
+          "planned_share": 0,
+          "evidence_count": 0
+        }
+      ],
+      "amounts": {
+        "planned": 0,
+        "claimed": 0,
+        "recovered": null
+      },
+      "basis": {
+        "보고서 버전": 2
+      },
+      "evidence": [],
+      "missing_evidence": [
+        "synthetic-case-C1"
+      ],
+      "confirmed_by": "synthetic-reviewer",
+      "confirmed_at": "2026-11-05T10:00:00+09:00",
+      "idempotency_key": "synthetic-key",
+      "rule_version": "synthetic-rule",
+      "rule_notice": null,
+      "assumptions": []
+    },
+    "html": "<!-- 합성 견본: 청구서 HTML -->",
+    "claim_blocked_reason": null,
+    "claim_blocked_reasons": [],
+    "claim_reused": true,
+    "claim_reused_from": {
+      "package_version": 1,
+      "report_version": 2
+    }
   }
 }

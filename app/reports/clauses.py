@@ -243,12 +243,28 @@ def _section(report: ReviewReport, no: int) -> dict[str, object]:
     return next((s for s in report["sections"] if s["no"] == no), {})  # type: ignore[return-value]
 
 
+def _verified_clause_ids(report: ReviewReport) -> set[str]:
+    """8·9번 본문 '근거 조항'에 검증돼 붙은 조항 ID. 검증된 줄에만 "ID"가 있다(_row)."""
+    ids: set[str] = set()
+    for no in (8, 9):
+        basis = (_section(report, no).get("body") or {}).get("근거 조항")  # type: ignore[union-attr]
+        groups = basis.values() if isinstance(basis, dict) else [basis]
+        for rows in groups:
+            for row in rows if isinstance(rows, list) else []:
+                if isinstance(row, dict) and row.get("ID"):
+                    ids.add(str(row["ID"]))
+    return ids
+
+
 def report_clauses_connected(report: ReviewReport) -> bool:
-    """보고서 8·9번에 검증된 조항이 하나라도 붙었는지(evidence_ids 기준)."""
+    """보고서 8·9번에 검증된 조항이 하나라도 붙었는지(본문 '근거 조항' 기준).
+
+    evidence_ids로 보지 않는다: 8번 evidence_ids에는 대물·대인 1차 판정 근거(별표 조항 ID·
+    schedule_value record_id, #185)도 들어가 검증 없이도 연결된 것처럼 보이기 때문이다(#194).
+    """
     known = {r.parent_id for r in select_report_clauses("2023-01-01").all() if r.parent_id}
     known |= {r.parent_id for r in select_report_clauses("2022-12-31").all() if r.parent_id}
-    ids = {i for no in (8, 9) for i in _section(report, no).get("evidence_ids", [])}  # type: ignore[union-attr]
-    return bool(known & ids)
+    return bool(known & _verified_clause_ids(report))
 
 
 def claim_clause_names(report: ReviewReport) -> list[str]:

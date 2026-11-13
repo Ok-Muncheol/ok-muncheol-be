@@ -207,6 +207,13 @@ class ReportSection(TypedDict):
     empty_reason: str | None
 
 
+class ClaimPackageRef(TypedDict):
+    """구상 청구서 가리키기: 청구서 번호(package_version)와 그 청구서를 처음 만든 보고서 버전."""
+
+    package_version: int
+    report_version: int
+
+
 class ReviewReport(TypedDict):
     versions: VersionRef
     judgment: JudgmentResult
@@ -226,6 +233,9 @@ class ReviewReport(TypedDict):
     education_mode: NotRequired[bool]
     # 계약 변경(C): 대물·대인 1차 판정. 입력(상대 견적·대인·대물 입력)이 없는 사건은 키가 없다
     liability: NotRequired[LiabilityResult | None]
+    # 계약 변경(D, #194): 확인 완료 때 이 버전이 쓴 구상 청구서. 청구 내용이 같아 앞 버전의 청구서를
+    # 그대로 쓰면 그 청구서의 report_version은 이 버전보다 작다. 청구서가 없으면 키가 없다
+    claim_package: NotRequired[ClaimPackageRef]
 
 
 class ClaimRow(TypedDict):
@@ -263,13 +273,20 @@ class ClaimPackage(TypedDict):
 
 
 class ConfirmResult(TypedDict):
-    """confirm_report 응답. 청구서를 못 만들면 package·html은 null, 사유는 claim_blocked_reasons."""
+    """confirm_report 응답. 청구서를 못 만들면 package·html은 null, 사유는 claim_blocked_reasons.
+
+    계약 변경(D, #194): 청구 내용(금액·증빙·상대 정보·근거서)이 앞 버전 청구서와 같으면 새 청구서를
+    만들지 않고 그 청구서를 돌려준다. 이때 claim_reused=true, claim_reused_from={그 청구서}.
+    """
 
     report: ReviewReport
     package: ClaimPackage | None
     html: str | None
     claim_blocked_reason: str | None  # claim_blocked_reasons의 첫 번째 값(없으면 null)
     claim_blocked_reasons: list[str]  # 청구서 조건이 안 맞는 사유 전부. 만들었으면 []
+    # 계약 변경(D, #194): 앞 보고서 버전의 청구서를 그대로 썼는지와 그 청구서(아니면 false·null)
+    claim_reused: bool
+    claim_reused_from: ClaimPackageRef | None
 
 
 class ClaimResult(TypedDict):

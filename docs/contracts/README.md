@@ -44,8 +44,8 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/questions/{question_id}/answer` | B | 본문은 `QuestionAnswer`. 본문 `question_id`가 경로와 다르면 422 `question_mismatch` |
 | POST | `/cases/{id}/qa` | B | `{text}`(1~2000자) → `QaAnswer`. 판정이 난 판단이 없으면 409 `judgment_required`. 1차 확장 |
 | GET | `/cases/{id}/reports/{version}` | D | |
-| POST | `/cases/{id}/reports/{version}/confirm` | D | 본문 `{counterparty?}`, 응답 `ConfirmResult`. 최신 아님 409, 추가 확인·보류 422 `confirm_blocked` |
-| GET | `/cases/{id}/reports/{version}/claim` | D | 응답 `ClaimResult`. 청구서가 없으면 404 |
+| POST | `/cases/{id}/reports/{version}/confirm` | D | 본문 `{counterparty?}`, 응답 `ConfirmResult`. 최신 아님 409, 추가 확인·보류 422 `confirm_blocked`. 청구 내용(금액·증빙·상대 정보·근거서)이 앞 버전 청구서와 같으면 그 청구서를 그대로 돌려주고 `claim_reused: true`, `claim_reused_from: {package_version, report_version}`(#194, 견본 `confirm_claim_reused`) |
+| GET | `/cases/{id}/reports/{version}/claim` | D | 응답 `ClaimResult`. 그 버전을 확인할 때 쓴 청구서(앞 버전 청구서를 그대로 썼으면 `package.report_version`이 요청 버전보다 작다). 청구서가 없으면 404 |
 | POST | `/cases/{id}/documents` | D | `{documents, case_facts?}` → 재산정한 `ReviewReport` 또는 null. 1차 확장 |
 | POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}` → 재산정한 `ReviewReport` 또는 null. `storage_path`는 `/uploads`(kind=estimate)가 준 버킷 포함 경로 `case-files/{id}/estimates/<파일>`(버킷은 `app/storage.py` `STORAGE_BUCKET`). 권한 → 경로 확인 → 서버 키로 Storage에서 내려받기(10MB 이하 PDF). 1차 확장 |
 | PATCH | `/cases/{id}/agreed-fault` | D | `{agreed_counterparty_fault?, fault_change_reason, clear?}` → 새 `ReviewReport`. 1차 확장 |
