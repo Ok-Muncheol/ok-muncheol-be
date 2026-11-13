@@ -80,6 +80,12 @@ class AgreedFaultRequest(BaseModel):
 
 
 # ── A: 사건 접수·영상 ──────────────────────────────────────────────
+@router.get("/cases", tags=["A cases"])
+async def list_cases(actor_id: ActorId) -> list[dict[str, object]]:
+    """로그인한 담당자에게 배정된 사건 요약 목록(최근 바뀐 순) — 담당 사건 보드가 읽는다."""
+    return await cases.list_cases(actor_id)
+
+
 @router.post("/cases", tags=["A cases"], status_code=201)
 async def create_case(actor_id: ActorId, payload: dict[str, object]) -> dict[str, object]:
     return await cases.create_case(actor_id, payload)

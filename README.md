@@ -248,6 +248,7 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 
 | 요청 | 목적 |
 | --- | --- |
+| `GET /cases` | 로그인한 담당자에게 배정된 사건 요약 목록(최근 바뀐 순) — 담당 사건 보드 |
 | `POST /cases` | 사건 생성·범위 검사 |
 | `POST /cases/{id}/uploads` | 견적서·영상 업로드 서명 URL 발급(`kind`·`content_type`) → FE가 받은 URL로 Storage에 직접 업로드 |
 | `POST /cases/{id}/analysis` | 영상 분석 작업 접수 |

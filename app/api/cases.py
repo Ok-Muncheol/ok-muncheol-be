@@ -46,7 +46,7 @@ KST = timezone(timedelta(hours=9))
 
 # 사건 + 최신 카드·판단(대체되지 않은 것)·보고서 + 남은 질문 수. where 절은 호출하는 쪽이 붙인다
 SUMMARY_SQL = """
-select c.id, c.assignee_id, c.accident_date, c.input_path, c.updated_at,
+select c.id, c.assignee_id, c.accident_date, c.input_path, c.created_at, c.updated_at,
        fc.version as card_version, fc.updated_at as card_at,
        jr.judgment_version, jr.fact_card_version as run_card_version, jr.status as run_status,
        jr.judgment_status, jr.updated_at as run_at,
@@ -206,6 +206,8 @@ def summarize(row: dict) -> dict[str, object]:
     return {
         "case_id": case_id,
         "accident_date": _iso(row.get("accident_date")),
+        # 배정(사건 생성) 시각 — 보드의 배정일 · 배정 순 정렬
+        "created_at": _iso(row.get("created_at")),
         "input_path": row["input_path"],
         "stage": stage,
         "task_status": task_status,
