@@ -5,8 +5,10 @@ from typing import Literal, TypedDict
 TaskStatus = Literal["queued", "running", "waiting_for_confirmation", "completed", "failed"]
 JudgmentStatus = Literal["draft_ready", "needs_confirmation", "deferred"]
 # 업로드 파일 종류. 형식 검사는 A 서비스(cases.request_upload)가 한다 — estimate는 application/pdf,
-# video는 mp4·mov·avi·webm·mkv. 아니면 422 invalid_upload_type
-UploadKind = Literal["estimate", "video"]
+# video는 mp4·mov·avi·webm·mkv, medical_document(대인 증빙 — 진단서·진료비 영수증)는
+# application/pdf·image/jpeg.
+# 아니면 422 invalid_upload_type
+UploadKind = Literal["estimate", "video", "medical_document"]
 
 
 class VersionRef(TypedDict):
