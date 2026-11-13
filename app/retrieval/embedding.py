@@ -4,6 +4,8 @@
 색인과 질의의 모델·차원·버전이 다르면 코사인 점수가 의미 없으므로 EmbeddingMismatch로 멈춘다.
 OpenAIEmbedder는 C의 문서 임베딩과 같은 모델·차원·버전으로 질의를 임베딩한다. 키는 저장하지 않고
 OpenAI 클라이언트가 환경 변수에서 직접 읽는다. 오류 메시지에도 키가 들어가지 않게 한다.
+호출 1회는 QUERY_TIMEOUT_SECONDS에서 끊고 재시도는 app/llm.py 정책을 따른다
+(SDK 재시도 끔, 타임아웃·네트워크·5xx만 1회 더).
 """
 
 import hashlib
@@ -15,10 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from app import llm as llm_policy
 from app.ingestion.embed import validate_vector
 
 ROOT = Path(__file__).resolve().parents[2]
 _INSTALL_HINT = 'py -3.12 -m pip install -e ".[embedding]"로 설치하세요'
+# 질의 하나는 보통 1초 안에 온다. 장애 때 서버리스 함수를 오래 붙잡지 않게 짧게 끊는다
+QUERY_TIMEOUT_SECONDS = 5.0  # lumi와 같은 값
 
 
 class RetrievalNotConfigured(NotImplementedError):
@@ -69,11 +74,12 @@ class FakeEmbedder:
 
 
 def _openai_client_factory() -> Callable[[], object]:
+    """호출 1회 QUERY_TIMEOUT_SECONDS, SDK 자체 재시도는 끈 클라이언트(재시도는 embed가 한다)."""
     try:
-        from openai import AsyncOpenAI
+        import openai  # noqa: F401 -- 패키지가 있는지 먼저 본다. 클라이언트는 llm_policy가 만든다
     except ImportError:
         raise RetrievalNotConfigured(f"openai 패키지가 없습니다. {_INSTALL_HINT}") from None
-    return lambda: AsyncOpenAI(timeout=90, max_retries=4)
+    return lambda: llm_policy.openai_client(QUERY_TIMEOUT_SECONDS)
 
 
 class OpenAIEmbedder:
@@ -146,9 +152,8 @@ class OpenAIEmbedder:
         if cached is not None:
             self._cache.move_to_end(text)
             return list(cached)
-        failure = None
-        rows: list[object] = []
-        try:
+
+        async def attempt() -> list[object]:
             async with self._client_factory() as client:  # type: ignore[attr-defined]
                 response = await client.embeddings.create(
                     model=self.model,
@@ -156,7 +161,12 @@ class OpenAIEmbedder:
                     input=[text],
                     encoding_format="float",
                 )
-            rows = list(response.data)
+            return list(response.data)
+
+        failure = None
+        rows: list[object] = []
+        try:
+            rows = await llm_policy.with_retry(attempt, name="query_embedding")
         except Exception as exc:  # 원문에 키 일부가 섞일 수 있어 오류 종류만 남긴다
             failure = type(exc).__name__
         if failure:  # except 밖에서 올려 원본 예외가 __context__에 남지 않게 한다

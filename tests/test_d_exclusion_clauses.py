@@ -100,6 +100,22 @@ class ReviewTest(SkipValidation):
         self.assertEqual(seen, dict.fromkeys(TOPICS, ["p67", "p68"]))
         self.assertEqual(checks[0]["clause_ids"], [ARTICLE_23])  # 조항 ID 중복 없음
 
+    def test_judge_runs_off_the_event_loop(self):
+        """LLM 판정기는 동기 호출이라 스레드에서 부른다(기다리는 동안 이벤트 루프를 막지 않게)."""
+        seen = []
+
+        def judge(topic, hits, facts):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                seen.append("thread")
+            else:
+                seen.append("event loop")
+            return flag_judge(topic, hits, facts)
+
+        self.review(NO_FLAGS, fetch=Spy([hit("p67", ARTICLE_23, 1.0)]), judge=judge)
+        self.assertEqual(seen, ["thread"] * len(TOPICS))
+
     def test_fetch_arguments(self):
         fetch = Spy([hit("p67", ARTICLE_23, 1.0)])
         self.review(NO_FLAGS, fetch=fetch)
