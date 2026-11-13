@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -115,6 +116,53 @@ class ReviewTest(SkipValidation):
 
         self.review(NO_FLAGS, fetch=Spy([hit("p67", ARTICLE_23, 1.0)]), judge=judge)
         self.assertEqual(seen, ["thread"] * len(TOPICS))
+
+    def test_results_keep_topic_order_when_first_topic_finishes_last(self):
+        """동시에 불러도 결과는 rules.exclusion_topics 순서다. 첫 주제가 가장 늦게 끝나게 한다.
+
+        시간(sleep) 대신 이벤트 사슬로 끝나는 순서를 정한다: 마지막 주제가 먼저 끝나고, 각 주제는
+        다음 주제가 끝나기를 기다린다(순차로 부르면 첫 주제가 기다리다 시간 초과로 실패한다).
+        """
+        done = {topic: threading.Event() for topic in TOPICS}
+        finished = []
+        lock = threading.Lock()
+
+        def judge(topic, hits, facts):
+            i = TOPICS.index(topic)
+            if i + 1 < len(TOPICS) and not done[TOPICS[i + 1]].wait(timeout=5):
+                raise AssertionError(f"{topic}: 다음 주제가 끝나지 않음(동시 호출 아님)")
+            with lock:
+                finished.append(topic)
+            done[topic].set()
+            return {**flag_judge(topic, hits, facts), "detail": f"판정:{topic}"}
+
+        checks = self.review(NO_FLAGS, fetch=Spy([hit("p67", ARTICLE_23, 1.0)]), judge=judge)
+        self.assertEqual(finished, list(reversed(TOPICS)))  # 첫 주제가 맨 나중에 끝남
+        self.assertEqual([c["label"] for c in checks], list(TOPICS))
+        self.assertEqual([c["detail"] for c in checks], [f"판정:{t}" for t in TOPICS])
+
+    def test_topic_judges_run_at_the_same_time(self):
+        """세 판정기가 실제로 겹쳐 돈다. Barrier는 모두 도착해야 풀리므로 시간에 기대지 않는다."""
+        barrier = threading.Barrier(len(TOPICS), timeout=5)
+
+        def judge(topic, hits, facts):
+            barrier.wait()  # 하나라도 순차로 불리면 BrokenBarrierError
+            return flag_judge(topic, hits, facts)
+
+        checks = self.review(NO_FLAGS, fetch=Spy([hit("p67", ARTICLE_23, 1.0)]), judge=judge)
+        self.assertEqual([c["label"] for c in checks], list(TOPICS))
+        self.assertFalse(barrier.broken)
+
+    def test_unexpected_judge_error_still_fails_the_review(self):
+        """예상 밖 오류(우리 코드 오류)는 동시에 불러도 지금처럼 그대로 올라간다."""
+
+        def judge(topic, hits, facts):
+            if topic == TOPICS[1]:
+                raise RuntimeError("판정기 오류")
+            return flag_judge(topic, hits, facts)
+
+        with self.assertRaisesRegex(RuntimeError, "판정기 오류"):
+            self.review(NO_FLAGS, fetch=Spy([hit("p67", ARTICLE_23, 1.0)]), judge=judge)
 
     def test_fetch_arguments(self):
         fetch = Spy([hit("p67", ARTICLE_23, 1.0)])
