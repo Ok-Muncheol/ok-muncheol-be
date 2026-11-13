@@ -68,6 +68,7 @@
 - `lane_marking_*` = 그 차가 있던 **차로의 방향 화살표**. `left_only` 좌회전 전용, `straight_left` 직진·좌회전, `straight_only` 직진 전용, `straight_right` 직진·우회전, `right_only` 우회전 전용, `none` 표시 없음. 예: 차11-1은 A가 `left_only`에서 직진, B가 `straight_left`에서 좌회전.
 - `unprotected_left_sign`: 비보호 좌회전 표지가 있으면 `true`.
 - `relative_position`: **B의 진행 방향에서 볼 때 A가 충돌 직전 어디 있었나(어디서 왔나).** `left` = A가 B의 왼쪽(왼쪽 도로에서 진입), `opposite` = 마주 오는 차, `same_direction_front` = B 앞에서 같은 방향.
+  **같은 방향 옆 차로에서 나란히 가던 차는 `left`·`right`가 아니라 `same_direction_front`/`rear`**(충돌 직전 A가 앞서 있으면 `front`). `left`·`right`는 옆 도로에서 B의 진행 방향을 가로질러 들어온 차만이다(11/13, 차11-x와 측면 진입 차3-x를 가르려고). 비전 질문 v0.5가 이 규칙으로 묻는다. 정확도 19/30은 v0.2로 잰 값이다.
 - `entry_order`: A 기준. `first` = A가 교차로에 먼저 진입.
 - `night`: 야간이면 `true`. JSON 참거짓 값이다(`FIELD_OPTIONS`의 문자열 `"true"`와 비교할 때 맞춘다).
 

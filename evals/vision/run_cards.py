@@ -58,7 +58,8 @@ def main():
         default=PROMPT_VERSION,
         choices=list(PROMPT_VERSIONS),
         help="질문 버전. v0.1: 처음 / v0.2: 1차 개선(기본, 65%%) / "
-        "v0.3: 신호·좌우·A 움직임 보강(58%%, 과보정) / v0.4: v0.2 + 신호 규칙만",
+        "v0.3: 신호·좌우·A 움직임 보강(58%%, 과보정) / v0.4: v0.2 + 신호 규칙만 / "
+        "v0.5: v0.2 + 같은 방향 옆 차로 상대 위치 규칙(서비스 기본, 11/13)",
     )
     parser.add_argument(
         "--price-in", type=float, help="표에 없는 모델의 입력 단가(100만 토큰당 달러). 비용 계산용"

@@ -33,7 +33,7 @@ analyze_video(case_id, 로컬 영상 경로)                          pipeline.p
 | `pipeline.py` | **진입점.** `analyze_video` / `analyze_video_sync`. 실패는 `VisionPipelineError(stage, code, retryable)` |
 | `contract.py` | 내부 카드 → v1 카드 변환, 칸별 평가 정확도(`vision_detail.eval`) |
 | `fact_card.py` | 모델 의견과 VLM 답 모으기, 확인 표시 규칙, 카드 조립 |
-| `prompts.py` | VLM에 보낼 사진 고르기·그리기, 질문문(기본 v0.2) |
+| `prompts.py` | VLM에 보낼 사진 고르기·그리기, 질문문(기본 v0.5 = v0.2 + 상대 위치 규칙) |
 | `vlm.py` | VLM 연결: `OpenAIVLM`(서비스), `ClaudeVLM`·`OllamaVLM`(비교 실험) |
 | `fields.py` | 내부 칸 목록과 한국어 값, 장소에 따른 정리 규칙 |
 | `ego_motion.py` | 광학 흐름으로 블랙박스 차(B) 움직임과 충돌 순간 계산 |

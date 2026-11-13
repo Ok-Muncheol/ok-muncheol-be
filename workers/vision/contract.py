@@ -115,6 +115,7 @@ FIELD_ACCURACY: dict[str, dict] = {
     "signal_B": {"accuracy": 0.00, "basis": "개발 세트 신호 교차로 4건 (0/4), 늘 확인 필요"},
     "movement_A": {"accuracy": 0.65, "basis": "사람 정답 92건 (60/92)"},
     "movement_B": {"accuracy": 0.75, "basis": "사람 정답 92건 (69/92)"},
+    # 질문 v0.2로 잰 값. v0.5(같은 방향 옆 차로 규칙, 11/13)는 아직 다시 재지 않았다
     "relative_position": {"accuracy": 0.63, "basis": "개발 세트 30건, 좌·우 구분 (19/30)"},
     "entry_order": {"accuracy": 0.47, "basis": "개발 세트 30건 (14/30)"},
     "collision_time_ms": {"accuracy": 0.57, "basis": "개발 세트 30건, ±200ms 이내 (17/30)"},
