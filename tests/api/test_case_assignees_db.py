@@ -4,8 +4,6 @@
 메모리 저장소 테스트(tests/api/test_cases.py)가 보지 못하는 SQL을 본다.
 - runs.case_assignees: 대물 담당자, 있으면 대인 담당자. 사건이 없으면 None
 - SUMMARY_SQL의 담당자 조건: 대물·대인 담당자 모두 자기 목록에서 사건을 보고, 다른 사람은 못 본다
-- 대인 담당자 마이그레이션(20261113190000)을 적용하기 전 스키마에서도 지금처럼 돈다
-  (코드가 먼저 배포되는 경우)
 브라우저 쪽 같은 판정(RLS private.can_access_case)은 tests/migrations/behavior.sql 11절이 본다.
 """
 
@@ -30,7 +28,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 PROPERTY, INJURY, OTHER = (str(uuid.uuid4()) for _ in range(3))
-INJURY_MIGRATION = "20261113190000_case_injury_assignee.sql"
 
 
 @contextmanager
@@ -146,20 +143,3 @@ def test_transfer_moves_access_with_the_columns(service):
             run(cases.get_case(actor, case_id))
         assert caught.value.status_code == 403
 
-
-def test_runs_unchanged_before_the_injury_assignee_migration():
-    """코드가 마이그레이션보다 먼저 배포돼도(칼럼 없음) 대물 담당자 기준으로 지금처럼 돈다."""
-    before = [m for m in MIGRATIONS if m.name < INJURY_MIGRATION]
-    assert len(before) == len(MIGRATIONS) - 1, "대인 담당자 마이그레이션 뒤에 온 파일은 따로 본다"
-    with temp_database(before) as url, cases_on(url):
-        case_id = str(uuid.uuid4())
-        with psycopg.connect(url, autocommit=True) as conn:
-            conn.execute(
-                "insert into public.cases (id, assignee_id) values (%s, %s)", (case_id, PROPERTY)
-            )
-        assert assignees(url, case_id) == (PROPERTY,)
-        assert listed(PROPERTY) == {case_id} and listed(OTHER) == set()
-        assert run(cases.get_case(PROPERTY, case_id))["case_id"] == case_id
-        with pytest.raises(ApiException) as caught:
-            run(cases.get_case(OTHER, case_id))
-        assert caught.value.status_code == 403

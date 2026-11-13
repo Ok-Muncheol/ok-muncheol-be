@@ -34,6 +34,8 @@ ACTOR = str(uuid.uuid4())
 OTHER = str(uuid.uuid4())
 NO_FLAGS = {"무면허": False, "음주": False, "고의": False}
 D_MIGRATION = "20261111090000_review_reports.sql"
+# 사건 접근 검사가 읽는 칼럼(대인 담당자). D 표와 무관하게 cases만 고친다
+CASE_ACCESS_MIGRATION = "20261113190000_case_injury_assignee.sql"
 
 
 def _temp_database(prefix: str, migrations) -> tuple[str, str]:
@@ -412,8 +414,8 @@ def test_claim_package_must_match_an_existing_report_version(database_url, store
 
 
 def test_tables_missing_is_503_reports_db_not_ready():
-    """마이그레이션 적용 전(판단 테이블까지만) 공용 DB를 흉내 낸다."""
-    before = [m for m in MIGRATIONS if m.name < D_MIGRATION]
+    """D 마이그레이션 적용 전(판단 테이블까지만) 공용 DB를 흉내 낸다."""
+    before = [m for m in MIGRATIONS if m.name < D_MIGRATION or m.name == CASE_ACCESS_MIGRATION]
     name, url = _temp_database("okm_reports_old", before)
     try:
         case_id = new_case(url)

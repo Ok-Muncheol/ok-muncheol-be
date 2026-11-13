@@ -9,7 +9,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api import cases, facts, judgments
+from app.api import admin, cases, facts, judgments
 from app.api.errors import forbidden
 from app.config import Settings, get_settings
 from app.main import app, create_app
@@ -57,10 +57,11 @@ def test_health_is_open(client):
 
 def test_openapi_matches_fe_api_client():
     # FE ApiClient(src/lib/api/client.ts) 메서드 18개(getEvidence 포함) + listCases(11/13)
-    # GET /cases는 POST /cases와 경로가 같아 경로 수는 그대로 17이다
-    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 17
+    # GET /cases는 POST /cases와 경로가 같아 사건 경로 수는 그대로 17이다
+    # + 관리자 조회 GET /admin/overview(11/13 — FE 관리자 화면이 ApiClient에 메서드를 더한다)
+    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 18
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 19
+    assert ops == 20
 
 
 def test_missing_token_is_401_api_error(client):
@@ -101,6 +102,38 @@ def test_dev_actor_only_in_local_off_vercel(client):
     app.dependency_overrides[get_settings] = lambda: settings(
         app_env="local", on_vercel=True, dev_actor_id="dev-1", supabase_jwt_secret=None)
     assert client.get("/cases/case-1").status_code == 503
+
+
+def test_admin_route_needs_the_admin_role_from_app_metadata(client, monkeypatch):
+    seen: list[str] = []
+
+    async def fake_overview(admin_id):
+        seen.append(admin_id)
+        return {"staff": [], "cases": []}
+
+    monkeypatch.setattr(admin, "get_overview", fake_overview)
+    assert client.get("/admin/overview").status_code == 401
+    for claims in (
+        {},  # 역할 없음
+        {"app_metadata": {"staff_role": "adjuster"}},  # 담당자
+        {"user_metadata": {"staff_role": "admin"}},  # 사용자가 스스로 고칠 수 있는 값은 안 본다
+        {"app_metadata": "admin"},  # 모양이 다른 값
+    ):
+        res = client.get("/admin/overview", headers=token("user-1", **claims))
+        assert res.status_code == 403 and res.json()["error"]["code"] == "forbidden", claims
+    assert seen == []  # 관리자가 아니면 서비스 함수(=DB)까지 가지 않는다
+
+    res = client.get(
+        "/admin/overview", headers=token("admin-1", app_metadata={"staff_role": "admin"})
+    )
+    assert res.status_code == 200 and res.json() == {"staff": [], "cases": []}
+    assert seen == ["admin-1"]
+
+
+def test_dev_actor_is_never_admin(client):
+    app.dependency_overrides[get_settings] = lambda: settings(
+        app_env="local", dev_actor_id="dev-1", supabase_jwt_secret=None)
+    assert client.get("/admin/overview").status_code == 403
 
 
 def test_unimplemented_service_is_501(client, monkeypatch):
@@ -368,8 +401,8 @@ def test_every_route_calls_an_existing_service_function():
 
     from app.api import analysis, cases, reports
 
-    modules = {"analysis": analysis, "cases": cases, "facts": facts, "judgments": judgments,
-               "reports": reports}
+    modules = {"admin": admin, "analysis": analysis, "cases": cases, "facts": facts,
+               "judgments": judgments, "reports": reports}
     tree = ast.parse((ROOT / "app/api/routes.py").read_text(encoding="utf-8"))
     called = {
         (node.value.id, node.attr) for node in ast.walk(tree)

@@ -44,11 +44,10 @@ UPLOAD_FOLDERS: dict[str, str] = {
 INPUT_PATHS = ("video", "manual")
 KST = timezone(timedelta(hours=9))
 
-# 사건 + 최신 카드·판단(대체되지 않은 것)·보고서 + 남은 질문 수. where 절은 호출하는 쪽이 붙인다.
-# 대인 담당자는 runs.INJURY_ASSIGNEE_SQL로 읽는다(칼럼 적용 전 배포에도 돌게 — runs.py 설명)
-SUMMARY_SQL = f"""
-select c.id, c.assignee_id, {runs.INJURY_ASSIGNEE_SQL} as injury_assignee_id,
-       c.accident_date, c.input_path, c.created_at, c.updated_at,
+# 사건 + 최신 카드·판단(대체되지 않은 것)·보고서 + 남은 질문 수. where 절은 호출하는 쪽이 붙인다
+SUMMARY_SQL = """
+select c.id, c.assignee_id, c.injury_assignee_id, c.accident_date, c.input_path,
+       c.created_at, c.updated_at,
        fc.version as card_version, fc.updated_at as card_at,
        jr.judgment_version, jr.fact_card_version as run_card_version, jr.status as run_status,
        jr.judgment_status, jr.updated_at as run_at,
@@ -115,8 +114,7 @@ class PostgresCaseRepo:
         else:
             cur = await self.conn.execute(
                 SUMMARY_SQL
-                + f" where %s in (c.assignee_id, {runs.INJURY_ASSIGNEE_SQL})"
-                " order by c.updated_at desc",
+                + " where %s in (c.assignee_id, c.injury_assignee_id) order by c.updated_at desc",
                 (assignee_id,),
             )
         return list(await cur.fetchall())
