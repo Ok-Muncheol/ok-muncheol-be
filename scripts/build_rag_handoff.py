@@ -184,7 +184,7 @@ def main():
                 "별표1~5 items are appendices.record_type=payment_standard_item (chunk metadata clause_type=payment_standard); accident_date_from/to restrict some items, and hits outside the request accident_date are rejected by validate_hits"  # noqa: E501 -- source text or prompt kept intact
             )
             item["schedule_value_status"] = (
-                "schedule_values.jsonl holds 별표4·5 numbers machine-matched to source text; calculation_ready=false until business review"  # noqa: E501 -- source text or prompt kept intact
+                "schedule_values.jsonl holds 별표4·5 numbers machine-matched to source text (calculation_ready=false until business review) and 52 injury/property values for 별표1·2·3 checked against the PDF (calculation_ready=true, source_parent_id)"  # noqa: E501 -- source text or prompt kept intact
             )
         if corpus == "dispute_cases":
             item["chart_mapping_status"] = (
