@@ -13,6 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from app import llm as llm_policy
 from app.api import reports as api
 from app.calculation.exclusions import flag_judge, llm_judge, openai_judge_llm
 from app.calculation.rules import RuleSet
@@ -37,6 +38,7 @@ from app.retrieval.loader import (
     read_corpus,
 )
 from app.tools import _evidence
+from tests.fake_openai import status_error, timeout_error
 
 FAKE_KEY = "sk-FAKE-for-tests-0123456789"
 FAKE_SPEC = EmbeddingSpec(FakeEmbedder.model, FakeEmbedder.dimensions, FakeEmbedder.version)
@@ -44,18 +46,26 @@ needs_dotenv = unittest.skipUnless(importlib.util.find_spec("dotenv"), "python-d
 
 
 class FakeChat:
-    """OpenAI 클라이언트 흉내. 호출 인자를 기록하고 지정한 답이나 예외를 돌려준다."""
+    """OpenAI 클라이언트 흉내. 호출 인자를 기록하고 지정한 답이나 예외를 돌려준다.
+
+    errors는 앞의 호출부터 차례로 던질 예외다(다 쓰면 answer·error대로 돌려준다)."""
 
     def __init__(
-        self, answer='{"result": "pass", "clause_ids": [], "detail": "해당 없음"}', error=None
+        self,
+        answer='{"result": "pass", "clause_ids": [], "detail": "해당 없음"}',
+        error=None,
+        errors=(),
     ):
         self.answer = answer
         self.error = error
+        self.errors = list(errors)
         self.calls = []
         self.chat = SimpleNamespace(completions=self)
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
+        if self.errors:
+            raise self.errors.pop(0)
         if self.error:
             raise self.error
         message = SimpleNamespace(content=self.answer)
@@ -74,9 +84,54 @@ class OpenAIJudgeLLMTest(unittest.TestCase):
         environ = patch.dict(os.environ, {}, clear=True)
         environ.start()
         self.addCleanup(environ.stop)
+        backoff = patch.object(llm_policy, "BACKOFF_SECONDS", 0)
+        backoff.start()
+        self.addCleanup(backoff.stop)
 
     def llm(self, client):
         return openai_judge_llm(dotenv_path=self.dotenv, client=client)
+
+    def test_default_client_follows_the_llm_policy(self):
+        made = []
+        real = llm_policy.openai_sync_client
+
+        def spy(*args, **kwargs):
+            made.append(real(*args, **kwargs))
+            return made[-1]
+
+        with patch.object(llm_policy, "openai_sync_client", spy):
+            openai_judge_llm(dotenv_path=self.dotenv)
+        (client,) = made
+        self.addCleanup(client.close)
+        # 예전 OpenAI(timeout=120, max_retries=2)가 아니라 호출 1회 45초·SDK 재시도 없음
+        self.assertEqual(
+            (client.timeout, client.max_retries), (llm_policy.LLM_TIMEOUT_SECONDS, 0)
+        )
+
+    def test_transient_error_is_retried_once(self):
+        client = FakeChat(errors=[timeout_error()])
+        self.assertIn("pass", self.llm(client)("질문"))
+        self.assertEqual(len(client.calls), 2)
+
+    def test_gives_up_after_the_retry(self):
+        client = FakeChat(errors=[timeout_error(), status_error(503)])
+        with self.assertRaises(ValueError) as caught:
+            self.llm(client)("질문")
+        self.assertEqual(str(caught.exception), "LLM 호출 실패: APIStatusError")
+        self.assertEqual(len(client.calls), 2)
+
+    def test_client_error_is_not_retried(self):
+        client = FakeChat(errors=[status_error(429)])
+        with self.assertRaises(ValueError):
+            self.llm(client)("질문")
+        self.assertEqual(len(client.calls), 1)
+
+    def test_retry_can_be_turned_off(self):
+        client = FakeChat(errors=[timeout_error()])
+        llm = openai_judge_llm(dotenv_path=self.dotenv, client=client, retry=False)
+        with self.assertRaises(ValueError):
+            llm("질문")
+        self.assertEqual(len(client.calls), 1)
 
     def test_sends_prompt_to_configured_model(self):
         client = FakeChat()

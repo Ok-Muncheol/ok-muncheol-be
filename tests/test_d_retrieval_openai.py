@@ -15,16 +15,20 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from app import llm as llm_policy
 from app.retrieval.common import EmbeddingMismatch, configure_retrieval, search
 from app.retrieval.embedding import (
+    QUERY_TIMEOUT_SECONDS,
     EmbeddingRequestFailed,
     EmbeddingSpec,
     OpenAIEmbedder,
     RetrievalNotConfigured,
+    _openai_client_factory,
 )
 from app.retrieval.hybrid import RetrievalOptions
 from app.retrieval.index import InMemoryIndex
 from app.retrieval.loader import ROOT, handoff_embedding_spec
+from tests.fake_openai import status_error, timeout_error
 
 FAKE_KEY = "sk-FAKE-for-tests-0123456789"
 SPEC = EmbeddingSpec("text-embedding-3-small", 3, "text-embedding-3-small:3:v1")
@@ -32,11 +36,14 @@ needs_dotenv = unittest.skipUnless(importlib.util.find_spec("dotenv"), "python-d
 
 
 class FakeApi:
-    """AsyncOpenAI 흉내. 호출 기록을 남기고, 지정한 벡터나 예외를 돌려준다."""
+    """AsyncOpenAI 흉내. 호출 기록을 남기고, 지정한 벡터나 예외를 돌려준다.
 
-    def __init__(self, vector=None, error=None, rows=1):
+    errors는 앞의 호출부터 차례로 던질 예외다(다 쓰면 vector·error대로 돌려준다)."""
+
+    def __init__(self, vector=None, error=None, rows=1, errors=()):
         self.vector = [1.0, 0.0, 0.0] if vector is None else vector
         self.error = error
+        self.errors = list(errors)
         self.rows = rows
         self.calls = []
         self.embeddings = self
@@ -52,6 +59,8 @@ class FakeApi:
 
     async def create(self, **kwargs):
         self.calls.append(kwargs)
+        if self.errors:
+            raise self.errors.pop(0)
         if self.error:
             raise self.error
         return SimpleNamespace(data=[SimpleNamespace(embedding=self.vector)] * self.rows)
@@ -118,6 +127,43 @@ class EmbedTest(unittest.TestCase):
     def test_wrong_row_count_rejected(self):
         with self.assertRaises(EmbeddingRequestFailed):
             asyncio.run(embedder(FakeApi(rows=2)).embed("질문"))
+
+
+class RetryPolicyTest(unittest.TestCase):
+    """호출 1회 QUERY_TIMEOUT_SECONDS, SDK 재시도 끔, 일시 오류만 1회 더(app/llm.py 정책)."""
+
+    def setUp(self):
+        backoff = patch.object(llm_policy, "BACKOFF_SECONDS", 0)
+        backoff.start()
+        self.addCleanup(backoff.stop)
+
+    def test_default_client_cuts_one_call_and_leaves_retries_to_the_policy(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": FAKE_KEY}):
+            client = _openai_client_factory()()
+        try:
+            # 예전 AsyncOpenAI(timeout=90, max_retries=4)가 아니라 호출 1회 5초·SDK 재시도 없음
+            self.assertEqual((client.timeout, client.max_retries), (QUERY_TIMEOUT_SECONDS, 0))
+            self.assertEqual(QUERY_TIMEOUT_SECONDS, 5)
+        finally:
+            asyncio.run(client.close())
+
+    def test_transient_error_is_retried_once(self):
+        api = FakeApi(errors=[timeout_error()])
+        self.assertEqual(asyncio.run(embedder(api).embed("질문")), [1.0, 0.0, 0.0])
+        self.assertEqual(len(api.calls), 2)
+
+    def test_gives_up_after_the_retry(self):
+        api = FakeApi(errors=[timeout_error(), status_error(503)])
+        with self.assertRaises(EmbeddingRequestFailed) as caught:
+            asyncio.run(embedder(api).embed("질문"))
+        self.assertEqual(str(caught.exception), "임베딩 요청 실패: APIStatusError")
+        self.assertEqual(len(api.calls), 2)
+
+    def test_client_error_is_not_retried(self):
+        api = FakeApi(errors=[status_error(429)])
+        with self.assertRaises(EmbeddingRequestFailed):
+            asyncio.run(embedder(api).embed("질문"))
+        self.assertEqual(len(api.calls), 1)
 
 
 class SecretTest(unittest.TestCase):

@@ -8,17 +8,20 @@
   FE 체크박스(무면허·음주·고의·해당 없음) → case_facts: 미입력(None) = 해당 없음으로 가정(assumed),
   False = 담당자 확인 — 해당 없음(pass), True = 면책 적용(fail → not_payable).
 - LLMJudge: LLM으로 판정. 근거 조항 ID가 검색 결과에 없으면 버리고, 근거 없이 면책 판정을 내지
-  않는다.
+  않는다. 호출 1회 상한·재시도는 app/llm.py 정책(45초, SDK 재시도 끔, 일시 오류만 1회)이다.
+  동기 호출이라 review_exclusions가 판정기를 스레드에서 부른다(이벤트 루프를 막지 않게).
 담당자 입력이 LLM보다 우선한다(apply_handler_priority). 체크박스 뜻은 "운전자(계약자·기명피보험자·
 30일 초과 임차인·동거 친족)의 무면허/음주"다. 입력이 없을 때만 LLM 결과를 따른다.
 """
 
+import asyncio
 import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from app import llm as llm_policy
 from app.calculation.rules import DEFAULT_RULES, RuleSet
 from app.retrieval.embedding import ROOT, RetrievalNotConfigured
 from app.schemas.reports import OwnDamageContractDoc, PreCheck
@@ -124,13 +127,15 @@ def openai_judge_llm(
     *,
     dotenv_path: Path | None = None,
     client: object | None = None,
-    max_retries: int = 2,
+    retry: bool = True,
 ) -> Callable[[str], str]:
     """llm_judge에 넘길 호출 함수. 모델은 .env의 OPENAI_MODEL. 키는 저장하지 않는다.
 
     같은 프롬프트는 다시 부르지 않는다(재산정마다 비용이 들고, 답이 흔들리면 같은 입력에 새 버전이
     생기기 때문). 호출 실패는 키가 섞일 수 있는 원문 없이 ValueError로 올린다 → llm_judge가
     "담당자 확인"(unknown)으로 내려 보고서를 막지 않는다.
+    호출 1회 상한·재시도는 app/llm.py 정책이다(호출 1회 45초, 타임아웃·네트워크·5xx만 1회 더).
+    retry=False면 다시 시도하지 않는다(호출 수를 세는 시험 스크립트용).
     """
     hint = 'py -3.12 -m pip install -e ".[embedding]"로 설치하세요'
     try:
@@ -145,22 +150,25 @@ def openai_judge_llm(
         )
     if client is None:
         try:
-            from openai import OpenAI
+            client = llm_policy.openai_sync_client()
         except ImportError:
             raise RetrievalNotConfigured(f"openai 패키지가 없습니다. {hint}") from None
-        client = OpenAI(timeout=120, max_retries=max_retries)
     cache: dict[str, str] = {}
 
     def call(prompt: str) -> str:
         if prompt in cache:
             return cache[prompt]
-        failure = None
-        answer = ""
-        try:
+
+        def attempt() -> str:
             response = client.chat.completions.create(  # type: ignore[attr-defined]
                 model=model, messages=[{"role": "user", "content": prompt}]
             )
-            answer = response.choices[0].message.content or ""
+            return response.choices[0].message.content or ""
+
+        failure = None
+        answer = ""
+        try:
+            answer = llm_policy.with_retry_sync(attempt, name="exclusion") if retry else attempt()
         except Exception as exc:  # 원문에 키 일부가 섞일 수 있어 오류 종류만 남긴다
             failure = type(exc).__name__
         if failure:  # except 밖에서 올려 원본 예외가 __context__에 남지 않게 한다
@@ -270,7 +278,8 @@ async def review_exclusions(
 ) -> list[PreCheck]:
     """주제마다 조항 ID로 직접 가져온 청크로 판정. 약관 적용판은 계약 값으로 필터한다(사고 일자로
     대체하지 않음). 계약이 없으면(기본 가정) 판은 공통 검색 설정이 정한다. 사실이 없어 unknown이
-    나온 항목은 막지 않고 표시만 한다."""
+    나온 항목은 막지 않고 표시만 한다.
+    판정기는 스레드에서 부른다(LLM 판정기는 동기 호출이라 이벤트 루프를 막는다)."""
     out: list[PreCheck] = []
     edition = contract.get("terms_edition") if contract else None
     for topic in rules.exclusion_topics:
@@ -278,7 +287,8 @@ async def review_exclusions(
         if not hits:
             out.append(_check_without_clause(topic, facts))
             continue
-        check = apply_handler_priority(topic, judge(topic, hits, facts), facts)
+        judged = await asyncio.to_thread(judge, topic, hits, facts)
+        check = apply_handler_priority(topic, judged, facts)
         key = _flag_key(topic)
         if check["result"] == "unknown" and key is not None and facts.get(key) is None:
             check = {**check, "detail": NEEDS_FACTS}

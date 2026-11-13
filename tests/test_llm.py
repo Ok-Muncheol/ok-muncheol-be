@@ -82,3 +82,43 @@ def test_the_client_cuts_one_call_and_leaves_retries_to_the_policy(monkeypatch):
         assert llm.LLM_TIMEOUT_SECONDS == 45
     finally:
         asyncio.run(client.close())
+
+
+def scripted_sync(*outcomes: object):
+    calls: list[int] = []
+
+    def attempt():
+        calls.append(1)
+        outcome = outcomes[len(calls) - 1]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    return attempt, calls
+
+
+def test_the_sync_retry_retries_a_transient_error_once():
+    attempt, calls = scripted_sync(timeout_error(), "답")
+    assert llm.with_retry_sync(attempt) == "답"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(("outcomes", "made"), [
+    ((status_error(502), status_error(503), "쓰이지 않음"), 2),  # 재시도 뒤에는 올린다
+    ((status_error(429), "쓰이지 않음"), 1),  # 4xx는 다시 보내지 않는다
+    ((ValueError("우리 코드"), "쓰이지 않음"), 1),  # 우리 코드의 오류도
+])
+def test_the_sync_retry_gives_up_by_the_same_rule(outcomes, made):
+    attempt, calls = scripted_sync(*outcomes)
+    with pytest.raises(type(outcomes[made - 1])):
+        llm.with_retry_sync(attempt)
+    assert len(calls) == made
+
+
+def test_the_sync_client_cuts_one_call_and_leaves_retries_to_the_policy(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    client = llm.openai_sync_client()
+    try:
+        assert (client.timeout, client.max_retries) == (llm.LLM_TIMEOUT_SECONDS, 0)
+    finally:
+        client.close()
