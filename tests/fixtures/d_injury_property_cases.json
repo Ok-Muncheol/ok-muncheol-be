@@ -1,0 +1,307 @@
+{
+  "schema": "d-injury-property-cases-v1",
+  "document_id": "samsung-personal-auto-2026-11-11",
+  "accident_date": "2026-10-01",
+  "rules": {
+    "property": "상대 차 수리비 × 우리 과실(원 미만 버림), 대물 한도를 넘으면 한도. 우리 과실 0%는 금액 없이 배상책임 확인",
+    "injury": "사람마다 (치료관계비 + 급수별 부상 위자료) × 우리 과실. 과실상계 후가 치료관계비보다 적으면 치료관계비(별표3 1.가.(2)·(3), 대인Ⅱ에도 적용). 대인Ⅰ 한도(2016-04-01 이후 판)까지 대인Ⅰ, 나머지 대인Ⅱ",
+    "assumptions": [
+      "차대차 1:1, 피해자 측 과실 = 100 - 우리 과실",
+      "간병비 0, 치료관계비에 입원환자 식대 미포함",
+      "사고일 2023-01-01 이후만 계산(2022-12-31 이전 사고는 확인 필요, 레코드는 두 판 모두 있음)",
+      "상대 차 탑승자 12~14급은 확인 필요(별표3 1.가.(3) 단서 차량운전자 특례 대상일 수 있음)"
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "대물-1",
+      "kind": "property",
+      "input": {
+        "repair_cost_krw": 3456789,
+        "our_fault_percent": 70,
+        "property_damage_limit_krw": 200000000
+      },
+      "expected": {
+        "status": "계산",
+        "amount_krw": 2419752,
+        "capped_by_limit": false,
+        "needs_review": [
+          "전부손해",
+          "시세하락손해",
+          "대차료",
+          "휴차료"
+        ]
+      },
+      "basis_record_ids": [
+        "samsung-personal-auto-2026-11-11:별표2-1-수리비한도",
+        "samsung-personal-auto-2026-11-11:별표2-1-수리비한도-130",
+        "samsung-personal-auto-2026-11-11:별표2-2-전부손해",
+        "samsung-personal-auto-2026-11-11:별표2-6-시세하락:1",
+        "samsung-personal-auto-2026-11-11:별표2-6-시세하락:2",
+        "samsung-personal-auto-2026-11-11:별표2-6-시세하락:3"
+      ],
+      "basis_parent_ids": [
+        "samsung-personal-auto-2026-11-11:payment_standard:별표3:1:from-2023-01-01"
+      ],
+      "explanation": "3,456,789 × 70% = 2,419,752.3 → 원 미만 버림 2,419,752. 한도 2억 안. 전손·시세하락·대차료·휴차료는 계산하지 않고 확인 필요"
+    },
+    {
+      "case_id": "대물-2",
+      "kind": "property",
+      "input": {
+        "repair_cost_krw": 30000000,
+        "our_fault_percent": 80,
+        "property_damage_limit_krw": 20000000
+      },
+      "expected": {
+        "status": "계산",
+        "amount_krw": 20000000,
+        "capped_by_limit": true,
+        "needs_review": [
+          "전부손해",
+          "시세하락손해",
+          "대차료",
+          "휴차료"
+        ]
+      },
+      "basis_record_ids": [
+        "samsung-personal-auto-2026-11-11:별표2-1-수리비한도",
+        "samsung-personal-auto-2026-11-11:별표2-1-수리비한도-130",
+        "samsung-personal-auto-2026-11-11:별표2-2-전부손해",
+        "samsung-personal-auto-2026-11-11:별표2-6-시세하락:1",
+        "samsung-personal-auto-2026-11-11:별표2-6-시세하락:2",
+        "samsung-personal-auto-2026-11-11:별표2-6-시세하락:3"
+      ],
+      "basis_parent_ids": [
+        "samsung-personal-auto-2026-11-11:payment_standard:별표3:1:from-2023-01-01"
+      ],
+      "explanation": "30,000,000 × 80% = 24,000,000 > 대물 한도 20,000,000 → 20,000,000"
+    },
+    {
+      "case_id": "대물-3",
+      "kind": "property",
+      "input": {
+        "repair_cost_krw": 3456789,
+        "our_fault_percent": 0,
+        "property_damage_limit_krw": 200000000
+      },
+      "expected": {
+        "status": "배상책임 확인",
+        "amount_krw": null,
+        "capped_by_limit": false,
+        "needs_review": []
+      },
+      "basis_record_ids": [],
+      "basis_parent_ids": [
+        "samsung-personal-auto-2026-11-11:payment_standard:별표3:1:from-2023-01-01"
+      ],
+      "explanation": "우리 과실 0% → 금액 없이 배상책임 확인"
+    },
+    {
+      "case_id": "대인-1",
+      "kind": "injury",
+      "input": {
+        "our_fault_percent": 80,
+        "persons": [
+          {
+            "person_id": "A",
+            "grade": 3,
+            "treatment_cost_krw": 3000000
+          }
+        ]
+      },
+      "expected": {
+        "status": "계산",
+        "persons": [
+          {
+            "person_id": "A",
+            "consolation_krw": 1520000,
+            "before_offset_krw": 4520000,
+            "after_offset_krw": 3616000,
+            "treatment_floor_applied": false,
+            "total_krw": 3616000,
+            "coverage_i_limit_krw": 12000000,
+            "coverage_i_krw": 3616000,
+            "coverage_ii_krw": 0
+          }
+        ],
+        "coverage_i_total_krw": 3616000,
+        "coverage_ii_total_krw": 0,
+        "needs_review": [
+          "휴업손해",
+          "간병비",
+          "입원환자 식대",
+          "통원비",
+          "후유장애",
+          "사망"
+        ]
+      },
+      "basis_record_ids": [
+        "samsung-personal-auto-2026-11-11:별표3-1-가-2:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표3-1-가-3:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표1-표1-부상한도:3급:from-2016-04-01",
+        "samsung-personal-auto-2026-11-11:별표1-나-2-부상위자료:3급"
+      ],
+      "explanation": "3급: (300만 + 위자료 152만) × 80% = 361.6만 ≥ 치료비 300만 → 특례 안 걸림. 대인Ⅰ 한도 1,200만 안 → 대인Ⅰ 3,616,000, 대인Ⅱ 0"
+    },
+    {
+      "case_id": "대인-2",
+      "kind": "injury",
+      "input": {
+        "our_fault_percent": 80,
+        "persons": [
+          {
+            "person_id": "A",
+            "grade": 7,
+            "treatment_cost_krw": 3000000
+          }
+        ]
+      },
+      "expected": {
+        "status": "계산",
+        "persons": [
+          {
+            "person_id": "A",
+            "consolation_krw": 400000,
+            "before_offset_krw": 3400000,
+            "after_offset_krw": 2720000,
+            "treatment_floor_applied": true,
+            "total_krw": 3000000,
+            "coverage_i_limit_krw": 5000000,
+            "coverage_i_krw": 3000000,
+            "coverage_ii_krw": 0
+          }
+        ],
+        "coverage_i_total_krw": 3000000,
+        "coverage_ii_total_krw": 0,
+        "needs_review": [
+          "휴업손해",
+          "간병비",
+          "입원환자 식대",
+          "통원비",
+          "후유장애",
+          "사망"
+        ]
+      },
+      "basis_record_ids": [
+        "samsung-personal-auto-2026-11-11:별표3-1-가-2:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표3-1-가-3:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표1-표1-부상한도:7급:from-2016-04-01",
+        "samsung-personal-auto-2026-11-11:별표1-나-2-부상위자료:7급"
+      ],
+      "explanation": "7급: (300만 + 40만) × 80% = 272만 < 치료비 300만 → 치료비 특례(별표3 1.가.(2)) 300만. 대인Ⅰ 한도 500만 안 → 대인Ⅰ 3,000,000, 대인Ⅱ 0"
+    },
+    {
+      "case_id": "대인-3",
+      "kind": "injury",
+      "input": {
+        "our_fault_percent": 90,
+        "persons": [
+          {
+            "person_id": "A",
+            "grade": 3,
+            "treatment_cost_krw": 15000000
+          },
+          {
+            "person_id": "B",
+            "grade": 5,
+            "treatment_cost_krw": 2000000
+          }
+        ]
+      },
+      "expected": {
+        "status": "계산",
+        "persons": [
+          {
+            "person_id": "A",
+            "consolation_krw": 1520000,
+            "before_offset_krw": 16520000,
+            "after_offset_krw": 14868000,
+            "treatment_floor_applied": true,
+            "total_krw": 15000000,
+            "coverage_i_limit_krw": 12000000,
+            "coverage_i_krw": 12000000,
+            "coverage_ii_krw": 3000000
+          },
+          {
+            "person_id": "B",
+            "consolation_krw": 750000,
+            "before_offset_krw": 2750000,
+            "after_offset_krw": 2475000,
+            "treatment_floor_applied": false,
+            "total_krw": 2475000,
+            "coverage_i_limit_krw": 9000000,
+            "coverage_i_krw": 2475000,
+            "coverage_ii_krw": 0
+          }
+        ],
+        "coverage_i_total_krw": 14475000,
+        "coverage_ii_total_krw": 3000000,
+        "needs_review": [
+          "휴업손해",
+          "간병비",
+          "입원환자 식대",
+          "통원비",
+          "후유장애",
+          "사망"
+        ]
+      },
+      "basis_record_ids": [
+        "samsung-personal-auto-2026-11-11:별표3-1-가-2:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표3-1-가-3:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표1-표1-부상한도:3급:from-2016-04-01",
+        "samsung-personal-auto-2026-11-11:별표1-나-2-부상위자료:3급",
+        "samsung-personal-auto-2026-11-11:별표1-표1-부상한도:5급:from-2016-04-01",
+        "samsung-personal-auto-2026-11-11:별표1-나-2-부상위자료:5급"
+      ],
+      "explanation": "A 3급: (1,500만 + 152만) × 90% = 1,486.8만 < 1,500만 → 특례 1,500만 → 대인Ⅰ 한도 1,200만 + 대인Ⅱ 300만(1.가.(3) 대인Ⅰ 지급분 공제). B 5급: (200만 + 75만) × 90% = 247.5만 ≥ 200만 → 대인Ⅰ 2,475,000. 합계 대인Ⅰ 14,475,000, 대인Ⅱ 3,000,000"
+    },
+    {
+      "case_id": "대인-4",
+      "kind": "injury",
+      "input": {
+        "our_fault_percent": 100,
+        "persons": [
+          {
+            "person_id": "A",
+            "grade": 3,
+            "treatment_cost_krw": 15000000
+          }
+        ]
+      },
+      "expected": {
+        "status": "계산",
+        "persons": [
+          {
+            "person_id": "A",
+            "consolation_krw": 1520000,
+            "before_offset_krw": 16520000,
+            "after_offset_krw": 16520000,
+            "treatment_floor_applied": false,
+            "total_krw": 16520000,
+            "coverage_i_limit_krw": 12000000,
+            "coverage_i_krw": 12000000,
+            "coverage_ii_krw": 4520000
+          }
+        ],
+        "coverage_i_total_krw": 12000000,
+        "coverage_ii_total_krw": 4520000,
+        "needs_review": [
+          "휴업손해",
+          "간병비",
+          "입원환자 식대",
+          "통원비",
+          "후유장애",
+          "사망"
+        ]
+      },
+      "basis_record_ids": [
+        "samsung-personal-auto-2026-11-11:별표3-1-가-2:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표3-1-가-3:from-2023-01-01",
+        "samsung-personal-auto-2026-11-11:별표1-표1-부상한도:3급:from-2016-04-01",
+        "samsung-personal-auto-2026-11-11:별표1-나-2-부상위자료:3급"
+      ],
+      "explanation": "3급: (1,500만 + 152만) × 100% = 1,652만 → 대인Ⅰ 한도 1,200만 + 대인Ⅱ 452만"
+    }
+  ]
+}
