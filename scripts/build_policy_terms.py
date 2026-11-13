@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlparse
 import pdfplumber
 from build_dispute_cases import read, write
 
-from app.ingestion import policy_appendix
+from app.ingestion import injury_property_values, policy_appendix
 from app.ingestion.policy_layout import extract_columns
 from app.ingestion.preprocess import preprocess_chunks
 from app.ingestion.retrieval_metadata import normalize_document, policy_coverage
@@ -237,6 +237,10 @@ def main():
     values += policy_appendix.amount_table_records(
         item_lines(5, "나"), doc, 105, "별표5-나-후유장애", policy_appendix.DISABILITY_COLUMNS
     )
+    # 대인·대물 1차 계산 숫자(별표1·2·3, D). 원문과 숫자·문장이 다르면 ValueError로 멈춘다.
+    values += injury_property_values.records(
+        {r["parent_id"]: r["text"] for r in schedule_records + cited_records}, doc
+    )
     for b in pages:
         if 264 <= b["page"] <= 293:
             parent = f"{doc['document_id']}:appendix:p{b['page']}"
@@ -286,8 +290,9 @@ def main():
         "status": "unreviewed",
         "limitations": [
             "문서 전용 페이지 경계 사용",
-            "별표 수치 구조 레코드(schedule_values)는 기계 대조만 했고 calculation_ready=false",
-            "별표2 등 다른 별표의 수치는 청크 서술로만 있고 구조 레코드가 아님",
+            "별표4·5 수치 구조 레코드는 기계 대조만 했고 calculation_ready=false",
+            "별표1·2·3 대인·대물 숫자(52개)는 PDF와 대조 검수해 calculation_ready=true",
+            "그 밖의 별표 수치는 청크 서술로만 있고 구조 레코드가 아님",
             "항·호와 단서의 자동 의미 연결은 미완료",
             "담보 mentions는 적용 담보 확정값이 아님",
         ],
