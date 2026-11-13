@@ -28,7 +28,7 @@ def row(**kw) -> dict:
     """SUMMARY_SQL 한 행. 기본은 산출물 없는 사건."""
     base = {
         "id": "33333333-3333-3333-3333-333333333333", "assignee_id": ACTOR,
-        "accident_date": None, "input_path": "video", "updated_at": T0,
+        "accident_date": None, "input_path": "video", "created_at": T0, "updated_at": T0,
         "card_version": None, "card_at": None, "judgment_version": None,
         "run_card_version": None, "run_status": None, "judgment_status": None, "run_at": None,
         "open_questions": 0, "report_version": None, "report_judgment_version": None,
@@ -122,7 +122,9 @@ def test_get_and_list_check_assignee(repo):
         with pytest.raises(ApiException) as e:
             run(cases.get_case(ACTOR, missing))
         assert error(e) == (404, "not_found")
-    assert [c["case_id"] for c in run(cases.list_cases(ACTOR))] == [mine["case_id"]]
+    listed = run(cases.list_cases(ACTOR))
+    assert [c["case_id"] for c in listed] == [mine["case_id"]]
+    assert listed[0]["created_at"] == listed[0]["updated_at"]  # 배정 시각을 함께 준다(+09:00)
 
 
 # ---------------------------------------------------------------- 단계

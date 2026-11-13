@@ -26,9 +26,15 @@ class Settings:
     jwt_audience: str
     cors_allow_origins: tuple[str, ...]
     dev_actor_id: str | None
-    # 켜면 서버 시작 때 D 지식베이스(근거 검색·면책 조항 판정)를 연결한다(app/main.py).
-    # 로컬 전용: 시작에 약 12초·230MB. 기본 꺼짐이고 Vercel에는 두지 않는다
+    # 켜면 서버 시작(또는 첫 요청) 때 D 지식베이스(근거 검색·면책 조항 판정)를 연결한다
+    # (app/main.py). 기본 꺼짐. 로컬은 data/private의 db_import를 읽고, 운영은 아래 사본을 받는다
     load_knowledge_base: bool = False
+    # 운영용 코퍼스 사본 위치 `<버킷>/<접두어>`(Supabase Storage 비공개 버킷, app/corpus_import.py).
+    # 있으면 시작 때 받아 SHA-256으로 검증한 폴더를 읽는다. 없으면 로컬 기본 경로를 읽는다
+    corpus_import_path: str | None = None
+    # 켜면 그 검증한 사본으로 Vercel에서도 EvidenceStore 로컬 어댑터를 등록한다(DB 어댑터 전 임시).
+    # 꺼져 있으면 운영 근거 검증은 지금처럼 "not configured"로 닫힌다
+    corpus_import_evidence_store: bool = False
     # 서버 전용 Postgres 주소(Supabase Session pooler). 없으면 DB를 쓰는 경로는 503(app/db.py)
     database_url: str | None = None
     # 서버 전용 Supabase Storage 키(app/storage.py, apikey 헤더). RLS를 건너뛰므로 BE에만 둔다.
@@ -81,6 +87,8 @@ def get_settings() -> Settings:
         cors_allow_origins=_split(env.get("CORS_ALLOW_ORIGINS", "")),
         dev_actor_id=env.get("DEV_ACTOR_ID") or None,
         load_knowledge_base=_flag(env.get("LOAD_KNOWLEDGE_BASE", "")),
+        corpus_import_path=env.get("CORPUS_IMPORT_PATH", "").strip().strip("/") or None,
+        corpus_import_evidence_store=_flag(env.get("CORPUS_IMPORT_EVIDENCE_STORE", "")),
         database_url=env.get("DATABASE_URL") or None,
         supabase_secret_key=env.get("SUPABASE_SECRET_KEY") or None,
         modal_analyze_url=env.get("MODAL_ANALYZE_URL") or None,
