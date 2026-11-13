@@ -83,7 +83,7 @@ async def main() -> None:
     )
     store = LocalCorpusEvidenceStore(corpus)  # 로컬 시험 스크립트라 환경과 상관없이 등록
     configure_evidence_store(lambda: store)
-    llm = CountingLLM(openai_judge_llm(max_retries=0))
+    llm = CountingLLM(openai_judge_llm(retry=False))
     judge = llm_judge(llm)
     print(f"모델: {os.environ['OPENAI_MODEL']} · 호출 상한 {MAX_CALLS}번")
     print("| 사건 | 근거 수 | 기대 | 판정 | 호 인용 | 인용 조항 ID | 이유 |")
@@ -107,7 +107,7 @@ async def final(max_calls: int) -> None:
     사건마다 LLM 2번: 판단 반영(입력 없음), 서류·입력 추가(True).
     """
     api.configure_with_knowledge_base()
-    llm = CountingLLM(openai_judge_llm(max_retries=0), max_calls)
+    llm = CountingLLM(openai_judge_llm(retry=False), max_calls)
     print(f"모델: {os.environ['OPENAI_MODEL']} · 호출 상한 {max_calls}번")
     for name, topic, facts, _, _ in CASES[: max_calls // 2]:
         rules = dataclasses.replace(api.services.rules, exclusion_topics=(topic,))
