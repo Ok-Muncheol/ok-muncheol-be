@@ -108,9 +108,12 @@ def env():
         jobs.append(job)
         return "fc-modal-call-1"
 
+    async def sign_upload(object_key):
+        return f"https://x/storage/v1/object/upload/sign/case-files/{object_key}?token=u"
+
     old = analysis.services
     analysis.configure(connect=connect, repo=lambda conn: tasks, fact_repo=lambda conn: cards,
-                       sign_download=sign, dispatch=dispatch)
+                       sign_download=sign, sign_upload=sign_upload, dispatch=dispatch)
     yield tasks, cards, jobs
     analysis.services = old
 
@@ -302,3 +305,53 @@ def test_signed_download_url_missing_file_is_none(monkeypatch):
 
     assert run(storage.create_signed_download_url(
         "x/videos/a.mp4", transport=httpx.MockTransport(handler))) is None
+
+
+# ---------------------------------------------------------------- 근거 사진·미리보기
+
+
+def test_start_passes_frame_and_preview_upload_slots(env):
+    """워커(workers/modal_worker.py)가 받는 모양: 12칸 {storage_path, upload_url} + 미리보기 URL."""
+    import re
+
+    _, _, jobs = env
+    task = start()["task_id"]
+    slots = jobs[0]["frame_uploads"]
+    assert len(slots) == analysis.FRAME_UPLOADS == 12
+    worker_path = re.compile(  # workers/modal_worker.py _FRAME_PATH
+        r"^case-files/[0-9a-f-]{36}/frames/[0-9a-f-]{36}/[0-9A-Za-z._-]+\.jpg$")
+    for i, slot in enumerate(slots, start=1):
+        assert slot["storage_path"] == f"case-files/{CASE}/frames/{task}/{i:02d}.jpg"
+        assert worker_path.match(slot["storage_path"])
+        assert slot["upload_url"].endswith(f"{slot['storage_path']}?token=u")
+    assert jobs[0]["preview_upload_url"].endswith(f"case-files/{CASE}/previews/{task}.mp4?token=u")
+    assert analysis.preview_path(CASE, task) == f"case-files/{CASE}/previews/{task}.mp4"
+
+
+def test_upload_signing_failure_still_dispatches_without_photos(env):
+    _, _, jobs = env
+
+    async def broken(object_key):
+        raise ApiException(503, "storage_not_configured", "x", False)
+
+    analysis.configure(sign_upload=broken)
+    out = start()
+    assert out["status"] == "running"
+    assert jobs[0]["frame_uploads"] == [] and jobs[0]["preview_upload_url"] is None
+
+
+def test_callback_keeps_only_this_tasks_frame_paths(env):
+    _, cards, jobs = env
+    task = start()["task_id"]
+    body = card()
+    own = f"case-files/{CASE}/frames/{task}/01.jpg"
+    other_case = "case-files/99999999-9999-9999-9999-999999999999/frames/x/01.jpg"
+    body["evidence_frames"] = [
+        {"frame_id": "f001", "timestamp_ms": 0, "storage_path": own},
+        {"frame_id": "f002", "timestamp_ms": 10, "storage_path": other_case},
+        {"frame_id": "f003", "timestamp_ms": 20, "storage_path": f"case-files/{CASE}/videos/a.mp4"},
+        {"frame_id": "f004", "timestamp_ms": 30, "storage_path": None},
+    ]
+    callback(task, jobs[0]["callback_token"], {"status": "completed", "card": body})
+    saved = cards.rows[-1]["card"]
+    assert [f["storage_path"] for f in saved["evidence_frames"]] == [own, None, None, None]

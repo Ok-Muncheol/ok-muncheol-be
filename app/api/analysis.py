@@ -9,7 +9,14 @@
    failed면 오류 그대로. 끝난 작업에 다시 오면 바꾸지 않는다(같은 콜백은 한 번만).
 3. 콜백이 안 오면 조회·재접수 때 15분 넘은 queued·running을 failed(analysis_timeout)로 바꾼다.
 
-dispatch에 넘기는 값: {task_id, case_id, video_url, callback_path, callback_token}.
+dispatch에 넘기는 값: {task_id, case_id, video_url, callback_path, callback_token,
+frame_uploads, preview_upload_url}.
+- frame_uploads: 근거 사진 칸 최대 12개 [{storage_path, upload_url}]. 경로는
+  case-files/{case}/frames/{task}/NN.jpg. 워커가 카드 evidence_frames 순서대로 올리고
+  storage_path를 채운다(workers/modal_worker.py).
+- preview_upload_url: H.264 미리보기(case-files/{case}/previews/{task}.mp4, preview_path).
+- 서명 업로드 URL을 못 만들면 사진 없이 분석한다(빈 목록·null). 사진은 분석을 막지 않는다.
+- 콜백 카드의 evidence_frames[].storage_path는 이 작업의 frames/ 경로만 남기고 나머지는 null로 둔다.
 callback_url은 BE 주소를 아는 호출 함수가 callback_path로 만든다. 콜백 본문:
 {"status": "completed", "card": FactCard v1} 또는
 {"status": "failed", "error": {stage?, code, message, retryable}}.
@@ -17,6 +24,8 @@ callback_url은 BE 주소를 아는 호출 함수가 callback_path로 만든다.
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import hashlib
 import hmac
 import re
@@ -39,6 +48,19 @@ CALLBACK_PATH = "/internal/analysis/{task_id}"
 _VIDEO_PATH = re.compile(
     r"^case-files/(?P<case>[0-9a-f-]{36})/videos/[0-9a-f-]{36}\.(mp4|mov|avi|webm|mkv)$"
 )
+FRAME_UPLOADS = 12  # 워커 MAX_FRAME_UPLOADS와 같다
+
+
+def frame_path(case_id: str, task_id: str, index: int) -> str:
+    """근거 사진 index(1부터)의 Storage 경로(버킷 포함)."""
+    return storage.storage_path_of(f"{case_id}/frames/{task_id}/{index:02d}.jpg")
+
+
+def preview_path(case_id: str, task_id: str) -> str:
+    """H.264 미리보기 영상의 Storage 경로(버킷 포함). 화면 재생용."""
+    return storage.storage_path_of(f"{case_id}/previews/{task_id}.mp4")
+
+
 TIMEOUT_ERROR = {
     "stage": "callback",
     "code": "analysis_timeout",
@@ -147,6 +169,7 @@ class AnalysisServices:
     repo: Callable[[Any], AnalysisRepo] = PostgresAnalysisRepo
     fact_repo: Callable[[Any], facts.FactRepo] = facts.PostgresFactRepo
     sign_download: Callable[..., Awaitable[str | None]] = storage.create_signed_download_url
+    sign_upload: Callable[..., Awaitable[str]] = storage.create_signed_upload_url
     dispatch: Dispatch | None = None
 
 
@@ -180,6 +203,38 @@ def task_view(row: dict) -> dict[str, object]:
         "fact_card_version": row.get("fact_card_version"),
         "error": row.get("error"),
     }
+
+
+async def _upload_slots(case_id: str, task_id: str) -> dict[str, object]:
+    """근거 사진 12칸과 미리보기의 서명 업로드 URL. 하나라도 못 만들면 사진 없이 간다."""
+    paths = [frame_path(case_id, task_id, i) for i in range(1, FRAME_UPLOADS + 1)]
+    paths.append(preview_path(case_id, task_id))
+    keys = [p.removeprefix(f"{storage.STORAGE_BUCKET}/") for p in paths]
+    try:
+        urls = await asyncio.gather(*(services.sign_upload(k) for k in keys))
+    except Exception:  # noqa: BLE001 — 저장소 설정·연결 문제여도 분석은 한다
+        return {"frame_uploads": [], "preview_upload_url": None}
+    return {
+        "frame_uploads": [
+            {"storage_path": path, "upload_url": url}
+            for path, url in zip(paths[:-1], urls[:-1], strict=True)
+        ],
+        "preview_upload_url": urls[-1],
+    }
+
+
+def _own_frames(card: object, case_id: str, task_id: str) -> object:
+    """카드 근거 사진 경로 중 이 작업의 frames/ 경로만 남긴다(다른 사건 파일을 가리키지 않게)."""
+    if not isinstance(card, dict) or not isinstance(card.get("evidence_frames"), list):
+        return card
+    prefix = storage.storage_path_of(f"{case_id}/frames/{task_id}/")
+    out = copy.deepcopy(card)
+    for frame in out["evidence_frames"]:
+        if isinstance(frame, dict):
+            path = frame.get("storage_path")
+            if not (isinstance(path, str) and path.startswith(prefix) and ".." not in path):
+                frame["storage_path"] = None
+    return out
 
 
 def _error(value: object) -> dict[str, object]:
@@ -246,6 +301,7 @@ async def start_analysis(
         job = {
             "task_id": task_id, "case_id": case_id, "video_url": video_url,
             "callback_path": CALLBACK_PATH.format(task_id=task_id), "callback_token": token,
+            **await _upload_slots(case_id, task_id),
         }
         try:
             call_id = await services.dispatch(job)
@@ -279,8 +335,10 @@ async def receive_result(
         elif status == "completed":
             try:
                 async with repo.transaction():
+                    case_id = str(row["case_id"])
                     card = await facts.store_vision_card(
-                        services.fact_repo(conn), str(row["case_id"]), body.get("card")
+                        services.fact_repo(conn), case_id,
+                        _own_frames(body.get("card"), case_id, task_id),
                     )
                     done = await repo.finish(task_id, "completed", card["version"], None)
                     if done is None:  # 그 사이 다른 콜백이 끝냈다 → 카드 저장도 되돌린다
