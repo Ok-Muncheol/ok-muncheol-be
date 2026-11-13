@@ -315,3 +315,30 @@ def test_what_if_on_the_unprotected_left_sign_assumes_a_bool_card_value():
     finally:
         judgments.configure(deps=Dependencies())
     assert (result["status"], result["chart_id"], result["fault_A"]) == ("completed", "U-1", 30)
+
+
+def test_fields_of_variants_that_no_longer_fit_the_card_are_not_asked():
+    """카드와 이미 어긋난 변형의 칸은 묻지 않는다. 차2-2처럼 녹색 좌회전 변형만 비보호 표지로
+    갈리고 적색 좌회전 변형은 표지와 무관(`*`)하면, 적색 좌회전 카드는 표지를 묻지 않는다."""
+    base = {"location_type": "signalized_intersection", "movement_A": "straight",
+            "movement_B": "left_turn", "signal_A": "green", "relative_position": "opposite"}
+    no_sign = candidate("U-2", base, 0, score=0.9, base_variants=[
+        {"variant": "녹색 좌회전", "base_A": 30, "base_B": 70,
+         "conditions": {"signal_B": "green", "unprotected_left_sign": "false"}},
+        {"variant": "적색 좌회전", "base_A": 10, "base_B": 90,
+         "conditions": {"signal_B": "red", "unprotected_left_sign": ANY_VALUE}},
+    ])
+    sign = candidate("U-6", {**base, "signal_B": "green", "unprotected_left_sign": "true"}, 40,
+                     score=0.8)
+    cands = [no_sign, sign]
+    _, out, _, _ = start(en_v1_card(), cands=cands, thread="run-red-left")  # 기본 카드 B 적색
+    assert "__interrupt__" not in out
+    assert (out["result"]["chart_id"], out["result"]["fault_A"]) == ("U-2", 10)
+    green = en_v1_card(signal_B=field("green"))
+    _, out, _, _ = start(green, cands=cands, thread="run-green-left")
+    keys = [q["field_key"] for q in out["__interrupt__"][0].value["questions"]]
+    assert keys == ["unprotected_left_sign"]
+    for value, expected in ((False, ("U-2", 30)), (True, ("U-6", 40))):
+        filled = en_v1_card(signal_B=field("green"), unprotected_left_sign=field(value))
+        _, out, _, _ = start(filled, cands=cands, thread=f"run-green-left-{value}")
+        assert (out["result"]["chart_id"], out["result"]["fault_A"]) == expected
