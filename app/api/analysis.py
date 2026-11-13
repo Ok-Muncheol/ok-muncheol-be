@@ -8,6 +8,9 @@
    이 함수를 부른다. 토큰 확인 → completed면 카드 새 버전 저장 + 작업 completed(한 트랜잭션),
    failed면 오류 그대로. 끝난 작업에 다시 오면 바꾸지 않는다(같은 콜백은 한 번만).
 3. 콜백이 안 오면 조회·재접수 때 15분 넘은 queued·running을 failed(analysis_timeout)로 바꾼다.
+4. get_evidence(GET /cases/{id}/evidence): 최신 카드 근거 사진과 최신 완료 분석의 미리보기 영상을
+   보기용 서명 URL(1시간)로 준다. 이 사건의 frames/·previews/ 경로만 서명한다.
+   파일이 없으면 url null.
 
 dispatch에 넘기는 값: {task_id, case_id, video_url, callback_path, callback_token,
 frame_uploads, preview_upload_url}.
@@ -44,6 +47,7 @@ from app.workflow import runs
 
 TIMEOUT_MINUTES = 15
 VIDEO_URL_SECONDS = 3600
+EVIDENCE_URL_SECONDS = 3600
 CALLBACK_PATH = "/internal/analysis/{task_id}"
 _VIDEO_PATH = re.compile(
     r"^case-files/(?P<case>[0-9a-f-]{36})/videos/[0-9a-f-]{36}\.(mp4|mov|avi|webm|mkv)$"
@@ -91,6 +95,7 @@ class AnalysisRepo(Protocol):
     async def finish(
         self, task_id: str, status: str, card_version: int | None, error: dict | None
     ) -> dict | None: ...
+    async def latest_completed(self, case_id: str) -> dict | None: ...
     def transaction(self) -> Any: ...
 
 
@@ -152,6 +157,13 @@ class PostgresAnalysisRepo:
             "update public.analysis_tasks set status = %s, fact_card_version = %s, error = %s,"
             " completed_at = now() where id = %s and status in ('queued', 'running') returning *",
             (status, card_version, Jsonb(error) if error else None, task_id),
+        )
+
+    async def latest_completed(self, case_id: str) -> dict | None:
+        return await self._one(
+            "select * from public.analysis_tasks where case_id = %s and status = 'completed'"
+            " order by completed_at desc nulls last, created_at desc limit 1",
+            (case_id,),
         )
 
     def transaction(self) -> Any:
@@ -357,3 +369,42 @@ async def receive_result(
 
 class _AlreadyDone(Exception):
     pass
+
+
+async def get_evidence(actor_id: str, case_id: str) -> dict[str, object]:
+    """근거 사진·미리보기 영상의 보기용 서명 URL. 담당자만. 카드가 없으면 빈 목록."""
+    case_id = _uuid(case_id, "사건")
+    async with services.connect() as conn:
+        repo = services.repo(conn)
+        assignee = await repo.assignee(case_id)
+        if assignee is None:
+            raise not_found("사건을 찾을 수 없습니다.")
+        if assignee != actor_id:
+            raise forbidden()
+        card = await services.fact_repo(conn).latest(case_id)
+        task = await repo.latest_completed(case_id)
+    frames = [f for f in ((card or {}).get("evidence_frames") or []) if isinstance(f, dict)]
+    prefix = storage.storage_path_of(f"{case_id}/frames/")
+
+    async def sign(path: object) -> str | None:
+        ok = isinstance(path, str) and path.startswith(prefix) and ".." not in path
+        if not ok:
+            return None
+        key = str(path).removeprefix(f"{storage.STORAGE_BUCKET}/")
+        return await services.sign_download(key, EVIDENCE_URL_SECONDS)
+
+    preview = preview_path(case_id, str(task["id"])) if task else None
+    urls = await asyncio.gather(*(sign(f.get("storage_path")) for f in frames))
+    preview_url = None
+    if preview:
+        preview_url = await services.sign_download(
+            preview.removeprefix(f"{storage.STORAGE_BUCKET}/"), EVIDENCE_URL_SECONDS
+        )
+    return {
+        "frames": [
+            {"frame_id": f.get("frame_id"), "timestamp_ms": f.get("timestamp_ms"), "url": url}
+            for f, url in zip(frames, urls, strict=True)
+        ],
+        "preview_url": preview_url,
+        "expires_in": EVIDENCE_URL_SECONDS,
+    }

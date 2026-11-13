@@ -148,6 +148,10 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 ## 9. 저장·수정·확정 API
 
 `public.fact_cards`에 카드 한 버전을 한 행으로 쌓는다(`app/api/facts.py`). 비전 카드는 `save_vision_card`로 저장한다.
+- `GET /cases/{id}/evidence`: 근거 사진·미리보기 영상을 화면에서 여는 서명 URL(1시간, `app/api/analysis.py` `get_evidence`).
+  `{"frames": [{"frame_id", "timestamp_ms", "url"}], "preview_url", "expires_in": 3600}`. 사진은 최신 카드
+  `evidence_frames[].storage_path`(`case-files/{case}/frames/{task}/NN.jpg`), 미리보기는 최신 완료 분석의
+  `case-files/{case}/previews/{task}.mp4`(H.264). 파일이 없거나 이 사건 경로가 아니면 `url`·`preview_url`이 `null`.
 - `PATCH /cases/{id}/fact-card`: 고칠 칸의 값만 보낸다(`{"fields": {"movement_A": {"value": "left_turn"}}, "expected_version": 1, "reason": "..."}`).
   고친 칸은 `human_confirmed`, `model_value`·`vision_detail`은 그대로, 새 버전은 draft. 모름은 `null`로 확인한다.
 - `POST /cases/{id}/fact-card/confirm`: `needs_review` 칸이 없고 도표 A/B가 정해져야 확정된다.

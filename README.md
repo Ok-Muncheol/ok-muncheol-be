@@ -255,6 +255,7 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 | `GET /cases/{id}/fact-card` | 모델 원값·현재 값·근거·확인 상태 조회 |
 | `PATCH /cases/{id}/fact-card` | 기대 카드 버전과 수정 내역 전달 |
 | `POST /cases/{id}/fact-card/confirm` | 담당자 카드 확정 |
+| `GET /cases/{id}/evidence` | 근거 사진·미리보기 영상의 보기용 서명 URL(1시간) |
 | `POST /cases/{id}/questions/{question_id}/answer` | 도표 구분 질문 응답·카드 이력 반영 |
 | `POST /cases/{id}/judgments` | 확정 카드 버전으로 판단 작업 접수·재개 |
 | `GET /cases/{id}/judgment` | 최신 판단 실행·판정·구분 질문과 답 조회(새로고침·재접속 복원) |
