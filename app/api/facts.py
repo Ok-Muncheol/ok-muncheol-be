@@ -23,7 +23,7 @@ from typing import Any, Protocol
 
 from app import db
 from app.api.errors import forbidden, not_found, unprocessable, version_conflict
-from app.schemas.facts import FACT_FIELD_OPTIONS, FACT_FIELDS, FactCard, FactPatch
+from app.schemas.facts import BOOL_FIELDS, FACT_FIELD_OPTIONS, FACT_FIELDS, FactCard, FactPatch
 from app.workflow import runs
 
 
@@ -122,7 +122,7 @@ def check_value(key: str, value: object) -> None:
         return
     if key in FACT_FIELD_OPTIONS:
         ok = isinstance(value, str) and value in FACT_FIELD_OPTIONS[key]
-    elif key == "night":
+    elif key in BOOL_FIELDS:
         ok = isinstance(value, bool)
     elif key == "collision_time_ms":
         ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0

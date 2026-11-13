@@ -25,7 +25,10 @@ PENDING_DECISION_LOCATION_TYPES: tuple[LocationType, ...] = ("roundabout",)
 # 일시정지 표지. `other`는 한쪽만 신호등, `none`은 해당 없음이다(v1 4절).
 RoadPriority = Literal["same_width", "major_A", "major_B", "stop_A", "stop_B", "other", "none"]
 Movement = Literal["straight", "left_turn", "right_turn", "u_turn", "lane_change", "other"]
-Signal = Literal["green", "yellow", "red", "green_left_arrow", "no_signal"]
+# 점멸 신호(flashing_*)는 11/13 카드 v1에 추가(차1-5·3-7·3-8)
+Signal = Literal[
+    "green", "yellow", "red", "green_left_arrow", "flashing_yellow", "flashing_red", "no_signal",
+]
 # 상대 위치: B가 가는 방향에서 볼 때 A가 충돌 직전 있던 쪽(어디서 왔나). `left` = A가 B의
 # 왼쪽 도로에서 진입, `opposite` = 마주 오는 차(v1 4절). 맞은편·측면·좌우로 갈리는 도표에 쓴다
 RelativePosition = Literal[

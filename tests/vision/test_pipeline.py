@@ -71,7 +71,7 @@ def internal_card(**overrides):
 # ---------------------------------------------------------------- v1 변환
 
 
-def test_v1_has_exactly_twelve_fields_in_english():
+def test_v1_has_exactly_seventeen_fields_in_english():
     out = contract.to_contract_card(internal_card())
     assert set(out["fields"]) == {
         "accident_type",
@@ -79,11 +79,16 @@ def test_v1_has_exactly_twelve_fields_in_english():
         "road_priority",
         "signal_A",
         "signal_B",
+        "collision_signal_A",
+        "collision_signal_B",
         "movement_A",
         "movement_B",
+        "lane_marking_A",
+        "lane_marking_B",
         "relative_position",
         "entry_order",
         "night",
+        "unprotected_left_sign",
         "collision_time_ms",
         "narrative",
     }
@@ -95,6 +100,19 @@ def test_v1_has_exactly_twelve_fields_in_english():
     assert v["movement_A"] == "lane_change" and v["movement_B"] == "other"
     assert v["relative_position"] == "left" and v["entry_order"] == "first"
     assert v["night"] is True and v["collision_time_ms"] == 4667
+
+
+def test_manual_fields_are_null_unverified_and_do_not_block_confirm():
+    """비전이 채우지 않는 칸은 null + unverified(출처 manual)라 확정을 막지 않는다."""
+    from app.api import facts
+
+    out = contract.to_contract_card(internal_card())
+    for name in contract.MANUAL_FIELDS:
+        f = out["fields"][name]
+        assert (f["value"], f["model_value"], f["source"], f["verification_status"]) == (
+            None, None, "manual", "unverified"), name
+    problems = facts.confirm_problems(out)
+    assert not any(name in p for p in problems for name in contract.MANUAL_FIELDS)
 
 
 def test_unknown_becomes_null_and_needs_review():

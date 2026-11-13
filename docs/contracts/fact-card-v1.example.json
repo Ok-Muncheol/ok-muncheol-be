@@ -191,6 +191,24 @@
         }
       }
     },
+    "collision_signal_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "collision_signal_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
     "movement_A": {
       "value": "straight",
       "model_value": "straight",
@@ -271,6 +289,24 @@
           "basis": "사람 정답 92건 (69/92)"
         }
       }
+    },
+    "lane_marking_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "lane_marking_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
     },
     "relative_position": {
       "value": "right",
@@ -376,6 +412,15 @@
         "agree": null,
         "internal_value": "야간"
       }
+    },
+    "unprotected_left_sign": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
     },
     "collision_time_ms": {
       "value": 4667,
