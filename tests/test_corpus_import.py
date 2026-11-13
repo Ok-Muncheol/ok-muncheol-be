@@ -6,6 +6,9 @@
 import dataclasses
 import gzip
 import hashlib
+import re
+import tomllib
+from pathlib import Path
 
 import httpx
 import pytest
@@ -109,3 +112,16 @@ def test_evidence_store_on_vercel_only_when_the_verified_copy_allows_it():
     assert local_evidence_store(corpus, vercel) is None
     assert isinstance(local_evidence_store(corpus, vercel, allow_in_production=True),
                       LocalCorpusEvidenceStore)
+
+
+def test_production_installs_what_the_knowledge_base_imports():
+    """운영(Vercel)은 기본 의존성만 설치한다(requirements.txt의 `.`).
+
+    CI는 dev 묶음까지 깔아 이 빠짐을 못 잡는다. 질의 임베더(OpenAIEmbedder.from_env)가 부르는
+    python-dotenv가 빠져 운영 지식베이스가 켜지지 않았다(11/13 운영 로그).
+    지식베이스 연결이 부르는 패키지는 기본 의존성에 있어야 한다.
+    """
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    deps = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["dependencies"]
+    names = {re.split(r"[<>=!~\[ ;]", dep, maxsplit=1)[0].lower() for dep in deps}
+    assert {"openai", "python-dotenv", "httpx"} <= names
