@@ -25,7 +25,9 @@
 
 import hashlib
 import json
+import posixpath
 from datetime import UTC, datetime
+from urllib.parse import unquote
 
 from app.calculation.insurance import ZERO_PAYMENT_REASON, insured_and_counterparty_side
 from app.calculation.rules import DEFAULT_RULES, RuleSet, share
@@ -44,6 +46,7 @@ from app.schemas.reports import (
     RecoveryAmounts,
     ReviewReport,
 )
+from app.storage import STORAGE_BUCKET
 
 EXAMPLE_RULE_NOTICE = EXAMPLE_NOTICE
 NEEDS_ESTIMATE = "견적서 필요 — 견적서 추가 후 청구서 생성"
@@ -77,6 +80,33 @@ _NOT_CONTENT = (
 
 # 대인 판정 근거로만 쓰는 증빙 종류(EvidenceDoc.doc_type, #185). 상대 차 탑승자 건강 정보다
 INJURY_EVIDENCE_DOC_TYPES = ("medical_certificate", "medical_bill")
+# 대인 증빙 업로드 폴더(POST /uploads kind="medical_document" → case-files/{case_id}/medical/…)
+MEDICAL_FOLDER = "medical"
+
+
+def _medical_folder_path(storage_path: object) -> bool:
+    """저장 경로가 어느 사건이든 `medical/` 폴더(대인 증빙) 아래인가.
+
+    문자열 포함 검사가 아니라 정규화한 경로 조각으로 본다: 퍼센트 인코딩을 풀고(여러 번),
+    역슬래시를 '/'로, 대소문자를 무시하고, 앞쪽 '/'·'.'·'..'·빈 조각을 정리한 뒤
+    `[case-files/]<사건 ID>/medical/<파일>` 모양인지 본다. 다른 사건의 medical/ 경로도 뺀다
+    (그 사건 피해자의 건강 정보이고, 우리 구상 청구서에 들어갈 이유가 없다).
+    """
+    if not isinstance(storage_path, str) or not storage_path:
+        return False
+    text = storage_path
+    for _ in range(3):  # %25 2중 인코딩까지 푼다
+        decoded = unquote(text)
+        if decoded == text:
+            break
+        text = decoded
+    text = text.replace("\\", "/").lower()
+    parts = [p for p in posixpath.normpath("/" + text).split("/") if p]
+    if parts and parts[0] == STORAGE_BUCKET:
+        parts = parts[1:]
+    return len(parts) >= 3 and parts[1] == MEDICAL_FOLDER
+
+
 # upload_estimate가 견적서 PDF를 증빙으로 자동 등록할 때의 종류·ID 접두어
 # (document_id="ev-<견적 ID>")
 ESTIMATE_EVIDENCE_DOC_TYPE = "repair_estimate"
@@ -89,6 +119,8 @@ def claim_evidence(
     """구상 청구서에 넣을 증빙: 사건 증빙 중 우리 자차 구상 증빙만.
 
     - 진단서·진료비 영수증(doc_type)은 뺀다. 대인 판정 근거로만 쓴다.
+    - 종류와 상관없이 저장 경로가 `medical/` 폴더(대인 증빙 업로드) 아래인 증빙도 뺀다. 진단서
+      파일을 영수증 같은 일반 증빙으로 붙여도 청구서에 들어가지 않게 한다(_medical_folder_path).
     - 견적서 PDF에서 자동 등록된 증빙(doc_type="repair_estimate", "ev-<견적 ID>")에는 당사자가
       없다. 그래서 원래 견적서(kind="repair_estimate")의 party_id로 판단해, 당사자가 우리 차가
       아닌 견적서(상대 차, 대물 판정 근거)의 증빙은 뺀다. 당사자가 비어 있는 견적서는 예전처럼
@@ -116,6 +148,7 @@ def claim_evidence(
         for d in documents
         if d.get("kind") == "evidence"
         and d.get("doc_type") not in INJURY_EVIDENCE_DOC_TYPES
+        and not _medical_folder_path(d.get("storage_path"))
         and not counterparty_estimate(d)
     ]
 

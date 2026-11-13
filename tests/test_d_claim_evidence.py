@@ -13,7 +13,7 @@ from pathlib import Path
 
 from app.api import reports as api
 from app.calculation.rules import RuleSet
-from app.claims.package import claim_evidence
+from app.claims.package import _medical_folder_path, claim_evidence
 from app.ingestion import injury_property_values
 from tests import fixtures_d as fx
 
@@ -87,6 +87,67 @@ class ClaimEvidenceUnitTest(unittest.TestCase):
         self.assertEqual(kept, ["ev-est-pdf-x", "rcpt"])
 
 
+class MedicalFolderPathTest(unittest.TestCase):
+    """종류와 상관없이 medical/ 폴더(대인 증빙 업로드) 아래 파일은 청구서 증빙에서 뺀다.
+
+    문자열 포함 검사가 아니라 정규화한 경로 조각으로 본다(우회 막기).
+    """
+
+    def test_medical_folder_paths_including_bypasses(self):
+        excluded = [
+            f"case-files/{CASE}/medical/dx.pdf",
+            "case-files/other-case/medical/dx.pdf",  # 다른 사건의 medical/도 뺀다
+            f"case-files/{CASE}/MEDICAL/dx.pdf",  # 대소문자
+            f"Case-Files/{CASE}/Medical/dx.pdf",
+            f"case-files\\{CASE}\\medical\\dx.pdf",  # 역슬래시
+            f"/case-files/{CASE}/medical/dx.pdf",  # 앞쪽 '/'
+            f"case-files/{CASE}/estimates/../medical/dx.pdf",  # ../
+            f"case-files/{CASE}/./medical//dx.pdf",  # ./·빈 조각
+            f"case-files/{CASE}/%6Dedical/dx.pdf",  # 퍼센트 인코딩
+            f"case-files/{CASE}/%256Dedical/dx.pdf",  # 2중 인코딩
+            f"case-files%2F{CASE}%2Fmedical%2Fdx.pdf",
+            f"{CASE}/medical/dx.pdf",  # 버킷 없는 객체 키
+        ]
+        kept = [
+            f"case-files/{CASE}/receipts/receipt.pdf",
+            f"case-files/{CASE}/estimates/est.pdf",
+            f"case-files/{CASE}/photos/medical.jpg",  # 파일 이름이 medical이어도 폴더가 아니면 둔다
+            f"case-files/{CASE}/medical-notes/r.pdf",  # 앞부분만 같은 다른 폴더
+            "synthetic/synthetic-ev-2.pdf",
+            "",
+            None,
+        ]
+        for path in excluded:
+            with self.subTest(path=path):
+                self.assertTrue(_medical_folder_path(path))
+        for path in kept:
+            with self.subTest(path=path):
+                self.assertFalse(_medical_folder_path(path))
+
+    def test_any_doc_type_in_medical_folder_is_dropped(self):
+        docs = [
+            {
+                "kind": "evidence",
+                "document_id": "r1",
+                "doc_type": "receipt",
+                "storage_path": f"case-files/{CASE}/medical/dx.pdf",
+            },
+            {
+                "kind": "evidence",
+                "document_id": "p1",
+                "doc_type": "photo",
+                "storage_path": f"case-files\\{CASE}\\Medical\\x.jpg",
+            },
+            {
+                "kind": "evidence",
+                "document_id": "r2",
+                "doc_type": "receipt",
+                "storage_path": f"case-files/{CASE}/receipts/r2.pdf",
+            },
+        ]
+        self.assertEqual([d["document_id"] for d in claim_evidence(docs, "P1")], ["r2"])
+
+
 class ClaimEvidenceFlowTest(unittest.TestCase):
     def setUp(self):
         api.configure(
@@ -140,6 +201,38 @@ class ClaimEvidenceFlowTest(unittest.TestCase):
         # 진단서는 사건 서류에는 남는다
         kept = [d["document_id"] for d in self.record().documents if d.get("kind") == "evidence"]
         self.assertTrue({"dx-1", "bill-1", "dx-2"} <= set(kept))
+
+    def test_medical_file_attached_as_receipt_keeps_c1(self):
+        """김지은 님 재현: 진단서 파일(medical/)을 영수증(receipt)으로 붙이고 다시 확인.
+
+        → C1 그대로, 청구서 증빙에 그 파일이 없다.
+
+        doc_type으로만 거르던 때는 청구서에 들어가 C2가 됐다. 일반 영수증은 그대로 들어간다.
+        """
+        v = self.ready()
+        c1 = self.confirm(v)["package"]
+        disguised = {
+            "kind": "evidence",
+            "document_id": "rcpt-dx",
+            "doc_type": "receipt",
+            "storage_path": f"case-files/{CASE}/medical/dx.pdf",
+        }
+        run(api.add_documents(ACTOR, CASE, [disguised]))
+        out = self.confirm(self.record().latest)
+        self.assertIs(out["package"], c1)
+        self.assertNotIn("rcpt-dx", files(out["package"]))
+        # medical/이 아닌 일반 영수증은 그대로 들어간다(내용이 바뀌어 새 청구서)
+        plain = {
+            "kind": "evidence",
+            "document_id": "rcpt-2",
+            "doc_type": "receipt",
+            "storage_path": f"case-files/{CASE}/receipts/r2.pdf",
+        }
+        run(api.add_documents(ACTOR, CASE, [plain]))
+        out = self.confirm(self.record().latest)
+        self.assertIn("rcpt-2", files(out["package"]))
+        self.assertNotIn("rcpt-dx", files(out["package"]))
+        self.assertEqual(out["package"]["package_version"], 2)
 
     def test_counterparty_estimate_pdf_is_property_basis_only(self):
         v = self.ready()
