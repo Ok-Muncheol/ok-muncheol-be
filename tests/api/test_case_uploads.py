@@ -2,6 +2,7 @@
 
 네트워크·DB 없이 가짜 연결(cases.configure)과 가짜 Storage(httpx.MockTransport)로 확인한다.
 - 권한(404·403)이 서명 URL 발급보다 먼저(가짜 발급 함수가 불리지 않음)
+- 대인 담당자는 대물 담당자와 권한이 같다
 - kind·content_type 확인(422 invalid_upload_type)
 - 경로는 case-files/{case}/videos|estimates|medical/{uuid}.{ext}
 - 서명 URL = SUPABASE_URL/storage/v1 + 응답 url, 키는 apikey 헤더로만, 오류 메시지에 키 없음
@@ -22,6 +23,7 @@ from app.config import Settings
 
 ACTOR, OTHER = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
 CASE = "33333333-3333-3333-3333-333333333333"
+INJURY = "55555555-5555-5555-5555-555555555555"  # 대인 담당자
 FAKE_KEY = "sb_secret_test-only-not-a-real-key"
 SUPABASE_URL = "https://example.supabase.co"
 
@@ -39,22 +41,24 @@ class _Cursor:
 
 
 class _Conn:
-    def __init__(self, assignees: dict[str, str]):
-        self.assignees = assignees
+    def __init__(self, assignees: dict[str, tuple[str, str | None]]):
+        self.assignees = assignees  # 사건 → (대물 담당자, 대인 담당자)
 
     async def execute(self, sql, params=()):
-        assignee = self.assignees.get(params[0])
-        return _Cursor({"assignee_id": assignee} if assignee else None)
+        assignee, injury = self.assignees.get(params[0], (None, None))
+        return _Cursor(
+            {"assignee_id": assignee, "injury_assignee_id": injury} if assignee else None
+        )
 
 
 @pytest.fixture
 def fake(monkeypatch):
-    """담당자 ACTOR의 사건 CASE 하나. 서명 발급 호출은 signed에 기록."""
+    """대물 담당자 ACTOR·대인 담당자 INJURY의 사건 CASE 하나. 서명 발급 호출은 signed에 기록."""
     signed: list[str] = []
 
     @asynccontextmanager
     async def connect():
-        yield _Conn({CASE: ACTOR})
+        yield _Conn({CASE: (ACTOR, INJURY)})
 
     async def sign(object_key: str) -> str:
         signed.append(object_key)
@@ -90,6 +94,13 @@ def test_estimate_upload_is_pdf_in_estimates_folder(fake):
 def test_medical_document_is_pdf_or_jpeg_in_medical_folder(fake, content_type, ext):
     out = run(cases.request_upload(ACTOR, CASE, "medical_document", content_type))
     assert re.fullmatch(rf"case-files/{CASE}/medical/[0-9a-f-]{{36}}\.{ext}", out["storage_path"])
+
+
+def test_injury_assignee_can_upload(fake):
+    """대인 담당자(cases.injury_assignee_id)도 담당 사건에 파일을 올린다."""
+    out = run(cases.request_upload(INJURY, CASE, "medical_document", "application/pdf"))
+    assert out["storage_path"].startswith(f"case-files/{CASE}/medical/")
+    assert fake == [out["storage_path"].removeprefix("case-files/")]
 
 
 def test_each_request_gets_new_file_name(fake):

@@ -246,6 +246,32 @@ def test_access_checks_match_judgment_service(database_url, store):
     assert api_error(lambda: api.submit_judgment(ACTOR, ghost, result)) == (404, "not_found")
 
 
+def test_injury_assignee_has_the_same_access(database_url, store):
+    """대인 담당자(cases.injury_assignee_id)도 보고서를 읽고 서류·대인 입력을 더한다."""
+    case_id = new_case(database_url)
+    card, result = judged(database_url, case_id)
+    run(api.submit_judgment(ACTOR, card, result))
+    assert api_error(lambda: api.get_report(OTHER, case_id, 1)) == (403, "forbidden")
+    with psycopg.connect(database_url, autocommit=True) as conn:
+        conn.execute(
+            "update public.cases set injury_assignee_id = %s where id = %s", (OTHER, case_id)
+        )
+
+    assert run(api.get_report(OTHER, case_id, 1))["versions"]["report_version"] == 1
+    person = {
+        "kind": "injured_person", "document_id": "synthetic-inj-2", "person_id": "synthetic-p",
+        "label": "상대 운전자", "grade": 7, "treatment_cost": 3_000_000, "is_driver": True,
+        "received_at": "2026-10-26T10:00:00+09:00",
+    }
+    run(api.add_documents(OTHER, case_id, [fx.contract(), fx.estimate(), person], NO_FLAGS))
+    # 대물 담당자가 대인 담당자의 입력과 다시 산정한 보고서를 본다
+    rec = run(store().get(ACTOR, case_id))
+    assert rec.documents[-1] == person
+    assert rec.latest["liability"]["injuries"][0]["label"] == "상대 운전자"
+    stranger = str(uuid.uuid4())
+    assert api_error(lambda: api.get_report(stranger, case_id, 1)) == (403, "forbidden")
+
+
 def test_stale_and_concurrent_versions_are_409(database_url, store):
     case_id = new_case(database_url)
     card, result = judged(database_url, case_id)

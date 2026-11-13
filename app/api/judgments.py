@@ -98,10 +98,10 @@ def _uuid(value: object, what: str) -> str:
 
 
 async def _require_assignee(conn: AsyncConnection, actor_id: str, case_id: str) -> None:
-    assignee = await runs.case_assignee(conn, case_id)
-    if assignee is None:
+    assignees = await runs.case_assignees(conn, case_id)
+    if assignees is None:
         raise not_found("사건을 찾을 수 없습니다.")
-    if assignee != actor_id:
+    if actor_id not in assignees:
         raise forbidden()
 
 

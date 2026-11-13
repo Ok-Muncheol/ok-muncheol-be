@@ -54,7 +54,7 @@ class _Saved:
 @dataclass
 class CaseRecord:
     case_id: str
-    owner_id: str
+    owner_id: str  # 이 기록을 연 담당자. Postgres 저장소에서는 대물·대인 담당자 중 요청한 사람
     card: FactCard | None = None
     reports: list[ReviewReport] = field(default_factory=list)
     documents: list[dict[str, object]] = field(default_factory=list)
@@ -137,10 +137,10 @@ class PostgresReportRepository:
         case_id = _case_uuid(case_id)
         try:
             async with self._connect() as conn:
-                assignee = await runs.case_assignee(conn, case_id)
-                if assignee is None:
+                assignees = await runs.case_assignees(conn, case_id)
+                if assignees is None:
                     raise RecordNotFound("사건이 없습니다")
-                if assignee != actor_id:
+                if actor_id not in assignees:
                     raise NotCaseOwner("담당 사건이 아닙니다")
                 reports = await (await conn.execute(
                     "select report, fact_card from public.review_reports"
@@ -165,7 +165,7 @@ class PostgresReportRepository:
             raise ReportsDbNotReady(str(exc)) from exc
         rec = CaseRecord(
             case_id=case_id,
-            owner_id=assignee,
+            owner_id=actor_id,
             card=reports[-1]["fact_card"] if reports else None,
             reports=[row["report"] for row in reports],
             documents=[row["body"] for row in documents],

@@ -269,6 +269,27 @@ def view(case_id: str, actor: str = ACTOR) -> dict | None:
     return asyncio.run(judgments.get_judgment(actor, case_id))  # type: ignore[return-value]
 
 
+def test_injury_assignee_has_the_same_rights(service):
+    """대인 담당자(cases.injury_assignee_id)도 판단을 요청하고 본다. 보고서(D)까지 이어진다."""
+    case_id = new_case(service.url)
+    assert api_error(lambda: view(case_id, OTHER)) == (403, "forbidden")
+    with psycopg.connect(service.url, autocommit=True) as conn:
+        conn.execute(
+            "update public.cases set injury_assignee_id = %s where id = %s", (OTHER, case_id)
+        )
+
+    assert view(case_id, OTHER) is None  # 판단 전
+    done = start(OTHER, card(case_id=case_id), "key-0000151")
+    assert done["status"] == "completed" and done["report_version"] is not None
+    requested = rows(service.url, "select requested_by from public.judgment_runs"
+                     " where case_id = %s", case_id)
+    assert [str(r["requested_by"]) for r in requested] == [OTHER]  # 요청한 사람이 그대로 남는다
+    # 대물 담당자도 같은 판단을 보고, 둘 다 아닌 사람은 막힌다
+    assert view(case_id)["task_id"] == view(case_id, OTHER)["task_id"] == done["task_id"]  # type: ignore[index]
+    stranger = str(uuid.uuid4())
+    assert api_error(lambda: view(case_id, stranger)) == (403, "forbidden")
+
+
 def test_judgment_view_restores_the_latest_run_with_questions(service):
     case_id = new_case(service.url)
     assert view(case_id) is None  # 판단 전

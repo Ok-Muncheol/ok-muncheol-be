@@ -30,7 +30,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 
 | 메서드 | 경로 | 담당 | 비고 |
 | --- | --- | --- | --- |
-| GET | `/cases` | A | 로그인한 담당자(`assignee_id`)에게 배정된 사건의 `CaseSummary` 목록, 최근 바뀐 순. 없으면 `[]`. 담당 사건 보드가 읽는다 |
+| GET | `/cases` | A | 로그인한 사람이 대물 담당자(`assignee_id`) 또는 대인 담당자(`injury_assignee_id`)인 사건의 `CaseSummary` 목록, 최근 바뀐 순. 없으면 `[]`. 담당 사건 보드가 읽는다 |
 | POST | `/cases` | A | 201. 본문 `{accident_date?, input_path?: video·manual, accident_type?, party_count?}` → `CaseSummary`(FE `types.ts`). 차대차 2대가 아니면 422 `case_out_of_scope`, 형식 오류 422 `invalid_case` |
 | POST | `/cases/{id}/uploads` | A | `{kind, content_type}` → `UploadTicket` `{storage_path, upload_url, expires_in}`. kind가 `estimate`·`video`·`medical_document`가 아니면 422 `invalid_request`, 형식이 kind와 안 맞으면 422 `invalid_upload_type`. 아래 「파일 업로드」 |
 | POST | `/cases/{id}/analysis` | A | `{storage_path}`, `Idempotency-Key` 필수, 202 → `TaskView` + `fact_card_version`·`error`. 영상은 이 사건 `videos/`만(422 `invalid_storage_path`), 안 올라갔으면 422 `video_not_uploaded`, 진행 중이면 409 `analysis_in_progress`, 같은 키는 같은 작업(다른 영상이면 422 `idempotency_key_reused`). Modal 호출 실패·미연결은 작업 `failed`(error에 이유). 결과는 Modal 콜백이 카드로 저장(`app/api/analysis.py`), 15분 안에 안 오면 `analysis_timeout` |
@@ -52,7 +52,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | 상태 | `code` | 뜻 |
 | --- | --- | --- |
 | 401 | `unauthorized` | 토큰 없음·만료·서명/발급자/audience 불일치 |
-| 403 | `forbidden` | 담당 사건이 아님(서비스 함수가 던짐) |
+| 403 | `forbidden` | 담당 사건이 아님(서비스 함수가 던짐). 대물·대인 담당자는 권한이 같고 둘 다 아니면 403 |
 | 404 | `not_found` | 사건·질문이 없음 |
 | 404 | `estimate_file_not_found` | 견적서 경로에 Storage 파일이 없음 |
 | 409 | `version_conflict` | 기대 버전과 저장 버전이 다름 |
