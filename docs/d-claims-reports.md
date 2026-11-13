@@ -132,7 +132,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | `PreCheck.result` (11-06) | `"assumed"` 추가 = 기본 가정(미입력). 화면 결과 문구 "기본 가정(미입력)". 확인 완료·청구서를 막지 않음 |
 | `CalculationResult` (11-06) | `NotRequired` `assumptions: list[str]` — 기본 가정 문구(계약·자기부담금·면책). 보고서 8번 본문에도 `기본 가정` 키로 같은 목록 |
 | `ClaimPackage` 가정 (11-06) | `assumptions: list[str]` 추가(없으면 `[]`), `basis["기본 가정"]`에도 같은 목록. HTML에 "기본 가정 N건" 표시 |
-| `EvidenceDoc` 견적서 (11-06) | `doc_type`에 `"repair_estimate"` 추가 — `upload_estimate`가 견적서 PDF를 증빙으로 자동 등록(`document_id="ev-<견적 문서 ID>"`) |
+| `EvidenceDoc` 견적서 (11-06) | `doc_type`에 `"repair_estimate"` 추가 — `upload_estimate`가 견적서 PDF를 증빙으로 자동 등록(`document_id="ev-<견적 문서 ID>"`). 구상 청구서 증빙에는 우리 차 견적서의 것만 넣는다(원래 견적서의 `party_id`로 판단, 상대 차 견적서는 대물 판정 근거로만). 진단서·진료비 영수증(`medical_certificate`·`medical_bill`)도 청구서 증빙에서 뺀다(대인 판정 근거로만, #198) |
 | `estimated` 상태·참고값 제거 (11-06) | `CalculationStatus`·`DamageResult.status`의 `"estimated"`는 **값은 유지, D는 만들지 않음**(팀 공통 계약 호환용, 타입에서 빼지 말 것). `DamageSeverityDoc`(`kind="damage_severity"`) **삭제**. 견적서가 없으면 손해액·보험금은 항상 `null`(`needs_documents`), 평균 수리비 참고값을 보여 주는 화면·타입 제거 |
 | API 흐름 (11-06) | `approve_report`·`calculate_payment`·`set_recovery`·`export_claim`·`release_claim` **삭제**. 새 함수: `confirm_report(actor, case_id, version, counterparty?)` → `{report, package, html, claim_blocked_reasons, claim_blocked_reason}`, `set_agreed_fault(actor, case_id, agreed_counterparty_fault?, fault_change_reason, clear?)`. `submit_judgment`·`add_documents`·`upload_estimate`가 산정까지 한 보고서를 돌려줌 |
 | `ReviewReport` (11-06) | 필드 이름은 그대로, 의미 변경: `approval_status="approved"` = **담당자 확인 완료**, `approved_by`·`approved_at` = 확인자·확인 시각. 화면 문구는 "확인 완료" / "담당자 확인 전" |
