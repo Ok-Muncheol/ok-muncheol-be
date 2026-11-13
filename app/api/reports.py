@@ -219,12 +219,18 @@ def configure(**kw: object) -> ReportServices:
     return services
 
 
-def configure_with_knowledge_base() -> ReportServices:
+def configure_with_knowledge_base(
+    base: Path | None = None, *, import_evidence_store: bool = False
+) -> ReportServices:
     """지식베이스 연결을 한 번에 켠다. 통합(app/main.py)에서는 시작할 때 이 함수만 호출하면 된다.
 
     실제 색인 적재(db_import 파일) + OpenAIEmbedder(C 도구 검색용) + fetch_clauses + llm_judge.
     APP_ENV=local이고 Vercel이 아니면 같은 행으로 C의 EvidenceStore 로컬 어댑터도 등록한다
     (운영에서는 등록하지 않으므로 검증은 fail-closed 그대로).
+    `base`는 db_import 폴더다. 없으면 로더 기본 경로(로컬 data/private)를 읽는다. 운영은 B가
+    비공개 Storage에서 받아 SHA-256으로 검증한 사본 폴더를 넘긴다(app/corpus_import.py).
+    `import_evidence_store`면 그 사본으로 운영에서도 로컬 어댑터를 등록한다(2026-11-13, 운영 판단용
+    임시. CORPUS_IMPORT_EVIDENCE_STORE).
     키·모델·패키지가 없거나 코퍼스·handoff.json 파일이 없거나 못 쓰면 RetrievalNotConfigured
     (코퍼스 데이터 문제는 하위 클래스 CorpusDataError, .env 임베딩 모델·차원이 handoff와 다르거나
     틀리면 EmbeddingSettingsInvalid)를 내고 아무것도 바꾸지 않는다.
@@ -237,7 +243,7 @@ def configure_with_knowledge_base() -> ReportServices:
     except EmbeddingMismatch as exc:  # 메시지는 모델·차원뿐이다(키는 담지 않음)
         raise EmbeddingSettingsInvalid(f"D: 질의 임베딩 설정이 맞지 않습니다: {exc}") from exc
     judge = llm_judge(openai_judge_llm())
-    corpus = read_corpus()
+    corpus = read_corpus() if base is None else read_corpus(base)
     index = build_index(corpus)
     edition = corpus.terms_edition()
     query_spec = EmbeddingSpec(embedder.model, embedder.dimensions, embedder.version)
@@ -245,7 +251,8 @@ def configure_with_knowledge_base() -> ReportServices:
         raise CorpusDataError(
             f"D: 코퍼스 임베딩 {index.spec}이 질의 임베더 {query_spec}와 다릅니다"
         )
-    store = local_evidence_store(corpus)
+    store = (local_evidence_store(corpus, allow_in_production=True) if import_evidence_store
+             else local_evidence_store(corpus))
     # 여기부터 전역 설정. 위에서 실패하면 아무것도 바뀌지 않는다
     configure_retrieval(index=index, embedder=embedder, default_terms_edition=edition)
     if store is not None:
