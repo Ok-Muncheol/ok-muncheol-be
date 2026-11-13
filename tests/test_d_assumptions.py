@@ -3,7 +3,8 @@
 실행: py -3.12 -m unittest discover -s tests -t .
 - 계약 서류 없음 → 자차 가입·보험기간 안·운전자 범위 안으로 가정, 전손 한도 검사 생략
 - 자기부담금 → rules.py 기본 규칙(20%, 최저 20만·최고 50만)
-- 면책 사실 미입력 → 해당 없음으로 가정 / 모두 False → 담당자 확인 / True → not_payable
+- 면책 사실 미입력 → 확인 필요(unknown, 가정하지 않음, #204) / 모두 False → 담당자 확인
+  / True → not_payable
 - 확인 완료는 최신·draft_ready면 항상 된다. 청구서를 못 만들면 package=None + claim_blocked_reason
 정답은 손으로 계산했다. 손해 1,000만 → 자기부담금 50만(20%=200만, 최고 50만), 보험금 950만, 상대
 과실 70% → 665만.
@@ -14,7 +15,6 @@ import unittest
 from unittest.mock import patch
 
 from app.api import reports as api
-from app.calculation.exclusions import llm_judge
 from app.calculation.rules import RuleSet
 from tests import evidence_d
 from tests import fixtures_d as fx
@@ -25,7 +25,8 @@ CONTRACT_A = (
     "계약 정보: 기본 가정(미입력) — 자차 가입·보험기간 안·운전자 범위 안, 전손 한도 검사 생략"
 )
 DEDUCTIBLE_A = "자기부담금: 기본 규칙 적용(20%, 최저 20만·최고 50만)"
-EXCLUSION_A = "면책: 면책 사실 미입력 — 해당 없음으로 가정"
+# #204부터 면책 미입력은 기본 가정이 아니라 확인 필요(unknown) — 산정 사유에 항목마다 표시
+EXCLUSION_UNKNOWN = "면책 확인 필요 — 사실 미입력"
 NEEDS_ESTIMATE = "견적서 필요 — 견적서 추가 후 청구서 생성"
 
 
@@ -80,13 +81,15 @@ class AssumptionTest(unittest.TestCase):
             (calc["recognized_damage"], calc["deductible"], calc["insurance_payment"]),
             (10_000_000, 500_000, 9_500_000),
         )
-        self.assertEqual(calc["assumptions"], [CONTRACT_A, DEDUCTIBLE_A, EXCLUSION_A])
+        self.assertEqual(calc["assumptions"], [CONTRACT_A, DEDUCTIBLE_A])
         self.assertEqual(
             calc["status"], "needs_contract_review"
-        )  # 가정이 있으면 확정 산정 아님(막지는 않음)
+        )  # 가정·확인 필요가 있으면 확정 산정 아님(막지는 않음, 지급 불가 아님)
+        for topic in ("무면허 운전 면책", "음주 운전 자기차량손해 면책", "고의 사고 면책"):
+            self.assertIn(f"{topic}: {EXCLUSION_UNKNOWN}", calc["reasons"])
 
         eight = section(v2, 8)["body"]
-        self.assertEqual(eight["기본 가정"], [CONTRACT_A, DEDUCTIBLE_A, EXCLUSION_A])
+        self.assertEqual(eight["기본 가정"], [CONTRACT_A, DEDUCTIBLE_A])
         rows = {x["항목"]: x for x in eight["산정 전 검증"]}
         for label in (
             "자기차량손해 가입",
@@ -97,7 +100,8 @@ class AssumptionTest(unittest.TestCase):
             self.assertEqual(rows[label]["결과"], "기본 가정(미입력)")
         self.assertEqual(rows["자기부담금"]["내용"], "기본 규칙 적용(20%, 최저 20만·최고 50만)")
         self.assertEqual(
-            rows["음주 운전 자기차량손해 면책"]["내용"], "면책 사실 미입력 — 해당 없음으로 가정"
+            tuple(rows["음주 운전 자기차량손해 면책"][k] for k in ("결과", "내용")),
+            ("확인 필요", EXCLUSION_UNKNOWN),
         )
         self.assertIn("기본 규칙 적용(20%, 최저 20만·최고 50만)", eight["계산식"]["자기부담금"])
 
@@ -108,9 +112,10 @@ class AssumptionTest(unittest.TestCase):
         self.assertEqual(
             (pkg["rows"][0]["insurance_payment"], pkg["amounts"]["planned"]), (9_500_000, 6_650_000)
         )
-        self.assertEqual(pkg["assumptions"], [CONTRACT_A, DEDUCTIBLE_A, EXCLUSION_A])
+        self.assertEqual(pkg["assumptions"], [CONTRACT_A, DEDUCTIBLE_A])
         self.assertEqual(pkg["basis"]["기본 가정"], pkg["assumptions"])
-        self.assertIn("기본 가정 3건", out["html"])
+        self.assertIn("기본 가정 2건", out["html"])
+        self.assertNotIn(EXCLUSION_UNKNOWN, out["html"])  # 내부 판단은 청구서에 넣지 않는다
         self.assertIn(CONTRACT_A, out["html"])
 
     # ── 5-2. 면책 '해당 없음' 확인 ──
@@ -124,7 +129,7 @@ class AssumptionTest(unittest.TestCase):
         for key in ("exclusion:무면허", "exclusion:음주", "exclusion:고의"):
             self.assertEqual(
                 (self.checks(v2)[key]["result"], self.checks(v3)[key]["result"]),
-                ("assumed", "pass"),
+                ("unknown", "pass"),
             )
             self.assertEqual(self.checks(v3)[key]["detail"], "담당자 확인 — 해당 없음")
         self.assertEqual(
@@ -287,13 +292,12 @@ class AssumptionTest(unittest.TestCase):
         )
         self.assertEqual(calc["status"], "confirmed")
 
-    # ── 지식베이스 연결 후: 사실이 없어 unknown → 막지 않고 표시만 ──
-    def test_llm_unknown_without_facts_only_marks(self):
+    # ── 지식베이스 연결 후: 사실이 없어 unknown → 막지 않고 표시만, 조항은 근거로 붙음 ──
+    def test_unknown_without_facts_only_marks(self):
         async def fetch(*args, **kw):
             return [fx._hit("policy_terms", "synthetic-clause", "(합성) 면책 조항")]
 
-        answer = '{"result": "unknown", "clause_ids": [], "detail": "사실 부족"}'
-        api.configure(fetch_clauses=fetch, judge=llm_judge(lambda prompt: answer))
+        api.configure(fetch_clauses=fetch)  # 판정기는 기본(담당자 입력, LLM 없음)
         patcher = patch("app.calculation.exclusions.validate_hits", evidence_d.skip_validation)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -303,6 +307,8 @@ class AssumptionTest(unittest.TestCase):
         self.assertEqual(
             {(c["result"], c["detail"]) for c in ex}, {("unknown", "면책 확인 필요 — 사실 미입력")}
         )
+        self.assertTrue(all(c["clause_ids"] == ["synthetic-clause"] for c in ex))
+        self.assertEqual(v2["calculation"]["status"], "needs_contract_review")  # 지급 불가 아님
         self.assertEqual(v2["calculation"]["insurance_payment"], 9_500_000)
         out = self.confirm(2)
         self.assertIsNotNone(out["package"])

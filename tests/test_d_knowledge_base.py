@@ -1,21 +1,22 @@
-"""D: 운영 연결 함수와 LLM 호출부. 네트워크 없이 가짜 클라이언트만 쓴다. 아래 키는 가짜 값이다."""
+"""D: 운영 연결 함수(configure_with_knowledge_base). 네트워크 없이 가짜 값만 쓴다.
+
+면책 판정은 LLM 없이 담당자 입력으로 한다(flag_judge, #204). 예전 면책 LLM 호출부 테스트는 그 코드와
+함께 뺐다.
+"""
 
 import asyncio
 import importlib.util
 import json
 import os
 import shutil
-import sys
 import tempfile
-import traceback
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app import llm as llm_policy
 from app.api import reports as api
-from app.calculation.exclusions import flag_judge, llm_judge, openai_judge_llm
+from app.calculation.exclusions import flag_judge
 from app.calculation.rules import RuleSet
 from app.retrieval import common as retrieval_common
 from app.retrieval import embedding as retrieval_embedding
@@ -38,154 +39,10 @@ from app.retrieval.loader import (
     read_corpus,
 )
 from app.tools import _evidence
-from tests.fake_openai import status_error, timeout_error
 
 FAKE_KEY = "sk-FAKE-for-tests-0123456789"
 FAKE_SPEC = EmbeddingSpec(FakeEmbedder.model, FakeEmbedder.dimensions, FakeEmbedder.version)
 needs_dotenv = unittest.skipUnless(importlib.util.find_spec("dotenv"), "python-dotenv 없음")
-
-
-class FakeChat:
-    """OpenAI 클라이언트 흉내. 호출 인자를 기록하고 지정한 답이나 예외를 돌려준다.
-
-    errors는 앞의 호출부터 차례로 던질 예외다(다 쓰면 answer·error대로 돌려준다)."""
-
-    def __init__(
-        self,
-        answer='{"result": "pass", "clause_ids": [], "detail": "해당 없음"}',
-        error=None,
-        errors=(),
-    ):
-        self.answer = answer
-        self.error = error
-        self.errors = list(errors)
-        self.calls = []
-        self.chat = SimpleNamespace(completions=self)
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        if self.errors:
-            raise self.errors.pop(0)
-        if self.error:
-            raise self.error
-        message = SimpleNamespace(content=self.answer)
-        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-
-
-@needs_dotenv
-class OpenAIJudgeLLMTest(unittest.TestCase):
-    def setUp(self):
-        folder = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, folder)
-        self.dotenv = folder / ".env"
-        self.dotenv.write_text(
-            f"OPENAI_API_KEY={FAKE_KEY}\nOPENAI_MODEL=fake-model", encoding="utf-8"
-        )
-        environ = patch.dict(os.environ, {}, clear=True)
-        environ.start()
-        self.addCleanup(environ.stop)
-        backoff = patch.object(llm_policy, "BACKOFF_SECONDS", 0)
-        backoff.start()
-        self.addCleanup(backoff.stop)
-
-    def llm(self, client):
-        return openai_judge_llm(dotenv_path=self.dotenv, client=client)
-
-    def test_default_client_follows_the_llm_policy(self):
-        made = []
-        real = llm_policy.openai_sync_client
-
-        def spy(*args, **kwargs):
-            made.append(real(*args, **kwargs))
-            return made[-1]
-
-        with patch.object(llm_policy, "openai_sync_client", spy):
-            openai_judge_llm(dotenv_path=self.dotenv)
-        (client,) = made
-        self.addCleanup(client.close)
-        # 예전 OpenAI(timeout=120, max_retries=2)가 아니라 호출 1회 45초·SDK 재시도 없음
-        self.assertEqual(
-            (client.timeout, client.max_retries), (llm_policy.LLM_TIMEOUT_SECONDS, 0)
-        )
-
-    def test_transient_error_is_retried_once(self):
-        client = FakeChat(errors=[timeout_error()])
-        self.assertIn("pass", self.llm(client)("질문"))
-        self.assertEqual(len(client.calls), 2)
-
-    def test_gives_up_after_the_retry(self):
-        client = FakeChat(errors=[timeout_error(), status_error(503)])
-        with self.assertRaises(ValueError) as caught:
-            self.llm(client)("질문")
-        self.assertEqual(str(caught.exception), "LLM 호출 실패: APIStatusError")
-        self.assertEqual(len(client.calls), 2)
-
-    def test_client_error_is_not_retried(self):
-        client = FakeChat(errors=[status_error(429)])
-        with self.assertRaises(ValueError):
-            self.llm(client)("질문")
-        self.assertEqual(len(client.calls), 1)
-
-    def test_retry_can_be_turned_off(self):
-        client = FakeChat(errors=[timeout_error()])
-        llm = openai_judge_llm(dotenv_path=self.dotenv, client=client, retry=False)
-        with self.assertRaises(ValueError):
-            llm("질문")
-        self.assertEqual(len(client.calls), 1)
-
-    def test_sends_prompt_to_configured_model(self):
-        client = FakeChat()
-        self.assertIn("pass", self.llm(client)("질문"))
-        self.assertEqual(
-            client.calls,
-            [{"model": "fake-model", "messages": [{"role": "user", "content": "질문"}]}],
-        )
-
-    def test_same_prompt_is_not_called_twice(self):
-        client = FakeChat()
-        llm = self.llm(client)
-        self.assertEqual(llm("같은 질문"), llm("같은 질문"))
-        self.assertEqual(len(client.calls), 1)
-        llm("다른 질문")
-        self.assertEqual(len(client.calls), 2)
-
-    def test_failure_has_no_key_and_is_not_cached(self):
-        class AuthenticationError(Exception):
-            pass
-
-        client = FakeChat(error=AuthenticationError(f"Incorrect API key: {FAKE_KEY}"))
-        llm = self.llm(client)
-        with self.assertRaises(ValueError) as caught:
-            llm("질문")
-        exc = caught.exception
-        self.assertEqual(str(exc), "LLM 호출 실패: AuthenticationError")
-        self.assertIsNone(exc.__context__)
-        self.assertNotIn(FAKE_KEY, "".join(traceback.format_exception(exc)))
-        client.error = None
-        self.assertIn("pass", llm("질문"))
-
-    def test_llm_failure_becomes_unknown_not_crash(self):
-        judge = llm_judge(self.llm(FakeChat(error=RuntimeError("down"))))
-        check = judge("무면허 운전 면책", [], {"무면허": True})
-        self.assertEqual(check["result"], "unknown")
-        self.assertIn("담당자 확인", check["detail"])
-
-    def test_empty_answer_becomes_unknown(self):
-        judge = llm_judge(self.llm(FakeChat(answer=None)))
-        self.assertEqual(judge("무면허 운전 면책", [], {})["result"], "unknown")
-
-    def test_missing_settings_not_configured(self):
-        for text in ("OPENAI_MODEL=m", f"OPENAI_API_KEY={FAKE_KEY}"):
-            with self.subTest(text=text.split("=")[0]):
-                os.environ.clear()
-                self.dotenv.write_text(text, encoding="utf-8")
-                with self.assertRaises(RetrievalNotConfigured):
-                    self.llm(FakeChat())
-
-    def test_missing_openai_package_gives_install_hint(self):
-        with patch.dict(sys.modules, {"openai": None}):
-            with self.assertRaisesRegex(RetrievalNotConfigured, "pip install"):
-                openai_judge_llm(dotenv_path=self.dotenv)
 
 
 class ConfigureWithKnowledgeBaseTest(unittest.TestCase):
@@ -215,7 +72,6 @@ class ConfigureWithKnowledgeBaseTest(unittest.TestCase):
             "read_corpus": lambda: corpus,
             # FakeEmbedder와 같은 임베딩 값의 색인(연결 함수가 둘을 비교한다)
             "build_index": lambda corpus: SimpleNamespace(spec=FAKE_SPEC),
-            "openai_judge_llm": lambda: lambda prompt: "{}",
         }
         values.update(over)
         return patch.multiple(api, **values)
@@ -254,7 +110,7 @@ class ConfigureWithKnowledgeBaseTest(unittest.TestCase):
             services = api.configure_with_knowledge_base()
         self.assertIs(services, api.services)
         self.assertIs(services.fetch_clauses, fetch_by_parent)
-        self.assertIsNot(services.judge, flag_judge)
+        self.assertIs(services.judge, flag_judge)  # #204: 면책은 LLM 없이 담당자 입력으로
 
     def test_failure_leaves_services_unchanged(self):
         def missing():
@@ -271,10 +127,10 @@ class ConfigureWithKnowledgeBaseTest(unittest.TestCase):
             raise AssertionError("설정이 없으면 색인을 읽지 않는다")
 
         def missing():
-            raise RetrievalNotConfigured("모델 없음")
+            raise RetrievalNotConfigured("임베딩 모델 없음")
 
-        with self.patches(read_corpus=must_not_load, openai_judge_llm=missing):
-            with patch.object(api.OpenAIEmbedder, "from_env", FakeEmbedder):
+        with self.patches(read_corpus=must_not_load):
+            with patch.object(api.OpenAIEmbedder, "from_env", missing):
                 with self.assertRaises(RetrievalNotConfigured):
                     api.configure_with_knowledge_base()
 
@@ -328,7 +184,6 @@ class KnowledgeBaseFailureLeavesStateTest(unittest.TestCase):
         values = {
             "read_corpus": lambda: read_corpus(self.base),
             "build_index": lambda corpus: build_index(corpus, tokenizer=SimpleTokenizer()),
-            "openai_judge_llm": lambda: lambda prompt: "{}",
         }
         values.update(over)
         with patch.multiple(api, **values), patch.dict(os.environ, {"APP_ENV": "local"}):

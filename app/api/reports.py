@@ -38,8 +38,6 @@ from app.calculation.exclusions import (
     EXCLUSION_FACT_KEYS,
     Judge,
     flag_judge,
-    llm_judge,
-    openai_judge_llm,
     review_exclusions,
     review_exclusions_from_facts,
 )
@@ -241,7 +239,9 @@ def configure_with_knowledge_base(
 ) -> ReportServices:
     """지식베이스 연결을 한 번에 켠다. 통합(app/main.py)에서는 시작할 때 이 함수만 호출하면 된다.
 
-    실제 색인 적재(db_import 파일) + OpenAIEmbedder(C 도구 검색용) + fetch_clauses + llm_judge.
+    실제 색인 적재(db_import 파일) + OpenAIEmbedder(C 도구 검색용) + fetch_clauses(면책 조항
+    직접 조회).
+    면책 판정은 LLM 없이 담당자 입력으로 한다(flag_judge, #204).
     APP_ENV=local이고 Vercel이 아니면 같은 행으로 C의 EvidenceStore 로컬 어댑터도 등록한다
     (운영에서는 등록하지 않으므로 검증은 fail-closed 그대로).
     `base`는 db_import 폴더다. 없으면 로더 기본 경로(로컬 data/private)를 읽는다. 운영은 B가
@@ -252,14 +252,13 @@ def configure_with_knowledge_base(
     (코퍼스 데이터 문제는 하위 클래스 CorpusDataError, .env 임베딩 모델·차원이 handoff와 다르거나
     틀리면 EmbeddingSettingsInvalid)를 내고 아무것도 바꾸지 않는다.
     모든 준비(읽기·색인·판·임베딩 비교·어댑터)를 끝낸 뒤에만 전역 설정을 바꾼다.
-    호출하지 않으면 면책은 담당자 입력으로 판정한다. 색인을 메모리에 올리므로
+    호출하지 않아도 면책은 담당자 입력으로 판정한다(조항 근거 없이). 색인을 메모리에 올리므로
     시작 시간과 메모리를 쓴다.
     """
     try:  # 설정을 먼저 확인하고 오래 걸리는 적재는 나중에
         embedder = OpenAIEmbedder.from_env()
     except EmbeddingMismatch as exc:  # 메시지는 모델·차원뿐이다(키는 담지 않음)
         raise EmbeddingSettingsInvalid(f"D: 질의 임베딩 설정이 맞지 않습니다: {exc}") from exc
-    judge = llm_judge(openai_judge_llm())
     corpus = read_corpus() if base is None else read_corpus(base)
     index = build_index(corpus)
     edition = corpus.terms_edition()
@@ -275,7 +274,7 @@ def configure_with_knowledge_base(
     if store is not None:
         configure_evidence_store(lambda: store)
     values = tuple(r["body"] for r in corpus.records if r.get("kind") == "schedule_value")
-    return configure(fetch_clauses=fetch_by_parent, judge=judge, schedule_values=values)
+    return configure(fetch_clauses=fetch_by_parent, judge=flag_judge, schedule_values=values)
 
 
 def _now() -> str:

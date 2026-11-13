@@ -51,7 +51,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 ## 상태 규칙
 
 - 산정 상태: `confirmed`는 **검수된 규칙 + 확정 견적 + 모든 산정 전 검증 통과(가정 없음)**일 때만. 예시 규칙이나 기본 가정(계약·면책 미입력)이 있으면 `needs_contract_review`(확인 완료·청구서는 막지 않고 표시만). 자기부담금 기본 규칙은 규칙 값이라 상태를 낮추지 않는다(표시만).
-- 미확정 금액은 0이 아니라 `null`. 면책 입력이 없으면 해당 없음으로 가정(`assumed`, 금액은 계산).
+- 미확정 금액은 0이 아니라 `null`. 면책 입력이 없으면 확인 필요(`unknown`, "면책 확인 필요 — 사실 미입력"). 해당 없음으로 가정하지 않고, 금액은 계산하며 지급 불가로 만들지 않는다(산정 상태 `needs_contract_review`, #204).
 - 서식 견적서 PDF는 자동 추출 값을 바로 쓴다(담당자 확인 완료에서 확인). 총액을 못 읽으면 금액 `null`, 부품+공임+부가가치세 ≠ 총액이면 계산은 하고 "견적서 합계 불일치 — 확인 필요" 사유를 남긴다. OCR(`read_by="ocr"`) 견적은 여전히 담당자 확인 전 `null`.
 - 판단·비전은 서류 추가로 다시 돌리지 않는다. 금액부터 재산정한다.
 - 증빙이 없으면 패키지 `missing_evidence`에 경고만 남긴다(생성은 막지 않음).
@@ -128,7 +128,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | `confirm_report` 결과 (11-06 갱신) | 항상 `{report, package, html, claim_blocked_reasons, claim_blocked_reason}`. 청구서를 만들면 `package`·`html` 채움, `claim_blocked_reasons: []`, `claim_blocked_reason: null`. 못 만들면 `package: null`, `html: null`, `claim_blocked_reasons: string[]`(해당 사유 전부, 예: 음주 + 견적서 없음 → `["지급 불가 — 구상할 보험금 없음", "견적서 필요 — 견적서 추가 후 청구서 생성"]`), `claim_blocked_reason: string`(= `claim_blocked_reasons[0]`, 기존 화면 호환). 화면에는 `claim_blocked_reasons`를 목록으로 보여 주기를 권장. 확인 기록(`report.approval_status="approved"`)은 두 경우 모두 남음. 오류는 409 `version_conflict`(최신 아님)·422 `confirm_blocked`(추가 확인·보류)뿐 |
 | 면책 체크박스 뜻 (11-09) | 무면허·음주 체크박스 문구: **"운전자(계약자·기명피보험자·30일 초과 임차인·동거 친족)의 무면허/음주"**. 약관 제23조 제14호의 대상자에 맞춘 뜻이다. 그 밖의 운전자라면 체크하지 않는다 |
 | 담당자 입력과 LLM 판정 (11-09) | **담당자 입력이 우선한다.** `true` → LLM과 상관없이 `not_payable`, LLM 인용 조항을 근거로 표시. `false` + LLM pass·unknown → 통과. `false` + LLM fail → 통과 + 8번 경고 "LLM은 면책 가능성 제시(조항 …) — 담당자 확인"(`PreCheck.warning`, 산정 사유에도 포함). 입력 없음 → LLM 결과를 따르고 unknown이면 표시만 |
-| 면책 체크박스 (11-06) | 4개: 무면허·음주·고의·해당 없음 → `add_documents(..., case_facts=...)`. 키는 `무면허`·`음주`·`고의`만, 값은 `true`/`false`/`null`만(그 밖이면 422 `invalid_case_facts`, 서류도 저장하지 않음). 입력했던 값을 미입력으로 되돌리려면 그 키에 `null`. **아무것도 선택 안 함** → `case_facts`를 보내지 않음(미입력: "면책 사실 미입력 — 해당 없음으로 가정"). **'해당 없음'** → `{"무면허": false, "음주": false, "고의": false}`("담당자 확인 — 해당 없음"). **항목 선택** → 선택한 항목 `true`, 나머지 `false`(→ `not_payable`, 청구서 없음 "지급 불가 — 구상할 보험금 없음"). '해당 없음'과 항목은 함께 선택할 수 없게 |
+| 면책 체크박스 (11-06) | 4개: 무면허·음주·고의·해당 없음 → `add_documents(..., case_facts=...)`. 키는 `무면허`·`음주`·`고의`만, 값은 `true`/`false`/`null`만(그 밖이면 422 `invalid_case_facts`, 서류도 저장하지 않음). 입력했던 값을 미입력으로 되돌리려면 그 키에 `null`. **아무것도 선택 안 함** → `case_facts`를 보내지 않음(미입력: "면책 확인 필요 — 사실 미입력", 11-13 #204부터 가정하지 않음). **'해당 없음'** → `{"무면허": false, "음주": false, "고의": false}`("담당자 확인 — 해당 없음"). **항목 선택** → 선택한 항목 `true`, 나머지 `false`(→ `not_payable`, 청구서 없음 "지급 불가 — 구상할 보험금 없음"). '해당 없음'과 항목은 함께 선택할 수 없게 |
 | `PreCheck.result` (11-06) | `"assumed"` 추가 = 기본 가정(미입력). 화면 결과 문구 "기본 가정(미입력)". 확인 완료·청구서를 막지 않음 |
 | `CalculationResult` (11-06) | `NotRequired` `assumptions: list[str]` — 기본 가정 문구(계약·자기부담금·면책). 보고서 8번 본문에도 `기본 가정` 키로 같은 목록 |
 | `ClaimPackage` 가정 (11-06) | `assumptions: list[str]` 추가(없으면 `[]`), `basis["기본 가정"]`에도 같은 목록. HTML에 "기본 가정 N건" 표시 |

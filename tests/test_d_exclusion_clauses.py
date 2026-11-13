@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import json
 import threading
 import unittest
 from unittest.mock import patch
@@ -14,7 +13,6 @@ from app.calculation.exclusions import (
     NEEDS_CLAUSE,
     fetch_exclusion_clauses,
     flag_judge,
-    llm_judge,
     review_exclusions,
 )
 from app.calculation.rules import DEFAULT_RULES, RuleSet
@@ -102,7 +100,7 @@ class ReviewTest(SkipValidation):
         self.assertEqual(checks[0]["clause_ids"], [ARTICLE_23])  # 조항 ID 중복 없음
 
     def test_judge_runs_off_the_event_loop(self):
-        """LLM 판정기는 동기 호출이라 스레드에서 부른다(기다리는 동안 이벤트 루프를 막지 않게)."""
+        """판정기는 동기 함수라 스레드에서 부른다(바꿔 끼운 판정기도 이벤트 루프를 막지 않게)."""
         seen = []
 
         def judge(topic, hits, facts):
@@ -195,15 +193,13 @@ class ReviewTest(SkipValidation):
         self.assertEqual({c["detail"] for c in checks}, {NEEDS_CLAUSE})
         self.assertEqual(fetch.calls, [])
 
-    def test_llm_judge_can_cite_directly_fetched_clause(self):
-        def llm(prompt):
-            self.assertIn("직접 가져온 제14호", prompt)
-            answer = {"result": "fail", "clause_ids": [ARTICLE_23], "detail": "제14호"}
-            return json.dumps(answer, ensure_ascii=False)
-
+    def test_directly_fetched_clause_is_cited_whatever_input(self):
+        """직접 조회한 제23조는 해당·아님·미입력과 상관없이 근거 조항으로 붙는다."""
         fetch = Spy([hit("p68", ARTICLE_23, 1.0, text="직접 가져온 제14호")])
-        checks = self.review({}, fetch=fetch, judge=llm_judge(llm))
-        self.assertEqual(checks[0]["clause_ids"], [ARTICLE_23])
+        for facts in ({}, NO_FLAGS, {"무면허": True, "음주": True, "고의": True}):
+            with self.subTest(facts=facts):
+                checks = self.review(facts, fetch=fetch)
+                self.assertTrue(all(c["clause_ids"] == [ARTICLE_23] for c in checks))
 
 
 class ValidationTest(unittest.TestCase):
@@ -261,8 +257,12 @@ class ValidationTest(unittest.TestCase):
                 self.assertEqual(self.gather(Spy([hit("p67", ARTICLE_23, 1.0)])), [])
 
 
-class HandlerPriorityTest(SkipValidation):
-    """담당자 입력이 LLM보다 우선한다. 입력이 없을 때만 LLM 결과를 따른다."""
+class HandlerInputTest(SkipValidation):
+    """#204: 면책은 LLM 없이 담당자 입력으로만 판정한다. 해당 = fail, 아님 = pass, 미입력 = unknown.
+
+    직접 조회한 제23조는 결과와 상관없이 근거 조항으로 붙는다. 미입력은 해당 없음으로 가정하지 않고,
+    지급 불가로 만들지도 않는다(산정은 하고 '확인 필요'로 표시).
+    """
 
     actor, case = "handler-1", "synthetic-case"
 
@@ -272,6 +272,7 @@ class HandlerPriorityTest(SkipValidation):
             repo=api.InMemoryReportRepository(),
             rules=RuleSet(version="reviewed-test"),
             fetch_clauses=Spy([hit("p68", ARTICLE_23, 1.0)]),
+            judge=flag_judge,
         )
 
     def tearDown(self):
@@ -282,90 +283,91 @@ class HandlerPriorityTest(SkipValidation):
             judge=flag_judge,
         )
 
-    def flow(self, answer, facts):
-        ids = [ARTICLE_23] if answer != "unknown" else []
-        reply = {"result": answer, "clause_ids": ids, "detail": "제14호 검토"}
-        api.configure(judge=llm_judge(lambda prompt: json.dumps(reply, ensure_ascii=False)))
+    def flow(self, facts):
         asyncio.run(api.submit_judgment(self.actor, fx.card(), fx.judgment()))
         return asyncio.run(
             api.add_documents(self.actor, self.case, [fx.contract(), fx.estimate()], facts)
         )
 
-    def check(self, report, topic=TOPICS[1]):
-        return next(c for c in report["calculation"]["checks"] if c["label"] == topic)
+    def checks(self, report):
+        calc = report["calculation"]
+        return {c["label"]: c for c in calc["checks"] if c["key"].startswith("exclusion:")}
 
     def section8(self, report):
         return next(s for s in report["sections"] if s["no"] == 8)["body"]
 
-    def test_true_is_not_payable_whatever_llm_says(self):
-        for answer in ("unknown", "pass", "fail"):
-            with self.subTest(answer=answer):
-                api.configure(repo=api.InMemoryReportRepository())
-                report = self.flow(answer, {**NO_FLAGS, "음주": True})
-                calc = report["calculation"]
-                self.assertEqual((calc["status"], calc["insurance_payment"]), ("not_payable", None))
-                check = self.check(report)
-                self.assertEqual((check["result"], check["decided_by"]), ("fail", "handler"))
-                self.assertIn(f"LLM 판정 {answer}", check["detail"])
-                out = asyncio.run(api.confirm_report(self.actor, self.case, 2))
-                self.assertEqual(out["claim_blocked_reasons"], ["지급 불가 — 구상할 보험금 없음"])
+    def test_true_is_fail_and_not_payable(self):
+        report = self.flow({**NO_FLAGS, "음주": True})
+        check = self.checks(report)[TOPICS[1]]
+        self.assertEqual(
+            (check["result"], check["decided_by"], check["clause_ids"]),
+            ("fail", "handler", [ARTICLE_23]),
+        )
+        self.assertEqual(report["calculation"]["status"], "not_payable")
 
-    def test_true_shows_clause_cited_by_llm(self):
-        report = self.flow("fail", {**NO_FLAGS, "음주": True})
-        check = self.check(report)
-        self.assertEqual(check["clause_ids"], [ARTICLE_23])
-        self.assertIn(f"근거 조항 {ARTICLE_23}", check["detail"])
-        self.assertIn(ARTICLE_23, report["calculation"]["clause_ids"])
-        self.assertTrue(any(ARTICLE_23 in r for r in report["calculation"]["reasons"]))
-
-    def test_true_without_citation_says_so(self):
-        check = self.check(self.flow("unknown", {**NO_FLAGS, "음주": True}))
-        self.assertEqual(check["clause_ids"], [])
-        self.assertIn("인용 조항 없음", check["detail"])
-
-    def test_false_and_llm_pass_passes_without_warning(self):
-        report = self.flow("pass", NO_FLAGS)
-        check = self.check(report)
-        self.assertEqual((check["result"], check["detail"]), ("pass", "담당자 확인 — 해당 없음"))
-        self.assertNotIn("warning", check)
+    def test_false_is_pass(self):
+        report = self.flow(NO_FLAGS)
+        for check in self.checks(report).values():
+            self.assertEqual(
+                (check["result"], check["decided_by"], check["detail"], check["clause_ids"]),
+                ("pass", "handler", "담당자 확인 — 해당 없음", [ARTICLE_23]),
+            )
+            self.assertNotIn("warning", check)
         self.assertEqual(report["calculation"]["reasons"], [])
         self.assertEqual(report["calculation"]["status"], "confirmed")
 
-    def test_false_and_llm_fail_passes_with_warning_in_section_8(self):
-        report = self.flow("fail", NO_FLAGS)
+    def test_missing_input_is_unknown_not_not_payable(self):
+        """미입력 → unknown("면책 확인 필요 — 사실 미입력"). 지급 불가가 아니고 금액은 계산된다."""
+        report = self.flow({})
         calc = report["calculation"]
-        self.assertEqual(calc["insurance_payment"], 9_500_000)
-        check = self.check(report)
-        warning = f"LLM은 면책 가능성 제시(조항 {ARTICLE_23}) — 담당자 확인"
-        self.assertEqual((check["result"], check["warning"]), ("pass", warning))
-        eight = self.section8(report)
-        row = next(x for x in eight["산정 전 검증"] if x["항목"] == TOPICS[1])
-        self.assertEqual((row["결과"], row["내용"]), ("통과", warning))
-        self.assertTrue(any(warning in r for r in eight["사유"]))
+        for topic, check in self.checks(report).items():
+            self.assertEqual(
+                (check["result"], check["detail"], check["clause_ids"]),
+                ("unknown", "면책 확인 필요 — 사실 미입력", [ARTICLE_23]),
+            )
+            self.assertIn(f"{topic}: 면책 확인 필요 — 사실 미입력", calc["reasons"])
+        self.assertEqual(calc["status"], "needs_contract_review")
+        self.assertEqual(
+            (calc["recognized_damage"], calc["deductible"], calc["insurance_payment"]),
+            (10_000_000, 500_000, 9_500_000),
+        )
+        self.assertNotIn("면책", " ".join(calc["assumptions"]))  # 해당 없음으로 가정하지 않음
+        rows = {r["항목"]: r for r in self.section8(report)["산정 전 검증"]}
+        self.assertEqual(rows[TOPICS[0]]["결과"], "확인 필요")
         out = asyncio.run(api.confirm_report(self.actor, self.case, 2))
         self.assertIsNotNone(out["package"])  # 막지 않음
 
+    def test_partial_input(self):
+        checks = self.checks(self.flow({"음주": False}))
+        self.assertEqual(
+            {t: c["result"] for t, c in checks.items()},
+            {TOPICS[0]: "unknown", TOPICS[1]: "pass", TOPICS[2]: "unknown"},
+        )
+
+    def test_no_llm_is_called(self):
+        """판정 경로 어디에서도 OpenAI 클라이언트를 만들지 않는다(LLM 호출 0회)."""
+        import openai
+
+        def forbidden(*args, **kw):
+            raise AssertionError("면책 판정에서 LLM을 부르면 안 된다")
+
+        with patch.object(openai, "OpenAI", forbidden), patch.object(
+            openai, "AsyncOpenAI", forbidden
+        ):
+            for facts in ({}, NO_FLAGS, {**NO_FLAGS, "고의": True}):
+                with self.subTest(facts=facts):
+                    self.setUp()
+                    self.flow(facts)
+
     def test_internal_judgment_stays_in_report_not_in_package(self):
-        report = self.flow("fail", NO_FLAGS)
-        warning = f"LLM은 면책 가능성 제시(조항 {ARTICLE_23}) — 담당자 확인"
+        report = self.flow({})
         eight = self.section8(report)
-        self.assertIn(warning, str(eight["사유"]))
-        self.assertIn(warning, str(eight["산정 전 검증"]))
+        self.assertIn("면책 확인 필요 — 사실 미입력", str(eight["사유"]))
         pkg = asyncio.run(api.confirm_report(self.actor, self.case, 2))
         for name, text in (("JSON", to_json(pkg["package"])), ("HTML", pkg["html"])):
             with self.subTest(name):
-                for internal in (
-                    warning,
-                    "LLM",
-                    "면책 가능성",
-                    "제14호 검토",
-                    "산정 사유",
-                    "산정 상태",
-                ):
+                for internal in ("면책 확인 필요", "사실 미입력", "산정 사유", "산정 상태"):
                     self.assertNotIn(internal, text)
-        self.assertIn(
-            warning, str(self.section8(report)["사유"])
-        )  # 패키지를 만들어도 보고서는 그대로
 
     def test_unresolved_validation_not_in_package(self):
         judgment = fx.judgment()
@@ -373,7 +375,6 @@ class HandlerPriorityTest(SkipValidation):
             {**judgment["checks"][0], "passed": False, "reasons": ["내부 반박 사유"]},
             *judgment["checks"][1:],
         ]
-        api.configure(judge=flag_judge)
         asyncio.run(api.submit_judgment(self.actor, fx.card(), judgment))
         report = asyncio.run(api.add_documents(self.actor, self.case, [fx.estimate()], NO_FLAGS))
         self.assertIn("내부 반박 사유", str(next(s for s in report["sections"] if s["no"] == 7)))
@@ -381,57 +382,6 @@ class HandlerPriorityTest(SkipValidation):
         self.assertNotIn("내부 반박 사유", to_json(out["package"]))
         self.assertNotIn("내부 반박 사유", out["html"])
         self.assertTrue(out["package"]["basis"]["유사 결정례"])  # 결정례 근거는 유지
-
-    def test_warning_survives_with_not_payable_from_another_flag(self):
-        reply = {
-            TOPICS[0]: {"result": "fail", "clause_ids": [ARTICLE_23], "detail": "x"},
-            TOPICS[1]: {"result": "unknown", "clause_ids": [], "detail": "x"},
-            TOPICS[2]: {"result": "pass", "clause_ids": [], "detail": "x"},
-        }
-
-        def llm(prompt):
-            topic = next(t for t in TOPICS if t in prompt)
-            return json.dumps(reply[topic], ensure_ascii=False)
-
-        api.configure(judge=llm_judge(llm))
-        asyncio.run(api.submit_judgment(self.actor, fx.card(), fx.judgment()))
-        report = asyncio.run(
-            api.add_documents(self.actor, self.case, [fx.estimate()], {**NO_FLAGS, "음주": True})
-        )
-        reasons = report["calculation"]["reasons"]
-        self.assertEqual(report["calculation"]["status"], "not_payable")
-        self.assertTrue(any("LLM은 면책 가능성 제시" in r for r in reasons), reasons)
-
-    def test_false_and_llm_unknown_passes(self):
-        check = self.check(self.flow("unknown", NO_FLAGS))
-        self.assertEqual((check["result"], check["decided_by"]), ("pass", "handler"))
-        self.assertNotIn("warning", check)
-
-    def test_no_input_follows_llm(self):
-        report = self.flow("fail", {})
-        self.assertEqual(report["calculation"]["status"], "not_payable")
-        self.assertEqual(self.check(report)["decided_by"], "llm")
-
-    def test_no_input_and_unknown_only_marks(self):
-        report = self.flow("unknown", {})
-        check = self.check(report)
-        self.assertEqual(
-            (check["result"], check["detail"]), ("unknown", "면책 확인 필요 — 사실 미입력")
-        )
-        self.assertEqual(report["calculation"]["insurance_payment"], 9_500_000)
-        out = asyncio.run(api.confirm_report(self.actor, self.case, 2))
-        self.assertIsNotNone(out["package"])
-
-    def test_llm_failure_does_not_override_handler_true(self):
-        def broken(prompt):
-            raise ValueError("LLM 호출 실패: TimeoutError")
-
-        api.configure(judge=llm_judge(broken))
-        asyncio.run(api.submit_judgment(self.actor, fx.card(), fx.judgment()))
-        report = asyncio.run(
-            api.add_documents(self.actor, self.case, [fx.estimate()], {**NO_FLAGS, "무면허": True})
-        )
-        self.assertEqual(report["calculation"]["status"], "not_payable")
 
 
 class ApiFlowTest(SkipValidation):
@@ -550,24 +500,19 @@ class RealDataTest(unittest.TestCase):
             self.assertEqual(self.gather(TOPICS[0], fetch=Spy([tampered, real[1]])), [])
 
     def test_report_flow_with_real_clauses(self):
-        prompts = []
-
-        def llm(prompt):
-            prompts.append(prompt)
-            return json.dumps({"result": "unknown", "clause_ids": [ARTICLE_23], "detail": "불명"})
-
+        """실제 약관 색인: 담당자 입력으로 판정하고 제23조가 근거로 붙는다(LLM 없음)."""
         api.configure(
             repo=api.InMemoryReportRepository(),
             fetch_clauses=fetch_by_parent,
-            judge=llm_judge(llm),
+            judge=flag_judge,
         )
         facts = {**NO_FLAGS, "음주": True}
         asyncio.run(api.submit_judgment("h", fx.card(), fx.judgment()))
         report = asyncio.run(api.add_documents("h", "synthetic-case", [fx.estimate()], facts))
         self.assertEqual(report["calculation"]["status"], "not_payable")
         self.assertIn(ARTICLE_23, report["calculation"]["clause_ids"])
-        self.assertTrue(all("음주운" in p and "제23조" in p for p in prompts))
-        self.assertTrue(all("인용 법조문" not in p for p in prompts))  # 부록이 섞이지 않음
+        excl = [c for c in report["calculation"]["checks"] if c["key"].startswith("exclusion:")]
+        self.assertTrue(all(c["clause_ids"] == [ARTICLE_23] for c in excl))
 
 
 if __name__ == "__main__":

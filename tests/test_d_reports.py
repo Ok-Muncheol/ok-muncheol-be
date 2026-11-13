@@ -9,7 +9,6 @@ import unittest
 
 from app.api import reports as api
 from app.calculation.damages import calculate_damages
-from app.calculation.exclusions import llm_judge
 from app.calculation.insurance import CalculationBlocked, calculate_insurance
 from app.calculation.rules import RuleSet
 from app.claims.package import (
@@ -135,11 +134,6 @@ class InsuranceTest(unittest.TestCase):
             calculate_insurance(
                 assemble_review(fx.judgment("needs_confirmation"), card=fx.card()), []
             )
-
-    def test_llm_judge_drops_unknown_clause_ids(self):
-        hit = fx._hit("policy_terms", "synthetic-clause-drunk", "(합성) 음주 운전 면책")
-        judge = llm_judge(lambda p: '{"result":"fail","clause_ids":["made-up"],"detail":"x"}')
-        self.assertEqual(judge("음주 운전", [hit], {})["result"], "unknown")
 
 
 class ReportTest(unittest.TestCase):
