@@ -4,6 +4,9 @@ DB 색인 어댑터가 오기 전 로컬 개발용이다. 김지은 님(C)과 �
 - db_import/*.jsonl을 읽는다(`app.retrieval.loader.read_corpus`).
 - APP_ENV=local이고 Vercel이 아닐 때만 등록한다. 운영에서는 등록하지 않는다.
 - 파일이 없으면 등록하지 않는다 → validate_hits는 지금처럼 "not configured"로 실패(fail-closed).
+- 2026-11-13 운영 판단용 예외(B 통합): 운영이 비공개 Storage에서 받아 SHA-256으로 검증한
+  db_import 사본을 읽고 CORPUS_IMPORT_EVIDENCE_STORE가 켜졌을 때만 운영에서도 등록한다
+  (`allow_in_production`, app/corpus_import.py). DB 색인 어댑터가 오면 없앤다.
 - get_chunk는 검색 색인과 같은 조인(`search_chunk`)으로 SearchChunk를 만든다.
 
 | 메서드 | 행 | 키 | 반환 |
@@ -65,13 +68,18 @@ def local_store_allowed(env: Mapping[str, str] | None = None) -> bool:
 
 
 def local_evidence_store(
-    corpus: CorpusRows, env: Mapping[str, str] | None = None
+    corpus: CorpusRows,
+    env: Mapping[str, str] | None = None,
+    *,
+    allow_in_production: bool = False,
 ) -> LocalCorpusEvidenceStore | None:
     """로컬이면 어댑터를 만들어 돌려주고(등록은 하지 않음), 운영이면 None.
 
     연결 함수가 다른 준비를 모두 끝낸 뒤 한꺼번에 등록할 수 있게 만들기와 등록을 나눈다.
+    `allow_in_production`은 운영이 검증한 비공개 사본을 읽었을 때만 B 통합이 켠다(모듈 설명).
     """
-    return LocalCorpusEvidenceStore(corpus) if local_store_allowed(env) else None
+    allowed = allow_in_production or local_store_allowed(env)
+    return LocalCorpusEvidenceStore(corpus) if allowed else None
 
 
 def register_local_evidence_store(corpus: CorpusRows, env: Mapping[str, str] | None = None) -> bool:
