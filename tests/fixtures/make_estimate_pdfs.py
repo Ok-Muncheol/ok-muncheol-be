@@ -1,6 +1,7 @@
-"""가상 견적서 PDF 3개 생성 — data/forms/car_estimate_form.pdf 원본 위에 가상 값 레이어를 겹친다.
+"""가상 견적서 PDF 생성 — data/forms/car_estimate_form.pdf 원본 위에 가상 값 레이어를 겹친다.
 
-실행: py -3.12 tests/fixtures/make_estimate_pdfs.py
+실행: py -3.12 tests/fixtures/make_estimate_pdfs.py [파일이름 ...]
+- 파일 이름을 주면 그 PDF만 만든다(이미 커밋한 PDF를 다시 만들지 않으려고). 없으면 전부.
 - 개발용 의존성: reportlab, pypdf (이 스크립트에서만 사용). 만든 PDF는 커밋하므로 테스트에는 필요
   없다.
 - 한글 글꼴은 subset으로 포함: Noto Sans KR(정적 TTF)이 있으면 그것, 없으면 맑은 고딕.
@@ -8,6 +9,7 @@
 - 값은 전부 synthetic(가상). 실제 차량·정비업체·사건 아님.
 """
 
+import sys
 from io import BytesIO
 from pathlib import Path
 
@@ -56,10 +58,26 @@ LABOR = sum(lab for *_, lab in ITEMS)  # 2,890,909
 VAT = 909_091
 TOTAL = PARTS + LABOR + VAT  # 10,000,000
 
+# 상대 차 견적(대물 시연·테스트용). 같은 PDF는 서류 ID(내용 해시)가 같아 다시 올려도 무시되므로
+# 우리 견적서(estimate_sample_10m.pdf)와 다른 파일이어야 한다. 부품 1,850,000 + 공임 1,292,535
+# + 부가가치세 314,254 = 3,456,789(합계 일치, D 정답 예시 대물-1과 같은 수리비)
+CP_ITEMS = [
+    ("뒤 범퍼 교환", "A", 1, 950_000, 280_000),
+    ("테일램프(우) 교환", "A", 1, 900_000, 112_535),
+    ("뒤 범퍼·트렁크 도장", "", 1, 0, 900_000),
+]
+CP_VAT = 314_254
+
 SAMPLES = {
     "estimate_sample_10m.pdf": {"serial": "SYN-2026-0001", "total": TOTAL},
     "estimate_sample_mismatch.pdf": {"serial": "SYN-2026-0002", "total": 10_500_000},  # 합계 불일치
     "estimate_sample_no_total.pdf": {"serial": "SYN-2026-0003", "total": None},  # 총액 빈칸
+    "estimate_sample_cp_3m.pdf": {
+        "serial": "SYN-2026-0004",
+        "total": 3_456_789,
+        "items": CP_ITEMS,
+        "vat": CP_VAT,
+    },
 }
 
 # 칸 좌표(서식에서 측정, pt). x는 칸 오른쪽 끝(숫자 오른쪽 정렬) 또는 왼쪽 시작.
@@ -79,7 +97,9 @@ def won(n: int) -> str:
     return f"{n:,}"
 
 
-def overlay(font: str, serial: str, total: int | None) -> bytes:
+def overlay(
+    font: str, serial: str, total: int | None, items: list = ITEMS, vat: int = VAT
+) -> bytes:
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(595, PAGE_H), invariant=1)
 
@@ -108,7 +128,9 @@ def overlay(font: str, serial: str, total: int | None) -> bytes:
     left(460, 278, "02-000-0000", 8)  # 전화번호
     center(158.9, 173.9, 301, "V", 9)  # 견적구분 [V] 보험
 
-    for (name, code, qty, price, lab), top in zip(ITEMS, ITEM_ROWS, strict=False):
+    parts = sum(q * p for _, _, q, p, _ in items)
+    labor = sum(lab for *_, lab in items)
+    for (name, code, qty, price, lab), top in zip(items, ITEM_ROWS, strict=False):
         y = top + 12.5
         part = qty * price
         left(62, y, name, 8.5)
@@ -122,10 +144,10 @@ def overlay(font: str, serial: str, total: int | None) -> bytes:
     y = SUMMARY_ROW + 11.5
     center(*SUMMARY_COLS["구분"], y, "보험", 8.5)
     for key, val in (
-        ("부품", PARTS),
-        ("공임", LABOR),
-        ("계", PARTS + LABOR),
-        ("부가가치세", VAT),
+        ("부품", parts),
+        ("공임", labor),
+        ("계", parts + labor),
+        ("부가가치세", vat),
         ("총액", total),
     ):
         if val is not None:
@@ -142,9 +164,15 @@ def overlay(font: str, serial: str, total: int | None) -> bytes:
 
 def main() -> None:
     font = register_font()
-    for name, s in SAMPLES.items():
+    names = sys.argv[1:] or list(SAMPLES)
+    unknown = [n for n in names if n not in SAMPLES]
+    if unknown:
+        raise SystemExit(f"모르는 샘플: {unknown} (있는 것: {list(SAMPLES)})")
+    for name in names:
+        s = SAMPLES[name]
         page = PdfReader(FORM).pages[0]
-        page.merge_page(PdfReader(BytesIO(overlay(font, s["serial"], s["total"]))).pages[0])
+        layer = overlay(font, s["serial"], s["total"], s.get("items", ITEMS), s.get("vat", VAT))
+        page.merge_page(PdfReader(BytesIO(layer)).pages[0])
         writer = PdfWriter()
         writer.add_page(page)
         writer.add_metadata(
