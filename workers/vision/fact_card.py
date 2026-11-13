@@ -1,7 +1,7 @@
 """A: 비전 분석 결과와 VLM 답을 교차 확인해 미확정 사실 카드(내부 한국어 칸)를 만든다.
 
 흐름: extract_fact_card_sync → 사진·질문(prompts.py) → VLM(vlm.py) → 모델별 의견 모으기 →
-assemble_card(값 고르기·장소 정리·확인 표시). 팀 계약 v1(영어 12칸)으로는 contract.py가 바꾼다.
+assemble_card(값 고르기·장소 정리·확인 표시). 팀 계약 v1(영어 17칸)으로는 contract.py가 바꾼다.
 카드 칸·확인 표시 규칙: docs/contracts/fact-card-v1.md.
 - detections가 없으면 VLM 단독으로 동작한다.
 """

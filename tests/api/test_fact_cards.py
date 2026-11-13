@@ -285,3 +285,32 @@ def test_patch_route_accepts_value_only_and_full_field(repo, monkeypatch):
     assert out["fields"]["narrative"]["value"] == "담당자가 고친 설명"
     assert "eval" in out["fields"]["location_type"]["vision_detail"] and out["parties"]
     app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("signal_A", "flashing_yellow"), ("collision_signal_B", "flashing_red"),
+     ("collision_signal_A", "red"), ("lane_marking_A", "left_only"),
+     ("lane_marking_B", "straight_left"), ("unprotected_left_sign", True),
+     ("unprotected_left_sign", False)],
+)
+def test_patch_accepts_new_manual_fields(repo, key, value):
+    """11/13 추가 칸(충돌 시점 신호·차로 노면표시·비보호 좌회전 표지·점멸 신호)을 넣는다."""
+    saved(repo)
+    out = run(facts.patch_fact_card(ACTOR, CASE, patch(1, {key: value})))
+    f = out["fields"][key]
+    assert f["value"] == value and f["verification_status"] == "human_confirmed"
+    if key != "signal_A":  # 담당자 입력 칸은 모델 값이 없다
+        assert f["model_value"] is None and f["source"] == "manual"
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("lane_marking_A", "solid"), ("collision_signal_A", "flashing"),
+     ("unprotected_left_sign", "true"), ("unprotected_left_sign", 1)],
+)
+def test_patch_rejects_bad_manual_values(repo, key, value):
+    saved(repo)
+    with pytest.raises(ApiException) as e:
+        run(facts.patch_fact_card(ACTOR, CASE, patch(1, {key: value})))
+    assert error(e) == (422, "invalid_fact_value")

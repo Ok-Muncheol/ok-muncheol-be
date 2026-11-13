@@ -15,7 +15,7 @@
                광학 흐름 → YOLO 상대 차·박스 판단 → 움직임 분류기·장면 → 영상 모델 v2·v3·j3·유형
                판단부
                → VLM → 카드 조립(확인 표시 규칙)
-3. v1 변환     workers/vision/contract.py (영어 12칸, 자른 구간만큼 시각을 원본 기준으로 되돌림)
+3. v1 변환     workers/vision/contract.py (영어 17칸, 자른 구간만큼 시각을 원본 기준으로 되돌림)
 
 결과 카드의 model_info.pipeline에 영상 정보·자른 구간·모델 파일·단계별 시간을 남긴다.
 """
