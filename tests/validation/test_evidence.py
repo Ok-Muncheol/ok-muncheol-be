@@ -3,6 +3,7 @@
 import pytest
 
 from app.validation.evidence import (
+    NO_ACCIDENT_DATE,
     PERIOD_UNKNOWN_WARNING,
     PUBLISHED_SAME_MONTH_WARNING,
     check_evidence,
@@ -102,3 +103,11 @@ def test_missing_published_month_changes_nothing():
     cands[0]["effective_from"], cands[0]["published_month"] = "", None
     check = check_evidence(selection(cands[0]), cands, "2001-01-01")
     assert check == {"layer": "evidence", "passed": True, "reasons": [UNKNOWN_START]}
+
+
+@pytest.mark.parametrize("accident_date", [None, ""])
+def test_missing_accident_date_blocks_without_crashing(accident_date):
+    # 카드·사건 모두 사고 일자가 없으면 적용판 유효기간을 볼 수 없어 막는다(예전에는 None에서 예외)
+    cands = candidates()
+    check = check_evidence(selection(cands[0]), cands, accident_date)
+    assert check["passed"] is False and NO_ACCIDENT_DATE in check["reasons"]

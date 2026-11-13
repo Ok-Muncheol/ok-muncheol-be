@@ -169,6 +169,17 @@ def test_draft_is_stored_and_requests_are_idempotent(service):
         == (422, "idempotency_key_reused")
 
 
+def test_card_without_date_is_judged_with_the_case_accident_day(service):
+    # 영상 카드는 사고 일자 없이 온다. 사건의 사고 일시(UTC 15:30 = KST 다음 날)를 날짜로 쓴다
+    case_id = new_case(service.url)
+    with psycopg.connect(service.url, autocommit=True) as conn:
+        conn.execute("update public.cases set accident_date = %s where id = %s",
+                     ("2026-10-31T15:30:00Z", case_id))
+    view = start(ACTOR, {**card(case_id=case_id), "accident_date": None}, "key-date-0001")
+    assert (view["status"], view["report_version"]) == ("completed", 1)
+    assert service.retrieve.await_args.args[0]["accident_date"] == "2026-11-01"
+
+
 def test_unknown_answer_resumes_the_same_run_to_deferred(service):
     case_id = new_case(service.url)
     view = start(ACTOR, unconfirmed(case_id, "movement_B"), "key-0000003")
