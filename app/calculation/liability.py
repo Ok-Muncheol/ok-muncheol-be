@@ -7,7 +7,9 @@
 
 계산하지 않고 "확인 필요"로만 표시: 전손(교환가액)·수리비 한도, 시세하락손해, 대차료·휴차료,
 휴업손해, 간병비·그 밖의 손해배상금, 후유장애·사망, 최종 진단, 12~14급 차량운전자 특례.
-우리 과실 0%와 2022-12-31 이전 사고의 대인은 금액 없이 담당자 확인(needs_review)으로 낸다.
+우리 과실 0%, 2022-12-31 이전 사고의 대인, 12~14급 치료관계비가 대인Ⅰ 한도를 넘는 경우(차량운전자
+특례가 실제로 걸림, 운전자가 아니라고 입력하면 계산)는 금액 없이 담당자 확인(needs_review)으로 낸다.
+시세하락 구간(출고 후 N년)은 달력 기준(사고일 <= 출고일 + N년)으로 본다.
 
 숫자 자료(급수별 대인Ⅰ 한도·위자료, 시세하락 조건)는 policy_terms의 schedule_value 레코드에서
 읽는다. calculation_ready가 true인(PDF와 대조 검수한) 값만 쓰고, 없으면 금액을 내지 않는다.
@@ -53,6 +55,9 @@ NOTICE = "1차 판정 초안 — 확실히 계산되는 항목만 계산했고, 
 NO_DATE = "사고일 미입력 — 최신 판 기준으로 가정"
 ZERO_FAULT = "우리 과실 0% — 배상책임 여부를 담당자가 먼저 확인"
 OLD_OFFSET = "2022-12-31 이전 사고 — 별표3 이전 판(대인Ⅰ 한도 문구 없음) 기준이라 담당자 확인"
+MINOR_DRIVER_HOLD = (
+    "12~14급 차량운전자 특례 확인 — 치료관계비가 대인Ⅰ 한도를 넘음(별표3 1.가.(3) 단서)"
+)
 
 
 def _flag(key: str, label: str, detail: str, *clauses: str) -> LiabilityFlag:
@@ -122,8 +127,21 @@ class ScheduleValues:
 
 
 def _years_between(start: str, end: str) -> float:
+    """표시용 대략 연수. 구간 판정은 _within_years(달력 기준)로 한다."""
     a, b = date.fromisoformat(start), date.fromisoformat(end)
     return (b - a).days / 365.25
+
+
+def _add_years(d: date, years: int) -> date:
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:  # 2월 29일 출고 → 그해 2월 28일
+        return d.replace(year=d.year + years, day=28)
+
+
+def _within_years(release: str, accident: str, years: int) -> bool:
+    """사고일이 출고 후 years년 이하인가(달력 기준: 사고일 <= 출고일 + years년)."""
+    return date.fromisoformat(accident) <= _add_years(date.fromisoformat(release), years)
 
 
 def _depreciation_flag(
@@ -151,9 +169,11 @@ def _depreciation_flag(
         if r.get("value_type") == VT_DEPRECIATION and r.get("calculation_ready") is True
     ]
     for r in rules:
-        # 구간은 "출고 후 lo년 초과 hi년 이하"(첫 구간은 lo=0이라 0년부터)
-        lo, hi = r.get("age_years_min") or 0, r.get("age_years_max")
-        in_band = (age > lo or lo == 0) and (hi is None or age <= hi)
+        # 구간은 "출고 후 lo년 초과 hi년 이하"(첫 구간은 lo=0이라 0년부터). 달력 기준
+        lo, hi = int(r.get("age_years_min") or 0), r.get("age_years_max")
+        in_band = (lo == 0 or not _within_years(release, accident_date, lo)) and (
+            hi is None or _within_years(release, accident_date, int(hi))
+        )
         ratio = r.get("repair_ratio_percent_min")
         if in_band and ratio is not None and repair * 100 > value * ratio:
             return _flag(
@@ -166,7 +186,8 @@ def _depreciation_flag(
             )
     if rules:
         return None  # 검수한 조건에 맞지 않음 → 대상 아님(표시 없음)
-    if age <= 5 and repair * 5 > value:  # 조건 레코드 전: 원문 문턱(5년·20%)으로 표시만
+    # 조건 레코드 전: 원문 문턱(5년·20%)으로 표시만
+    if _within_years(release, accident_date, 5) and repair * 5 > value:
         return _flag(
             "depreciation",
             label,
@@ -373,8 +394,11 @@ def calculate_injury(
     out["clause_ids"] += [str(consolation_row["record_id"]), str(limit_row["record_id"])]
     out["clause_ids"] += values.ready_ids(VT_OFFSET, accident_date or OFFSET_2023)
     old = accident_date is not None and accident_date < OFFSET_2023
-    if insured_fault == 0 or old:
-        out["reasons"].append(ZERO_FAULT if insured_fault == 0 else OLD_OFFSET)
+    # 12~14급 차량운전자 특례는 치료관계비가 대인Ⅰ 한도를 넘을 때만 금액이 달라진다 → 그때만 보류
+    minor_driver = grade >= 12 and treatment > limit and p.get("is_driver") is not False  # type: ignore[operator]
+    if insured_fault == 0 or old or minor_driver:
+        why = ZERO_FAULT if insured_fault == 0 else OLD_OFFSET if old else MINOR_DRIVER_HOLD
+        out["reasons"].append(why)
         out.update(status="needs_review", consolation=consolation, bodily_1_limit=limit)
         return out
     damage = treatment + consolation  # type: ignore[operator]

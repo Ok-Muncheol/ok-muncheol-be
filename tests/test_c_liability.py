@@ -55,6 +55,15 @@ DEPRECIATION = [
         "percent": 15,
         "calculation_ready": True,
     },
+    {
+        "record_id": "synthetic:dep:3",
+        "value_type": VT_DEPRECIATION,
+        "age_years_min": 2,
+        "age_years_max": 5,
+        "repair_ratio_percent_min": 20,
+        "percent": 10,
+        "calculation_ready": True,
+    },
 ]
 
 
@@ -136,6 +145,38 @@ class PropertyTest(unittest.TestCase):
             values=ScheduleValues(DEPRECIATION),
         )
         self.assertNotIn("depreciation", keys(r))
+
+    def test_depreciation_band_uses_calendar_years(self):
+        # 윤일(2024-02-29)이 낀 기간: 일수 / 365.25로는 정확히 1·2년이 다음 구간으로 넘어간다
+        cases = [
+            ("2023-06-01", "2024-06-01", "synthetic:dep:1"),  # 정확히 1년 → 1년 이하
+            ("2023-06-01", "2024-06-02", "synthetic:dep:2"),
+            ("2022-06-01", "2024-06-01", "synthetic:dep:2"),  # 정확히 2년 → 2년 이하
+            ("2022-06-01", "2024-06-02", "synthetic:dep:3"),
+            ("2019-06-01", "2024-06-01", "synthetic:dep:3"),  # 정확히 5년 → 5년 이하
+            ("2019-06-01", "2024-06-02", None),  # 5년 초과 → 대상 아님
+            ("2024-02-29", "2025-02-28", "synthetic:dep:1"),  # 2월 29일 출고 + 1년 = 2월 28일
+            ("2024-02-29", "2025-03-01", "synthetic:dep:2"),
+        ]
+        for release, accident, record in cases:
+            with self.subTest(release=release, accident=accident):
+                inp = {
+                    "counterparty_id": "cp",
+                    "vehicle_value": 10_000_000,
+                    "release_date": release,
+                }
+                r = calculate_property(
+                    [estimate(3_000_000)],
+                    inp,
+                    100,
+                    accident_date=accident,
+                    values=ScheduleValues(DEPRECIATION),
+                )
+                dep = [f for f in r["flags"] if f["key"] == "depreciation"]
+                if record is None:
+                    self.assertEqual(dep, [])
+                else:
+                    self.assertIn(record, dep[0]["clause_ids"])
 
     def test_zero_fault_needs_review_without_amount(self):
         r = calculate_property([estimate(100_000)], {"counterparty_id": "cp"}, 0)
@@ -224,6 +265,32 @@ class InjuryTest(unittest.TestCase):
         )
         self.assertIsNone(r["bodily_1"])
         self.assertTrue(any("검수 전 값만 있음" in x for x in r["reasons"]))
+
+    def test_minor_driver_holds_only_when_treatment_exceeds_limit(self):
+        # 14급 대인Ⅰ 한도 300,000(합성). 넘으면 차량운전자 특례로 금액 보류, 아니면 계산
+        over = calculate_injury(
+            self.person(grade=14, treatment=400_000),
+            50,
+            accident_date="2026-11-01",
+            values=ScheduleValues(VALUES),
+        )
+        self.assertEqual((over["status"], over["bodily_1"]), ("needs_review", None))
+        self.assertTrue(any("차량운전자 특례" in x for x in over["reasons"]))
+        self.assertEqual(over["bodily_1_limit"], 300_000)
+        under = calculate_injury(
+            self.person(grade=14, treatment=300_000),
+            50,
+            accident_date="2026-11-01",
+            values=ScheduleValues(VALUES),
+        )
+        self.assertEqual(under["status"], "draft")
+        passenger = calculate_injury(
+            self.person(grade=14, treatment=400_000, is_driver=False),
+            50,
+            accident_date="2026-11-01",
+            values=ScheduleValues(VALUES),
+        )
+        self.assertEqual(passenger["status"], "draft")
 
     def test_zero_fault_needs_review(self):
         r = calculate_injury(
