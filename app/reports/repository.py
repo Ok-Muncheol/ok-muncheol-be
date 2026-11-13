@@ -47,7 +47,8 @@ class _Saved:
     reports: int = 0
     documents: int = 0
     packages: int = 0
-    approvals: list[str | None] = field(default_factory=list)
+    # 보고서 행에서 확인 완료 때 바뀌는 칸(approval_status, claim_package). 바뀐 행만 다시 쓴다
+    approvals: list[tuple[object, object]] = field(default_factory=list)
     inputs: tuple[dict[str, object], dict[str, object]] | None = None
 
 
@@ -107,6 +108,11 @@ def _case_uuid(case_id: str) -> str:
         return str(uuid.UUID(str(case_id)))
     except ValueError as exc:
         raise RecordNotFound("사건이 없습니다") from exc
+
+
+def _approval(report: ReviewReport) -> tuple[object, object]:
+    """확인 완료가 보고서에 남기는 칸. 둘 중 하나라도 바뀌면 그 보고서 행을 다시 쓴다."""
+    return report["approval_status"], dict(report.get("claim_package") or {})
 
 
 def _inputs(rec: CaseRecord) -> tuple[dict[str, object], dict[str, object]]:
@@ -177,7 +183,7 @@ class PostgresReportRepository:
             reports=len(rec.reports),
             documents=len(rec.documents),
             packages=len(rec.packages),
-            approvals=[r["approval_status"] for r in rec.reports],
+            approvals=[_approval(r) for r in rec.reports],
             inputs=_inputs(rec) if inputs else None,
         )
         return rec
@@ -206,7 +212,7 @@ class PostgresReportRepository:
                         ),
                     )
                 for i, report in enumerate(rec.reports[: saved.reports]):
-                    if report["approval_status"] != saved.approvals[i]:
+                    if _approval(report) != saved.approvals[i]:
                         await conn.execute(
                             "update public.review_reports set report = %s"
                             " where case_id = %s and report_version = %s",
@@ -248,7 +254,7 @@ class PostgresReportRepository:
             reports=len(rec.reports),
             documents=len(rec.documents),
             packages=len(rec.packages),
-            approvals=[r["approval_status"] for r in rec.reports],
+            approvals=[_approval(r) for r in rec.reports],
             inputs=_inputs(rec),
         )
 

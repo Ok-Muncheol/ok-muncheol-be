@@ -15,10 +15,13 @@
   상법 제682조는 항상).
   발췌·페이지·산정 근거(제24조·별표)는 넣지 않는다.
   증빙이 없으면 경고만.
-- 같은 입력이면 같은 idempotency_key가 나온다(중복 생성 방지).
+- 같은 청구 내용이면 같은 idempotency_key가 나온다(중복 생성 방지). 키는 청구서 내용에서 버전·확인
+  기록 칸(보고서 버전, 청구 번호, 증빙의 '관련 구상 건', 확인자·시각)을 뺀 해시다(claim_content).
+  그래서 대물·대인 입력처럼 8번만 바뀐 새 보고서 버전을 다시 확인해도 같은 청구서(C1)를 쓴다(#194).
 """
 
 import hashlib
+import json
 from datetime import UTC, datetime
 
 from app.calculation.insurance import ZERO_PAYMENT_REASON, insured_and_counterparty_side
@@ -60,6 +63,34 @@ def idempotency_key(case_id: str, stage: str, version: int, *parts: str) -> str:
     return hashlib.sha256("|".join([case_id, stage, str(version), *parts]).encode()).hexdigest()[
         :24
     ]
+
+
+# 청구서에서 버전·확인 기록으로 정해지는 칸. 청구 내용 비교에서 뺀다.
+_NOT_CONTENT = (
+    "package_version", "created_at", "report_version", "confirmed_by", "confirmed_at",
+    "idempotency_key",
+)
+
+
+def claim_content(pkg: ClaimPackage) -> dict[str, object]:
+    """청구 내용: 금액·과실·상대 정보·근거서·증빙·기본 가정. 버전에서 나오는 칸은 뺀다.
+
+    예전 키(보고서 버전 포함)로 만든 청구서도 이 값으로 비교할 수 있다.
+    """
+    out: dict[str, object] = {k: v for k, v in pkg.items() if k not in _NOT_CONTENT}
+    out["basis"] = {k: v for k, v in pkg["basis"].items() if k != "보고서 버전"}
+    out["rows"] = [{k: v for k, v in r.items() if k != "claim_no"} for r in pkg["rows"]]
+    out["evidence"] = [
+        {k: v for k, v in e.items() if k != "관련 구상 건"} for e in pkg["evidence"]
+    ]
+    out["missing_evidence"] = len(pkg["missing_evidence"])  # 원소는 청구 번호뿐
+    return out
+
+
+def claim_content_key(pkg: ClaimPackage) -> str:
+    body = json.dumps(claim_content(pkg), ensure_ascii=False, sort_keys=True, default=str)
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    return idempotency_key(str(pkg["case_id"]), "claim_package", 0, digest)
 
 
 def counterparty_fault_of(report: ReviewReport) -> int | None:
@@ -200,16 +231,6 @@ def build_claim_package(
         for e in evidence
     ]
     is_example = str(calc["rule_version"]).startswith("example-")
-    cp_info = counterparty or {}
-    key = idempotency_key(
-        case_id,
-        "claim_package",
-        int(r["versions"]["report_version"] or 0),
-        str(cp),
-        str(payment),
-        ",".join(sorted(str(e["document_id"]) for e in evidence)),
-        "|".join(str(cp_info.get(k)) for k in ("vehicle_no", "insurer", "claim_no")),
-    )
     amounts: ClaimAmounts = {
         "planned": row["planned_share"],
         "claimed": row["planned_share"],
@@ -218,7 +239,7 @@ def build_claim_package(
     for k in ("agreed_counterparty_fault", "fault_change_reason"):
         if k in recovery:
             amounts[k] = recovery[k]  # type: ignore[literal-required]
-    return {
+    pkg: ClaimPackage = {
         "case_id": case_id,
         "package_version": package_version,
         "created_at": now or datetime.now(UTC).isoformat(timespec="seconds"),
@@ -235,8 +256,10 @@ def build_claim_package(
         "missing_evidence": [] if evidence else [claim_no],
         "confirmed_by": confirmed_by,
         "confirmed_at": now or datetime.now(UTC).isoformat(timespec="seconds"),
-        "idempotency_key": key,
+        "idempotency_key": "",  # 아래에서 청구 내용으로 채운다
         "rule_version": calc["rule_version"],
         "rule_notice": clause_notice(True, report_clauses_connected(r)) if is_example else None,
         "assumptions": list(calc.get("assumptions") or []),
     }
+    pkg["idempotency_key"] = claim_content_key(pkg)
+    return pkg

@@ -5,7 +5,7 @@ from app.schemas.chart_scope import FIELD_OPTIONS, REASON_NO_REVIEWED_CHART
 from app.schemas.common import ApiError, TaskView, VersionRef
 from app.schemas.facts import FactCard, FactField
 from app.schemas.judgment import ConfirmationQuestion, JudgmentResult, JudgmentRunView, QaAnswer
-from app.schemas.reports import ReviewReport
+from app.schemas.reports import ClaimPackage, ConfirmResult, ReviewReport
 
 
 def contract_examples() -> dict[str, object]:
@@ -95,6 +95,35 @@ def contract_examples() -> dict[str, object]:
         "tool_calls": [{"name": "get_judgment_log", "ok": True}, {"name": "simulate", "ok": True}],
         "fact_change_hint": FACT_CHANGE_HINT,
     }
+    # 확인 완료(POST /cases/{id}/reports/{version}/confirm): 청구 내용이 v2 청구서와 같아 C1을
+    # 그대로 쓴 v3 확인(#194). 청구서 본문은 GET .../claim과 같은 모양이라 칸만 줄여 보인다
+    claim_c1: ClaimPackage = {
+        "case_id": card["case_id"], "package_version": 1, "created_at": "2026-11-05T10:00:00+09:00",
+        "report_version": 2, "counterparty": None, "counterparty_fault": 70,
+        "fault_change_reason": None,
+        "rows": [{
+            "claim_no": f"{card['case_id']}-C1", "insured_party_id": "P1",
+            "coverage": "자기차량손해",
+            "insurance_payment": 0, "counterparty_fault": 70, "planned_share": 0,
+            "evidence_count": 0,
+        }],
+        "amounts": {"planned": 0, "claimed": 0, "recovered": None},
+        "basis": {"보고서 버전": 2}, "evidence": [], "missing_evidence": [f"{card['case_id']}-C1"],
+        "confirmed_by": "synthetic-reviewer", "confirmed_at": "2026-11-05T10:00:00+09:00",
+        "idempotency_key": "synthetic-key", "rule_version": "synthetic-rule",
+        "rule_notice": None, "assumptions": [],
+    }
+    confirm_reused: ConfirmResult = {
+        "report": {
+            **report, "versions": {**versions, "report_version": 3},
+            "approval_status": "approved", "approved_by": "synthetic-reviewer",
+            "approved_at": "2026-11-05T11:00:00+09:00",
+            "claim_package": {"package_version": 1, "report_version": 2},
+        },
+        "package": claim_c1, "html": "<!-- 합성 견본: 청구서 HTML -->",
+        "claim_blocked_reason": None, "claim_blocked_reasons": [],
+        "claim_reused": True, "claim_reused_from": {"package_version": 1, "report_version": 2},
+    }
     return {
         "synthetic": True, "contract_version": "draft-1",
         "note": "필드 모양만 보여 주는 합성 양식. 실행 가능한 시나리오·검수 정답이 아님.",
@@ -102,4 +131,5 @@ def contract_examples() -> dict[str, object]:
         "question": question, "judgment_deferred": judgment,
         "report_deferred": report, "task_failed": task, "version_conflict": conflict,
         "judgment_run_waiting": run_waiting, "qa_answer": qa_answer,
+        "confirm_claim_reused": confirm_reused,
     }

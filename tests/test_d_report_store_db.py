@@ -208,6 +208,75 @@ def test_agreed_fault_and_document_order_persist(database_url, store):
     assert [r["versions"]["report_version"] for r in rec.reports] == [1, 2, 3]
 
 
+def test_claim_c1_reused_across_report_versions_persists(database_url, store):
+    """#194: 대물·대인 입력만 바뀐 v3을 확인해도 C1(v2 기준)을 쓰고, 그 기록이 DB에 남는다.
+
+    확인 상태가 그대로인 채 쓰는 청구서만 바뀌어도(C1 → C2 → C1) 보고서 행을 다시 쓴다.
+    """
+    case_id = new_case(database_url)
+    card, result = judged(database_url, case_id)
+    run(api.submit_judgment(ACTOR, card, result))
+    store()
+    run(api.add_documents(ACTOR, case_id, [fx.contract(), fx.estimate(), *fx.evidence()], NO_FLAGS))
+    store()
+    c1 = run(api.confirm_report(ACTOR, case_id, 2, counterparty=fx.counterparty()))["package"]
+    person = {
+        "kind": "injured_person", "document_id": "synthetic-inj-1", "person_id": "synthetic-p",
+        "grade": 7, "treatment_cost": 3_000_000, "received_at": "2026-10-26T10:00:00+09:00",
+    }
+    store()
+    v3 = run(api.add_documents(ACTOR, case_id, [person]))
+    assert v3["versions"]["report_version"] == 3
+
+    def confirm3(counterparty):
+        store()
+        return run(api.confirm_report(ACTOR, case_id, 3, counterparty=counterparty))
+
+    def claim3():
+        store()
+        return run(api.get_claim(ACTOR, case_id, 3))["package"]
+
+    def packages():
+        return rows(
+            database_url,
+            "select package_version, report_version from public.claim_packages"
+            " where case_id = %s order by package_version",
+            case_id,
+        )
+
+    def saved_ref():
+        return rows(
+            database_url,
+            "select approval_status, report->'claim_package' as ref from public.review_reports"
+            " where case_id = %s and report_version = 3",
+            case_id,
+        )[0]
+
+    out = confirm3(fx.counterparty())
+    assert (out["claim_reused"], out["claim_reused_from"]) == (
+        True, {"package_version": 1, "report_version": 2},
+    )
+    assert claim3() == c1
+    assert packages() == [{"package_version": 1, "report_version": 2}]
+    assert saved_ref() == {
+        "approval_status": "approved", "ref": {"package_version": 1, "report_version": 2},
+    }
+
+    out = confirm3({**fx.counterparty(), "claim_no": "synthetic-cp-999"})  # 상대 정보 바뀜 → C2
+    assert (out["package"]["package_version"], out["claim_reused"]) == (2, False)
+    assert claim3()["package_version"] == 2
+    assert saved_ref()["ref"] == {"package_version": 2, "report_version": 3}
+
+    out = confirm3(fx.counterparty())  # 다시 C1과 같은 내용 → C1
+    assert out["package"] == c1 and out["claim_reused"] is True
+    assert claim3() == c1
+    assert saved_ref()["ref"] == {"package_version": 1, "report_version": 2}
+    assert packages() == [
+        {"package_version": 1, "report_version": 2},
+        {"package_version": 2, "report_version": 3},
+    ]
+
+
 def test_liability_inputs_persist(database_url, store):
     """C: 대물·대인 입력(injured_person·property_damage_input)이 kind 제약을 지나 저장·복원된다."""
     case_id = new_case(database_url)

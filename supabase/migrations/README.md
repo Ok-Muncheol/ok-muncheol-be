@@ -70,7 +70,7 @@ Realtime publication을 흉내 내고, `tests/migrations/behavior.sql`이 RLS·�
 ## 적용
 
 `main`에 머지된 파일만 공용 Supabase DB에 파일명 순으로 적용한다. 대시보드 SQL Editor 또는
-`psql "$DATABASE_URL" --single-transaction -f <파일>`. 적용은 사람이 하고 ship은 안내만 한다(`automation/pipeline.md` 「DB 마이그레이션 원칙」).
+`psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f <파일>`(`ON_ERROR_STOP`이 없으면 psql이 오류 뒤에도 다음 문장을 계속 읽어 실패를 놓칠 수 있다). 적용은 사람이 하고 ship은 안내만 한다(`automation/pipeline.md` 「DB 마이그레이션 원칙」).
 파괴적 변경은 2단계로 나눈다. 외래키를 더하는 파일은 적용 전에 짝이 없는 행이 있는지 먼저 센다. 하나라도 있으면 적용이 실패한다.
 
 LangGraph 체크포인트 테이블은 마이그레이션 뒤 한 번 `.venv/bin/python scripts/setup_checkpointer.py`로 `langgraph` 스키마에

@@ -46,7 +46,12 @@ from app.calculation.exclusions import (
 from app.calculation.insurance import calculate_insurance
 from app.calculation.liability import liability_from_report
 from app.calculation.rules import DEFAULT_RULES, RuleSet
-from app.claims.package import ClaimPackageBlocked, build_claim_package, compute_recovery
+from app.claims.package import (
+    ClaimPackageBlocked,
+    build_claim_package,
+    claim_content,
+    compute_recovery,
+)
 from app.reports.assembler import assemble_review
 from app.reports.clauses import ReportClauses, fetch_report_clauses, select_report_clauses
 from app.reports.render import package_html
@@ -72,6 +77,7 @@ from app.retrieval.loader import CorpusDataError, build_index, read_corpus
 from app.schemas.facts import FactCard
 from app.schemas.judgment import JudgmentResult
 from app.schemas.reports import (
+    ClaimPackageRef,
     ClaimResult,
     ConfirmResult,
     CounterpartyInfo,
@@ -658,9 +664,14 @@ async def confirm_report(
     아님(ConfirmBlocked) 두 가지뿐.
     확인 기록을 남기고, 청구서 조건이 맞으면 구상 청구 패키지를 만든다. 아니면 package/html=None과
     사유를 돌려준다.
-    결과: {report, package, html, claim_blocked_reasons, claim_blocked_reason}.
-    claim_blocked_reasons는 해당 사유 전부, claim_blocked_reason은 그 첫 번째 값(없으면 None).
-    같은 입력으로 다시 확인하면 같은 패키지를 돌려준다."""
+    결과: {report, package, html, claim_blocked_reasons, claim_blocked_reason, claim_reused,
+    claim_reused_from}. claim_blocked_reasons는 해당 사유 전부, claim_blocked_reason은 그 첫 번째
+    값(없으면 None).
+    청구 내용(claim_content: 금액·과실·상대 정보·근거서·증빙)이 같은 청구서가 이미 있으면 새로
+    만들지 않고 그 청구서를 돌려준다. 같은 입력으로 다시 확인할 때, 그리고 대물·대인 입력처럼
+    8번만 바뀐 새 보고서 버전을 확인할 때다(C1 유지, #194). 앞 버전의 청구서를 쓰면
+    claim_reused=True이고, 보고서 JSON의 claim_package에 그 청구서를 적는다(get_claim이 읽는다).
+    외래키는 처음 만든 버전 그대로다."""
     rec = await services.repo.get(actor_id, case_id)
     report = rec.report(version)
     if report is not rec.latest:
@@ -688,29 +699,55 @@ async def confirm_report(
             "html": None,
             "claim_blocked_reasons": list(exc.reasons),
             "claim_blocked_reason": exc.reasons[0],
+            "claim_reused": False,
+            "claim_reused_from": None,
         }
     except ValueError as exc:  # 협의 과실 변경 이유 없음 등 패키지 입력 오류
         raise AgreedFaultInvalid(str(exc)) from exc
-    same = next((p for p in rec.packages if p["idempotency_key"] == pkg["idempotency_key"]), None)
+    same = next(
+        (p for p in reversed(rec.packages) if p["idempotency_key"] == pkg["idempotency_key"]),
+        None,
+    )
+    if same is None:  # 예전 키(보고서 버전 포함)로 만든 청구서는 내용을 직접 비교한다
+        content = claim_content(pkg)
+        same = next((p for p in reversed(rec.packages) if claim_content(p) == content), None)
     if same is None:
         rec.packages.append(pkg)
-    await services.repo.save(rec, actor_id)
     out = same or pkg
+    ref: ClaimPackageRef = {
+        "package_version": out["package_version"],
+        "report_version": out["report_version"],
+    }
+    report["claim_package"] = ref
+    await services.repo.save(rec, actor_id)
+    reused = out["report_version"] != version
     return {
         "report": report,
         "package": out,
         "html": package_html(out),
         "claim_blocked_reasons": [],
         "claim_blocked_reason": None,
+        "claim_reused": reused,
+        "claim_reused_from": ref if reused else None,
     }
 
 
 @_api_boundary
 async def get_claim(actor_id: str, case_id: str, version: int) -> ClaimResult:
-    """그 보고서 버전으로 만든 구상 청구서(confirm_report가 만든 것). 버전·청구서가 없으면 404."""
+    """그 보고서 버전을 확인 완료할 때 쓴 구상 청구서. 버전·청구서가 없으면 404.
+
+    청구 내용이 같아 앞 버전의 청구서를 그대로 썼으면 그 청구서를 돌려준다(이때
+    package.report_version이 요청 버전보다 작다, #194). 예전 보고서(claim_package 기록 없음)는 그
+    버전으로 만든 청구서를 찾는다.
+    """
     rec = await services.repo.get(actor_id, case_id)
-    rec.report(version)  # 버전이 없으면 RecordNotFound
-    pkg = next((p for p in reversed(rec.packages) if p["report_version"] == version), None)
+    report = rec.report(version)  # 버전이 없으면 RecordNotFound
+    ref = report.get("claim_package")
+    pkg = (
+        next((p for p in rec.packages if p["package_version"] == ref["package_version"]), None)
+        if ref
+        else next((p for p in reversed(rec.packages) if p["report_version"] == version), None)
+    )
     if pkg is None:
         raise RecordNotFound(f"보고서 v{version}으로 만든 청구서가 없습니다")
     return {"package": pkg, "html": package_html(pkg)}
