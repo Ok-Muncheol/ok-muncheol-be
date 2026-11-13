@@ -480,4 +480,61 @@ select test_helpers.expect_error(null, null, $sql$
   delete from public.fact_cards where case_id = '10000000-0000-0000-0000-000000000001' and version = 2
 $sql$, '23503', '판단·응답이 가리킨 카드 버전은 지울 수 없다');
 
+-- 11. 대인 담당자(cases.injury_assignee_id)는 대물 담당자와 같은 행을 본다(20261113190000)
+-- 사용자 C 00000000-0000-0000-0000-00000000000c — 사건 1의 대인 담당자로 넣었다가 뺀다
+insert into auth.users (id) values ('00000000-0000-0000-0000-00000000000c');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.cases$sql$),
+  0, '배정 전: C는 사건을 못 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.judgment_runs$sql$),
+  0, '배정 전: C는 판단을 못 본다');
+select test_helpers.expect_error(null, null, $sql$
+  update public.cases set injury_assignee_id = '00000000-0000-0000-0000-0000000000dd'
+  where id = '10000000-0000-0000-0000-000000000001'
+$sql$, '23503', '대인 담당자는 실제 계정이어야 한다');
+update public.cases set injury_assignee_id = '00000000-0000-0000-0000-00000000000c' where id = '10000000-0000-0000-0000-000000000001';
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.cases$sql$),
+  1, '대인 담당자는 담당 사건 1건만 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.cases where id = '10000000-0000-0000-0000-000000000002'$sql$),
+  0, '대인 담당자도 남의 사건은 못 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from (select private.can_access_case('10000000-0000-0000-0000-000000000001') as ok) t where ok$sql$),
+  1, '접근 함수: 대인 담당자의 담당 사건');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from (select private.can_access_case('10000000-0000-0000-0000-000000000002') as ok) t where ok$sql$),
+  0, '접근 함수: 대인 담당자에게도 남의 사건');
+-- 사건 단위 테이블은 모두 접근 함수로 판정하므로 대물 담당자(A)가 보는 행을 그대로 본다
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.judgment_runs$sql$),
+  (select count(*) from public.judgment_runs where case_id = '10000000-0000-0000-0000-000000000001'),
+  '대인 담당자는 담당 사건의 판단을 모두 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.fact_cards$sql$),
+  (select count(*) from public.fact_cards where case_id = '10000000-0000-0000-0000-000000000001'),
+  '대인 담당자는 담당 사건의 사실 카드를 모두 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.review_reports$sql$),
+  1, '대인 담당자는 담당 사건의 보고서를 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000a',
+  $sql$select count(*) from public.cases$sql$),
+  1, '대물 담당자는 그대로 자기 사건을 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000b',
+  $sql$select count(*) from public.cases where id = '10000000-0000-0000-0000-000000000001'$sql$),
+  0, '둘 다 아닌 사람은 여전히 못 본다');
+-- 배정·이관(담당자 칼럼 변경)은 BE만 한다
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000c', $sql$
+  update public.cases set injury_assignee_id = null where id = '10000000-0000-0000-0000-000000000001'
+$sql$, '42501', '브라우저는 담당자를 바꾸지 못한다');
+-- 대인 담당자에서 빼면(이관) 바로 접근이 끊긴다
+update public.cases set injury_assignee_id = null where id = '10000000-0000-0000-0000-000000000001';
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.cases$sql$),
+  0, '이관 뒤: 이전 대인 담당자는 사건을 못 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '00000000-0000-0000-0000-00000000000c',
+  $sql$select count(*) from public.judgment_runs$sql$),
+  0, '이관 뒤: 이전 대인 담당자는 판단을 못 본다');
+
 select 'MIGRATION_BEHAVIOR_OK' as result;

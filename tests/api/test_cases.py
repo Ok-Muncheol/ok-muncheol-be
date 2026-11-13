@@ -2,7 +2,7 @@
 
 DB 없이 메모리 저장소(cases.configure)로 확인한다. SUMMARY_SQL은 Docker Postgres로 따로 확인했다.
 - 접수: 차대차 2대만(422 case_out_of_scope), input_path·날짜 검사, 응답은 CaseSummary(stage=intake)
-- 조회: 다른 담당자 403, 없는 사건 404, 목록은 자기 사건만
+- 조회: 다른 담당자 403, 없는 사건 404, 목록은 자기 사건만(대물·대인 담당자 모두 자기 사건이다)
 - 단계: 보고서 → report, 최신 카드의 판단 → judgment, 카드 → facts, 없으면 intake
 """
 
@@ -17,6 +17,7 @@ from app.api import cases
 from app.api.errors import ApiException
 
 ACTOR, OTHER = "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
+INJURY = "55555555-5555-5555-5555-555555555555"  # 대인 담당자
 T0 = datetime(2026, 11, 11, 6, 0, tzinfo=UTC)
 
 
@@ -28,6 +29,7 @@ def row(**kw) -> dict:
     """SUMMARY_SQL 한 행. 기본은 산출물 없는 사건."""
     base = {
         "id": "33333333-3333-3333-3333-333333333333", "assignee_id": ACTOR,
+        "injury_assignee_id": None,
         "accident_date": None, "input_path": "video", "created_at": T0, "updated_at": T0,
         "card_version": None, "card_at": None, "judgment_version": None,
         "run_card_version": None, "run_status": None, "judgment_status": None, "run_at": None,
@@ -54,7 +56,8 @@ class MemoryCaseRepo:
     async def summaries(self, *, case_id=None, assignee_id=None):
         if case_id is not None:
             return [self.rows[case_id]] if case_id in self.rows else []
-        return [r for r in self.rows.values() if r["assignee_id"] == assignee_id]
+        return [r for r in self.rows.values()
+                if assignee_id in (r["assignee_id"], r["injury_assignee_id"])]
 
 
 @pytest.fixture
@@ -125,6 +128,19 @@ def test_get_and_list_check_assignee(repo):
     listed = run(cases.list_cases(ACTOR))
     assert [c["case_id"] for c in listed] == [mine["case_id"]]
     assert listed[0]["created_at"] == listed[0]["updated_at"]  # 배정 시각을 함께 준다(+09:00)
+
+
+def test_injury_assignee_gets_and_lists_the_case(repo):
+    """대인 담당자(cases.injury_assignee_id)도 사건을 조회하고 자기 목록에서 본다."""
+    mine = run(cases.create_case(ACTOR, {}))
+    repo.rows[mine["case_id"]]["injury_assignee_id"] = INJURY
+    assert run(cases.get_case(INJURY, mine["case_id"]))["case_id"] == mine["case_id"]
+    assert [c["case_id"] for c in run(cases.list_cases(INJURY))] == [mine["case_id"]]
+    assert [c["case_id"] for c in run(cases.list_cases(ACTOR))] == [mine["case_id"]]
+    with pytest.raises(ApiException) as e:
+        run(cases.get_case(OTHER, mine["case_id"]))
+    assert error(e) == (403, "forbidden")
+    assert run(cases.list_cases(OTHER)) == []
 
 
 # ---------------------------------------------------------------- 단계
