@@ -447,7 +447,10 @@ def liability_body(r: LiabilityResult) -> dict[str, object]:
     p = r["property"]
     body: dict[str, object] = {
         "주의": r["notice"],
-        "우리 과실": None if r["insured_fault"] is None else f"{r['insured_fault']}%",
+        "우리 과실": None
+        if r["insured_fault"] is None
+        else f"{r['insured_fault']}%"
+        + (" (협의 과실 적용)" if r.get("fault_source") == "agreed" else ""),
     }
     if p is not None:
         body["대물"] = {

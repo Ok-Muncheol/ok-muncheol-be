@@ -44,7 +44,9 @@
 
 잘못된 값(급수 15, 음수 금액, 날짜 형식 등)은 저장 전에 422 `invalid_documents`로 거절한다.
 
-## 계산 (사람마다, 우리 과실 = 판단의 보험가입자 쪽 과실)
+## 계산 (사람마다)
+
+- 우리 과실 = 판단의 보험가입자 쪽 과실. 담당자가 협의 과실(`PATCH /cases/{id}/agreed-fault`)을 넣으면 9번 구상과 같은 값으로 **우리 과실 = 100 − 협의 상대 과실**을 쓴다(`liability.fault_source` = `agreed`, 8번 `우리 과실`에 "(협의 과실 적용)")
 
 - **대물** = 상대 차 수리비 × 우리 과실(원 미만 버림), 대물 한도를 넘으면 한도
 - **대인** = (치료관계비 + 급수별 부상 위자료) × 우리 과실 → 치료관계비보다 적으면 치료관계비(별표3 1.가.(2)·(3)) → 급수별 대인Ⅰ 한도까지 대인Ⅰ, 나머지 대인Ⅱ
@@ -59,7 +61,7 @@
 
 ### `ReviewReport.liability` (`LiabilityResult`, 입력이 있을 때만)
 
-`insured_fault`, `accident_date`, `property`(`PropertyDamageResult` 또는 `null`), `injuries`(`InjuryResult` 목록), `notice`. 필드는 `app/schemas/liability.py`.
+`insured_fault`, `fault_source`(`judgment`·`agreed`), `accident_date`, `property`(`PropertyDamageResult` 또는 `null`), `injuries`(`InjuryResult` 목록), `notice`. 필드는 `app/schemas/liability.py`.
 
 ### 8번 `body["대물·대인 1차 판정"]` (입력이 있을 때만)
 
@@ -74,6 +76,8 @@
 8번 `evidence_ids`에는 상대 견적서 ID, 조항 ID, 쓴 `schedule_value` record_id가 더해진다.
 
 ## 다른 변경
+
+- DB: `case_documents.kind` 제약에 `injured_person`·`property_damage_input`을 더했다(`supabase/migrations/20261113180000_case_documents_liability_kinds.sql`). 공용 DB에 적용하기 전에는 이 두 서류를 저장할 수 없다.
 
 - 자차 손해액(`calculate_damages`): 우리 차 당사자 ID가 없는데 견적서 당사자가 여럿이면 손해액을 고르지 않는다(`needs_documents`, "우리 차 당사자 미지정"). 상대 차 견적이 자차에 섞이지 않게 하려는 것이다. 당사자가 하나뿐이면 지금과 같다.
 - 숫자 자료는 서버 시작 시 `configure_with_knowledge_base()`가 `corpus_records`의 `schedule_value`를 읽어 둔다. 없으면(테스트·데모) 대인은 「자료 없음」으로 금액이 없다.

@@ -332,7 +332,12 @@ async def _draft(
     return assemble_review(
         judgment, calc, recovery=_recovery(rec, base, calc), now=_now(),
         clauses=await _report_clauses(base, calc),
-        liability=liability_from_report(base, rec.documents, services.schedule_values),
+        liability=liability_from_report(
+            base,
+            rec.documents,
+            services.schedule_values,
+            agreed_counterparty_fault=rec.fault_agreement.get("agreed_counterparty_fault"),  # type: ignore[arg-type]
+        ),
         **kw,  # type: ignore[arg-type]
     )
 

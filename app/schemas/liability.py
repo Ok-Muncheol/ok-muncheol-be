@@ -78,6 +78,8 @@ class InjuryResult(TypedDict):
 
 class LiabilityResult(TypedDict):
     insured_fault: int | None  # 우리(보험가입자) 과실 %
+    # judgment = 판단 과실, agreed = 담당자가 넣은 협의 과실(9번 구상과 같은 값, 우리 = 100 - 상대)
+    fault_source: NotRequired[Literal["judgment", "agreed"]]
     accident_date: str | None
     property: PropertyDamageResult | None
     injuries: list[InjuryResult]

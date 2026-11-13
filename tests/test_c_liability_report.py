@@ -6,7 +6,9 @@
 
 import asyncio
 import json
+import re
 import unittest
+from pathlib import Path
 
 from app import storage
 from app.api import reports as api
@@ -143,6 +145,20 @@ class LiabilityReportTest(unittest.TestCase):
         self.assertIn("전손 여부 확인 필요", labels)
         self.assertIn("대차료·휴차료 별도 확인", labels)
 
+    def test_agreed_fault_is_used_like_recovery(self):
+        self.ready()
+        self.add([cp_estimate(), injured()])
+        report = self.run_(
+            api.set_agreed_fault(
+                self.actor, self.case, agreed_counterparty_fault=60, fault_change_reason="합의서"
+            )
+        )
+        liability = report["liability"]
+        self.assertEqual((liability["insured_fault"], liability["fault_source"]), (40, "agreed"))
+        self.assertEqual(report["recovery"]["agreed_counterparty_fault"], 60)
+        self.assertEqual(liability["property"]["amount"], 1_200_000)  # 300만 × 40%
+        self.assertEqual(section(report, 8)["body"][KEY]["우리 과실"], "40% (협의 과실 적용)")
+
     def test_without_schedule_values_injury_has_no_amount(self):
         api.configure(schedule_values=())
         self.ready()
@@ -251,6 +267,20 @@ class LiabilityRouteTest(unittest.TestCase):
         res = self.client.post("/cases/synthetic-case/documents", json=bad)
         self.assertEqual(res.status_code, 422)
         self.assertEqual(res.json()["error"]["code"], "invalid_documents")
+
+
+class MigrationTest(unittest.TestCase):
+    def test_case_documents_kind_check_matches_document_kinds(self):
+        """마지막 마이그레이션의 case_documents.kind 제약 = 앱 DOCUMENT_KINDS(어긋나면 저장 500)."""
+        root = Path(__file__).resolve().parents[1] / "supabase" / "migrations"
+        sql = "\n".join(p.read_text("utf-8") for p in sorted(root.glob("*.sql")))
+        found = re.findall(
+            r"constraint case_documents_kind_check\s+check\s*\(\s*kind\s+in\s*\((.*?)\)\s*\)",
+            sql,
+            re.S,
+        )
+        self.assertTrue(found)
+        self.assertEqual(set(re.findall(r"'([^']*)'", found[-1])), set(api.DOCUMENT_KINDS))
 
 
 class LiabilityFromReportTest(unittest.TestCase):

@@ -467,12 +467,15 @@ def liability_from_report(
     report: Mapping[str, object],
     documents: list[dict[str, object]],
     schedule_values: Iterable[Mapping[str, object]] = (),
+    *,
+    agreed_counterparty_fault: int | None = None,
 ) -> LiabilityResult | None:
     """보고서(과실비율·당사자 매핑·사고 일자)와 서류로 대물·대인 1차 판정. 입력이 없으면 None.
 
     입력: 상대 차 견적서(repair_estimate, party_id=상대), property_damage_input, injured_person.
     같은 종류·같은 사람 서류가 여러 번 오면 가장 늦게 받은 것을 쓴다. 우리 과실은 판단의
-    보험가입자 쪽 과실(fault_A/B)이다. 매핑이 없으면 상대 차·우리 과실을 알 수 없어 금액이 없다.
+    보험가입자 쪽 과실(fault_A/B)이다. 협의 과실(9번 구상과 같은 값)이 있으면 우리 과실 =
+    100 - 협의 상대 과실. 매핑이 없으면 상대 차·우리 과실을 알 수 없어 금액이 없다.
     """
     mapping = report.get("party_mapping") or {}
     judgment = report.get("judgment") or {}
@@ -491,6 +494,9 @@ def liability_from_report(
     if not (injured_docs or property_docs or estimates):
         return None
     fault = judgment.get(f"fault_{side}") if side else None  # type: ignore[union-attr]
+    agreed = side is not None and agreed_counterparty_fault is not None
+    if agreed:
+        fault = 100 - int(agreed_counterparty_fault)  # type: ignore[arg-type]
     property_input: PropertyDamageInput | None = None
     if property_docs or estimates:
         latest = _latest(property_docs) if property_docs else {}
@@ -523,6 +529,7 @@ def liability_from_report(
         injured=injured,
         schedule_values=schedule_values,
     )
+    result["fault_source"] = "agreed" if agreed else "judgment"
     if not side:
         why = "당사자 매핑 없음 — 우리 차·상대 차를 알 수 없어 금액 없음"
         for part in ([result["property"]] if result["property"] else []) + result["injuries"]:
