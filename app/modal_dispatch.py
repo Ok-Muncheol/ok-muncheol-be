@@ -3,7 +3,8 @@
 정지원 `analysis.dispatch` 자리에 끼우는 함수다(11/11 합의).
 - Modal에는 서버 키(Supabase·DB)를 두지 않는다. 넘기는 값은 `task_id`·`case_id`·
   `video_url`(서명 내려받기, 1시간)·`callback_url`·`callback_token`(작업별 일회용,
-  BE는 SHA-256만 저장)뿐이다. 결과는 Modal이 `callback_url`
+  BE는 SHA-256만 저장)이고, 있으면 `preview_upload_url`·`frame_uploads`(서명 업로드 칸)도
+  넘긴다. 결과는 Modal이 `callback_url`
   (`POST /internal/analysis/{task_id}`, `app/api/routes.py`)로 다시 보낸다.
 - Modal 엔드포인트는 프록시 인증으로 막는다: `Modal-Key`·`Modal-Secret` 헤더(`MODAL_PROXY_KEY`·
   `MODAL_PROXY_SECRET`). 엔드포인트는 spawn만 하고 `{"call_id": "..."}`를 바로 돌려준다.
@@ -55,6 +56,10 @@ async def dispatch_to_modal(
         "callback_url": f"{settings.public_backend_url}{job['callback_path']}",
         "callback_token": job["callback_token"],
     }
+    # 11/12 정지원: H.264 미리보기·근거 프레임 업로드 칸(있을 때만, 워커가 PUT한다)
+    for key in ("preview_upload_url", "frame_uploads"):
+        if job.get(key):
+            payload[key] = job[key]
     headers = {
         "Modal-Key": settings.modal_proxy_key or "",
         "Modal-Secret": settings.modal_proxy_secret or "",
