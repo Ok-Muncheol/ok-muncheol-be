@@ -279,18 +279,22 @@ async def review_exclusions(
     """주제마다 조항 ID로 직접 가져온 청크로 판정. 약관 적용판은 계약 값으로 필터한다(사고 일자로
     대체하지 않음). 계약이 없으면(기본 가정) 판은 공통 검색 설정이 정한다. 사실이 없어 unknown이
     나온 항목은 막지 않고 표시만 한다.
-    판정기는 스레드에서 부른다(LLM 판정기는 동기 호출이라 이벤트 루프를 막는다)."""
-    out: list[PreCheck] = []
+    판정기는 스레드에서 부른다(LLM 판정기는 동기 호출이라 이벤트 루프를 막는다).
+    주제끼리는 서로 기대지 않으므로 동시에 부른다(asyncio.gather): 보고서 1회 최악 대기가
+    주제 수 × 호출 1회 최악(약 90초, app/llm.py)에서 호출 1회 최악으로 준다. 결과는
+    rules.exclusion_topics 순서다. LLM 실패는 llm_judge가 이미 unknown(담당자 확인)으로 내리고,
+    예상 밖 오류는 지금처럼 그대로 올린다(return_exceptions 안 씀. 남은 스레드는 끝까지 돈다)."""
     edition = contract.get("terms_edition") if contract else None
-    for topic in rules.exclusion_topics:
+
+    async def review_topic(topic: str) -> PreCheck:
         hits = await fetch_exclusion_clauses(topic, edition=edition, fetch=fetch, rules=rules)
         if not hits:
-            out.append(_check_without_clause(topic, facts))
-            continue
+            return _check_without_clause(topic, facts)
         judged = await asyncio.to_thread(judge, topic, hits, facts)
         check = apply_handler_priority(topic, judged, facts)
         key = _flag_key(topic)
         if check["result"] == "unknown" and key is not None and facts.get(key) is None:
             check = {**check, "detail": NEEDS_FACTS}
-        out.append(check)
-    return out
+        return check
+
+    return list(await asyncio.gather(*(review_topic(t) for t in rules.exclusion_topics)))
