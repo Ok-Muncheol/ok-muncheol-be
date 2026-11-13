@@ -137,7 +137,7 @@ def test_verdict_is_one_value_so_rebuttal_and_kind_cannot_disagree():
                                     "reasons": ["선택 도표가 사실과 맞다"]}), ["S-2"])
     assert out == {"holds": False, "kind": None, "preferred_chart_id": None,
                    "reasons": ["선택 도표가 사실과 맞다"]}
-    assert RESPONSE_SCHEMA["required"] == ["verdict", "preferred_chart_id", "reasons"]
+    assert RESPONSE_SCHEMA["required"] == ["reasons", "verdict", "preferred_chart_id"]
     assert RESPONSE_SCHEMA["properties"]["verdict"]["enum"] == list(VERDICTS)
     assert VERDICTS == ("none", "wrong_chart", "missing_fact", "contradiction")
 
@@ -153,6 +153,31 @@ def test_wrong_chart_outside_alternatives_goes_to_staff_instead_of_failing():
     assert (out["holds"], out["kind"], out["preferred_chart_id"]) == (True, "wrong_chart", None)
     assert out["reasons"][-1] == \
         "반박 검토가 차순위 후보가 아닌 도표(S-1)를 골라 다시 고르지 않았다"
+
+
+def test_reasons_come_before_the_verdict_in_the_response():
+    # 구조화 출력은 스키마 순서로 생성된다. 판정이 먼저면 gpt-4o-mini가 대조하기 전에 판정을 정해
+    # "일치함"이라 쓰고도 모순을 냈다(11/13 시범, 충돌 순간 신호 도표 변형 10개 모두)
+    assert list(RESPONSE_SCHEMA["properties"]) == ["reasons", "verdict", "preferred_chart_id"]
+
+
+def test_no_rebuttal_check_leaves_out_the_comparison_notes():
+    """이유를 먼저 쓰게 하면 반박이 없어도 칸 대조를 길게 쓴다. 통과한 검증 사유에는 싣지 않는다."""
+    cands = candidates()
+
+    async def reviewer(system: str, user: str) -> str:
+        return json.dumps({"reasons": ["signal_A green 일치", "signal_B red 일치"],
+                           "verdict": "none", "preferred_chart_id": None})
+
+    check, preferred = asyncio.run(review_rebuttal(card(), chosen(cands), cands, reviewer))
+    assert check == {"layer": "rebuttal", "passed": True, "reasons": [], "rebuttal_kind": None}
+    assert preferred is None
+
+
+def test_prompt_separates_entry_and_collision_signals():
+    # gpt-4o-mini가 signal_A(진입 시)와 collision_signal_A(충돌 순간)를 같은 칸으로 읽어 맞게 고른
+    # 도표를 '모순'으로 돌렸다(11/13 차1-2·2-5·3-5)
+    assert "collision_signal_A" in SYSTEM_PROMPT and "서로 다른 칸" in SYSTEM_PROMPT
 
 
 def test_prompt_limits_the_reviewer_to_comparing_conditions():
