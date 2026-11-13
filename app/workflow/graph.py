@@ -86,7 +86,7 @@ MAX_LISTED_UNREVIEWED = 3
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.13.1"
+RULE_VERSION = "judgment-rules-2026.11.13.2"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
@@ -260,11 +260,17 @@ def _concrete(conditions: dict[str, str]) -> dict[str, str]:
     return {k: v for k, v in conditions.items() if v != ANY_VALUE}
 
 
-def _needed_fields(candidate: ChartCandidate) -> list[str]:
-    """이 도표를 고르는 데 값이 필요한 칸(속성·변형 조건에서 `*` 제외). 나온 순서를 지킨다."""
+def _needed_fields(candidate: ChartCandidate, values: dict[str, str]) -> list[str]:
+    """이 도표를 고르는 데 값이 필요한 칸(속성·변형 조건에서 `*` 제외). 나온 순서를 지킨다.
+
+    변형 조건은 카드와 아직 어긋나지 않는 변형(`_variant_fits`)의 것만 센다. 이미 어긋난 변형은
+    더 묻는다고 다시 고를 수 있게 되지 않는다. 예: 차2-2는 녹색 좌회전 변형만 비보호 표지로
+    갈리므로, 적색 좌회전 카드에는 표지를 묻지 않는다.
+    """
     keys = list(_concrete(candidate["attributes"]))
     for variant in candidate["base_variants"]:
-        keys += [k for k in _concrete(variant["conditions"]) if k not in keys]
+        if _variant_fits(variant, values):
+            keys += [k for k in _concrete(variant["conditions"]) if k not in keys]
     return keys
 
 
@@ -332,7 +338,7 @@ def open_fields(state: JudgmentState) -> list[str]:
     values = confirmed_values(card)
     unknown = set(state.get("unknown_fields", []))
     required = set(_required_fields(card))
-    needed = [_needed_fields(c) for c in _eligible(state)
+    needed = [_needed_fields(c, values) for c in _eligible(state)
               if _ruled_out(c, values, unknown, required) is None]
     ordered = [k for k in _required_fields(card) if not needed or any(k in n for n in needed)]
     for keys in needed:
@@ -372,13 +378,17 @@ def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, s
 
 
 def _pick_variant(candidate: ChartCandidate, values: dict[str, str]) -> tuple[object, list[str]]:
-    """조건이 모두 확인된 변형을 고른다(`*`은 무관). 없으면 (None, 확인해야 할 칸)."""
+    """조건이 모두 확인된 변형을 고른다(`*`은 무관). 없으면 (None, 확인해야 할 칸).
+
+    확인해야 할 칸은 카드와 아직 어긋나지 않는 변형의 칸만 센다(`_needed_fields`와 같다).
+    """
     missing: list[str] = []
     for variant in candidate["base_variants"]:
         conditions = _concrete(variant["conditions"])
         if all(values.get(k) == v for k, v in conditions.items()):
             return variant, []
-        missing += [k for k in conditions if k not in values and k not in missing]
+        if _variant_fits(variant, values):
+            missing += [k for k in conditions if k not in values and k not in missing]
     return None, missing
 
 
