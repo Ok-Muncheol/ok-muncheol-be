@@ -155,7 +155,9 @@ class _Run:
         self.searched[coverage] = (region, len(rows))
         out = []
         for row in rows:
-            handle = f"{HANDLE_PREFIX[coverage]}{len(self.seen) + 1}"
+            # 표시는 분야마다 1부터 센다(P1·P2…, I1·I2…) — 모델이 짐작한 번호와 어긋나지 않게
+            taken = sum(1 for key in self.seen if key.startswith(HANDLE_PREFIX[coverage]))
+            handle = f"{HANDLE_PREFIX[coverage]}{taken + 1}"
             self.seen[handle] = (region, row)
             out.append({"adjuster": handle, "name": row["name"],
                         "open_cases": int(row["open_cases"])})
@@ -242,7 +244,9 @@ def decider(llm: Llm = openai_llm) -> service.Decider:
         try:
             return await _run(conn, intake, at, llm)
         except Exception as exc:  # noqa: BLE001 — 어떤 실패든 접수는 규칙으로 배정한다
-            logger.warning("배정 에이전트 실패(%s) — 규칙으로 배정한다", type(exc).__name__)
+            logger.warning(
+                "배정 에이전트 실패(%s: %s) — 규칙으로 배정한다", type(exc).__name__, str(exc)[:120]
+            )
             return await service.decide_by_rule(conn, intake, at)
 
     return decide

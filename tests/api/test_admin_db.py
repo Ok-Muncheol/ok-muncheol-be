@@ -420,7 +420,7 @@ def test_agent_reads_candidates_and_assigns_with_its_reason(api):
          call("find_adjusters", region="서울", coverage="injury")],
         [call("assign", property_adjuster="P2",
               property_reason="서울 사고이고 후보 2명 중 한 명입니다.",
-              injury_adjuster="I3", injury_reason="서울 대인 담당자가 한 명입니다.")],
+              injury_adjuster="I1", injury_reason="서울 대인 담당자가 한 명입니다.")],
     )
     view = api.register("마포구 월드컵북로 사거리", injured_count=1)  # 시·도 이름이 없는 글
 
@@ -432,7 +432,7 @@ def test_agent_reads_candidates_and_assigns_with_its_reason(api):
     # 에이전트는 접수 글을 받고, 도구가 돌려준 후보(표시·이름·업무량)만 본다
     assert "마포구 월드컵북로 사거리" in llm.seen[0][1]["content"]
     tool_results = [json.loads(m["content"]) for m in llm.seen[1] if m["role"] == "tool"]
-    assert [[c["adjuster"] for c in found] for found in tool_results] == [["P1", "P2"], ["I3"]]
+    assert [[c["adjuster"] for c in found] for found in tool_results] == [["P1", "P2"], ["I1"]]
     seen_keys = {key for found in tool_results for c in found for key in c}
     assert seen_keys == {"adjuster", "name", "open_cases"}  # 계정 ID·이메일은 넘기지 않는다
     detail = api.rows("select detail from public.case_assignments where intake_id = %s"
