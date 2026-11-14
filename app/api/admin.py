@@ -1,7 +1,7 @@
 """B(통합): 관리자(관제) API — 현황(`GET /admin/overview`)과 접수 건(`/admin/intakes`).
 
-관리자가 접수를 등록하면 바로 배정하고(app/dispatch/service.py), 담당자별 업무량과 접수 건의
-진행 단계를 본다. 직접 배정·이관은 다음 단계에서 더한다.
+관리자가 접수를 등록하면 배정 에이전트가 바로 배정하고(app/agents/dispatch.py — 못 정하면 규칙),
+담당자별 업무량과 접수 건의 진행 단계를 본다. 필요하면 관리자가 직접 배정하거나 이관한다.
 
 - 권한은 경로가 건다(deps.require_admin — 토큰 app_metadata.staff_role이 admin).
   서버 연결은 RLS를 건너뛰어 모든 접수 건이 보이므로, 이 모듈의 함수는 관리자 확인 뒤에만 부른다.
@@ -26,13 +26,15 @@ from typing import Any
 from psycopg.errors import UndefinedColumn, UndefinedTable
 
 from app import db
+from app.agents import dispatch as dispatch_agent
 from app.api import cases
-from app.api.errors import ApiException, unprocessable
+from app.api.errors import ApiException, not_found, unprocessable
 from app.dispatch import repository, service
 from app.dispatch.regions import REGIONS
 from app.schemas.admin import (
     AdminOverview,
     Coverage,
+    IntakeDetail,
     IntakeView,
     StaffMember,
     StaffRole,
@@ -51,7 +53,7 @@ class AdminServices:
 
     connect: Callable = db.connect
     now: Callable[[], datetime] = lambda: datetime.now(UTC)
-    decide: service.Decider = service.decide_by_rule
+    decide: service.Decider = dispatch_agent.decide
 
 
 services = AdminServices()
@@ -107,6 +109,8 @@ async def _real_stages(conn: Any, case_ids: list[object]) -> dict[str, str]:
 
 
 def _stage(row: dict, real_stages: dict[str, str]) -> str:
+    if row["simulated"] and row["simulated_stage"] == "done":
+        return "done"  # 종결 시각이 지난 가상 접수(배정되지 못한 건도 대기열에서 빠진다)
     if row["status"] in ("received", "unassigned"):
         return "unassigned"
     if row["simulated"]:
@@ -231,3 +235,60 @@ async def register_intake(
         row = await repository.get_intake(conn, created["id"], now)
         assert row is not None
         return (await _views(conn, [row]))[0]
+
+
+def _intake_id(value: object) -> str:
+    try:
+        return str(uuid.UUID(str(value)))
+    except ValueError as exc:
+        raise not_found("접수 건을 찾을 수 없습니다.") from exc
+
+
+async def _detail(conn: Any, intake_id: str, now: datetime) -> IntakeDetail:
+    row = await repository.get_intake(conn, intake_id, now)
+    if row is None or row["received_at"] > now:  # 아직 오지 않은 가상 접수는 없는 것이다
+        raise not_found("접수 건을 찾을 수 없습니다.")
+    view = (await _views(conn, [row]))[0]
+    history = [{
+        "coverage": h["coverage"], "from_assignee_id": _id(h["from_assignee_id"]),
+        "to_assignee_id": str(h["to_assignee_id"]), "method": h["method"], "reason": h["reason"],
+        "decided_by": _id(h["decided_by"]), "created_at": _iso(h["created_at"]),
+    } for h in await repository.assignments(conn, intake_id) if h["created_at"] <= now]
+    return {**view, "assignments": history}  # type: ignore[typeddict-item]
+
+
+async def get_intake(admin_id: str, intake_id: str) -> IntakeDetail:
+    """접수 건 하나와 배정 이력."""
+    intake_id = _intake_id(intake_id)
+    now = services.now()
+    async with _connection() as conn:
+        await repository.sync_real_cases(conn)
+        return await _detail(conn, intake_id, now)
+
+
+async def assign_intake(
+    admin_id: str, intake_id: str, *, coverage: str, assignee_id: str, reason: str
+) -> IntakeDetail:
+    """관리자가 한 분야의 담당자를 직접 정한다(담당자가 없었으면 직접 배정, 있었으면 이관)."""
+    intake_id = _intake_id(intake_id)
+    if coverage not in COVERAGES:
+        raise unprocessable("invalid_assignment", "coverage는 property 또는 injury입니다.")
+    try:
+        assignee_id = str(uuid.UUID(assignee_id))
+    except ValueError as exc:
+        raise unprocessable("invalid_assignment", "assignee_id는 담당자 계정 ID입니다.") from exc
+    now = services.now()
+    async with _connection() as conn:
+        await repository.sync_real_cases(conn)
+        try:
+            await service.assign_by_admin(
+                conn, intake_id=intake_id, coverage=coverage, assignee_id=assignee_id,
+                reason=reason.strip(), admin_id=admin_id, now=now,
+            )
+        except service.IntakeNotFound as exc:
+            raise not_found(str(exc)) from exc
+        except service.IntakeClosed as exc:
+            raise ApiException(409, "intake_closed", str(exc), False) from exc
+        except service.InvalidAssignment as exc:
+            raise unprocessable("invalid_assignment", str(exc)) from exc
+        return await _detail(conn, intake_id, now)

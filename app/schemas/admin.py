@@ -86,3 +86,21 @@ class AdminOverview(TypedDict):
     staff: list[StaffMember]
     summary: OverviewSummary
     generated_at: str
+
+
+class AssignmentRecord(TypedDict):
+    """배정 이력 한 줄 — 한 분야의 담당자를 정하거나 바꾼 일 한 번."""
+
+    coverage: Coverage
+    from_assignee_id: str | None  # 이관일 때 이전 담당자
+    to_assignee_id: str
+    method: AssignmentMethod
+    reason: str
+    decided_by: str | None  # 직접 배정·이관을 한 관리자. 자동 배정이면 null
+    created_at: str
+
+
+class IntakeDetail(IntakeView):
+    """접수 건 하나와 배정 이력(오래된 것부터)."""
+
+    assignments: list[AssignmentRecord]

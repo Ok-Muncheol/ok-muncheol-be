@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from app.api import admin, analysis, cases, facts, judgments, reports
 from app.api.deps import ActorId, AdminId, IdempotencyKey
 from app.api.errors import ApiException, unprocessable, version_conflict
-from app.schemas.admin import AdminOverview, IntakeView
+from app.schemas.admin import AdminOverview, Coverage, IntakeDetail, IntakeView
 from app.schemas.common import UploadKind, UploadTicket
 from app.schemas.facts import FactCard, FactPatch
 from app.schemas.judgment import QuestionAnswer
@@ -88,6 +88,14 @@ class IntakeRequest(BaseModel):
     ]
     injured_count: int = Field(default=0, ge=0, le=20)
     accident_at: datetime | None = None
+
+
+class AssignmentRequest(BaseModel):
+    """관리자의 직접 배정·이관. 까닭은 배정 이력에 남는다."""
+
+    coverage: Coverage
+    assignee_id: str = Field(min_length=1, max_length=64)
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 class AgreedFaultRequest(BaseModel):
@@ -294,4 +302,21 @@ async def register_admin_intake(admin_id: AdminId, body: IntakeRequest) -> Intak
     return await admin.register_intake(
         admin_id, location=body.location, description=body.description,
         injured_count=body.injured_count, accident_at=body.accident_at,
+    )
+
+
+@router.get("/admin/intakes/{intake_id}", tags=["B admin"])
+async def get_admin_intake(admin_id: AdminId, intake_id: str) -> IntakeDetail:
+    """접수 건 하나와 배정 이력(누가·언제·왜 배정했는지)."""
+    return await admin.get_intake(admin_id, intake_id)
+
+
+@router.post("/admin/intakes/{intake_id}/assignments", tags=["B admin"])
+async def assign_admin_intake(
+    admin_id: AdminId, intake_id: str, body: AssignmentRequest
+) -> IntakeDetail:
+    """한 분야의 담당자를 관리자가 직접 정한다. 담당자가 없었으면 직접 배정, 있었으면 이관이다."""
+    return await admin.assign_intake(
+        admin_id, intake_id, coverage=body.coverage, assignee_id=body.assignee_id,
+        reason=body.reason,
     )

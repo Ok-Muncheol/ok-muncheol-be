@@ -10,7 +10,13 @@ from typing import Any
 from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
-from app.dispatch.simulation import CLOSED_SQL, OPEN_SQL, STAGE_SQL, VISIBLE_SQL
+from app.dispatch.simulation import (
+    CLOSED_SQL,
+    OPEN_SQL,
+    STAGE_SQL,
+    VISIBLE_SQL,
+    WAITING_SQL,
+)
 
 Row = dict[str, Any]
 
@@ -96,7 +102,7 @@ limit %(limit)s
 _SUMMARY_SQL = """
 select
   count(*) filter (where {open}) as open,
-  count(*) filter (where i.status in ('received', 'unassigned')) as unassigned,
+  count(*) filter (where {waiting}) as unassigned,
   count(*) filter (where i.received_at >= %(day_start)s) as received_today,
   count(*) filter (where
     (i.status = 'closed' and i.closed_at >= %(day_start)s)
@@ -152,7 +158,7 @@ order by u.created_at, u.id
 
 def _fill(sql: str, **extra: str) -> str:
     return sql.format(visible=VISIBLE_SQL, open=OPEN_SQL, closed=CLOSED_SQL, stage=STAGE_SQL,
-                      **extra)
+                      waiting=WAITING_SQL, **extra)
 
 
 async def _all(conn: AsyncConnection, sql: str, params: dict) -> list[Row]:
@@ -247,7 +253,7 @@ async def list_intakes(
     if state == "open":
         where.append(OPEN_SQL)
     elif state == "unassigned":
-        where.append("i.status in ('received', 'unassigned')")
+        where.append(WAITING_SQL)
     elif state == "closed":
         where.append(CLOSED_SQL)
     if assignee_id is not None:
@@ -284,3 +290,62 @@ async def open_real_case_ids(conn: AsyncConnection, now: datetime) -> list[objec
 
 async def staff(conn: AsyncConnection, roles: list[str], now: datetime) -> list[Row]:
     return await _all(conn, _fill(_STAFF_SQL), {"roles": roles, "now": now})
+
+
+async def lock_intake(conn: AsyncConnection, intake_id: object) -> Row | None:
+    """접수 건을 잠그고 읽는다(직접 배정·이관이 겹치지 않게). 트랜잭션 안에서 부른다."""
+    cur = await conn.execute(
+        "select * from public.case_intakes where id = %s for update", (intake_id,)
+    )
+    return await cur.fetchone()  # type: ignore[return-value]
+
+
+async def adjuster(conn: AsyncConnection, user_id: object) -> Row | None:
+    """담당자 계정 하나(분야·지역). 담당자가 아니거나 정지·삭제된 계정이면 None."""
+    cur = await conn.execute(
+        "select u.id, u.raw_app_meta_data ->> 'coverage' as coverage,"
+        " u.raw_app_meta_data ->> 'region' as region from auth.users u"
+        " where u.id = %s and u.raw_app_meta_data ->> 'staff_role' = 'adjuster'"
+        " and u.deleted_at is null and (u.banned_until is null or u.banned_until < now())",
+        (user_id,),
+    )
+    return await cur.fetchone()  # type: ignore[return-value]
+
+
+async def set_assignee(
+    conn: AsyncConnection, intake: Row, coverage: str, assignee_id: str
+) -> None:
+    """이미 배정된 접수 건의 한 분야 담당자를 바꾼다. 실제 접수면 사건의 담당자도 함께 바꾼다."""
+    column = ASSIGNEE_COLUMNS[coverage]
+    note = ", unassigned_reason = null" if coverage == "injury" else ""
+    await conn.execute(
+        f"update public.case_intakes set {column} = %s{note} where id = %s",
+        (assignee_id, intake["id"]),
+    )
+    if intake["case_id"] is not None:
+        case_column = "assignee_id" if coverage == "property" else "injury_assignee_id"
+        await conn.execute(
+            f"update public.cases set {case_column} = %s where id = %s",
+            (assignee_id, intake["case_id"]),
+        )
+
+
+async def assignments(conn: AsyncConnection, intake_id: object) -> list[Row]:
+    """접수 건의 배정 이력(오래된 것부터)."""
+    cur = await conn.execute(
+        "select coverage, from_assignee_id, to_assignee_id, method, reason, decided_by, detail,"
+        " created_at from public.case_assignments where intake_id = %s order by created_at, id",
+        (intake_id,),
+    )
+    return list(await cur.fetchall())  # type: ignore[arg-type]
+
+
+async def count_simulated(conn: AsyncConnection) -> int:
+    cur = await conn.execute("select count(*) as n from public.case_intakes where simulated")
+    return int((await cur.fetchone())["n"])  # type: ignore[index]
+
+
+async def delete_simulated(conn: AsyncConnection) -> int:
+    """가상 접수를 모두 지운다(배정 이력은 함께 지워진다). 실제 접수는 건드리지 않는다."""
+    cur = await conn.execute("delete from public.case_intakes where simulated")
+    return cur.rowcount
