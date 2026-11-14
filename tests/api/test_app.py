@@ -114,8 +114,15 @@ EMPTY_OVERVIEW = {
 }
 INTAKE_VIEW = {
     "intake_id": "i-1", "received_at": "2026-11-13T15:00:00+09:00", "accident_at": None,
-    "location": "서울 강남구", "description": "접촉", "injured_count": 1, "region": "서울",
-    "status": "assigned", "stage": "intake", "property_assignee_id": "p-1",
+    "location": "서울 강남구", "description": "접촉", "injured_count": 1,
+    "details": {
+        "estimated_damage": 4_500_000, "vehicle_type": "imported", "vehicle_count": 2,
+        "injury_severity": "minor",
+        "policy": {"bodily_injury_ii": True, "property_limit": 200_000_000, "own_damage": True,
+                   "personal_injury": "self_injury", "uninsured_motorist": True},
+        "policyholder": None,
+    },
+    "region": "서울", "status": "assigned", "stage": "intake", "property_assignee_id": "p-1",
     "injury_assignee_id": None, "unassigned_reason": None, "case_id": "c-1",
     "simulated": False, "closed_at": None,
     "assignment": {"method": "rule", "reason": "업무량이 가장 적습니다.",
@@ -161,7 +168,9 @@ def test_admin_intake_routes_pass_the_request_and_stay_admin_only(client, monkey
     monkeypatch.setattr(admin, "register_intake", fake_register)
     monkeypatch.setattr(admin, "list_intakes", fake_list)
     body = {"location": "  서울 강남구 테헤란로  ", "description": "교차로 접촉",
-            "injured_count": 1, "accident_at": "2026-11-13T08:40:00+09:00"}
+            "injured_count": 1, "accident_at": "2026-11-13T08:40:00+09:00",
+            "details": {"estimated_damage": 4_500_000, "vehicle_type": "imported",
+                        "policy": {"bodily_injury_ii": False}}}
 
     adjuster = token("adj-1", app_metadata={"staff_role": "adjuster"})
     assert client.post("/admin/intakes", json=body).status_code == 401
@@ -175,6 +184,14 @@ def test_admin_intake_routes_pass_the_request_and_stay_admin_only(client, monkey
     assert (name, admin_id, sent["location"], sent["injured_count"]) \
         == ("register", "admin-1", "서울 강남구 테헤란로", 1)  # 앞뒤 공백은 뗀다
     assert sent["accident_at"].isoformat() == "2026-11-13T08:40:00+09:00"
+    assert (sent["details"].vehicle_type, sent["details"].policy.bodily_injury_ii,
+            sent["details"].policy.property_limit) == ("imported", False, 200_000_000)
+    # 정해진 칸 밖의 값(사람을 특정하는 정보 등)은 받지 않는다
+    for bad in ({"owner_name": "홍길동"}, {"vehicle_type": "bus"}, {"estimated_damage": -1}):
+        res = client.post("/admin/intakes", json={**body, "details": bad},
+                          headers=token("admin-1", **ADMIN))
+        assert res.status_code == 422
+    assert len(calls) == 1
 
     res = client.get("/admin/intakes?state=open&region=서울&limit=10",
                      headers=token("admin-1", **ADMIN))

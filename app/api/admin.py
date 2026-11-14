@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 from psycopg.errors import UndefinedColumn, UndefinedTable
+from pydantic import ValidationError
 
 from app import db
 from app.agents import dispatch as dispatch_agent
@@ -35,13 +36,16 @@ from app.schemas.admin import (
     AdminOverview,
     Coverage,
     IntakeDetail,
+    IntakeDetails,
     IntakeView,
+    Specialty,
     StaffMember,
     StaffRole,
 )
 
 STAFF_ROLES: tuple[str, ...] = typing.get_args(StaffRole)
 COVERAGES: tuple[str, ...] = typing.get_args(Coverage)
+SPECIALTIES: tuple[str, ...] = typing.get_args(Specialty)
 INTAKE_STATES = ("open", "unassigned", "closed")  # 목록 거르기(GET /admin/intakes?state=)
 MAX_LIMIT = 200
 KST = timezone(timedelta(hours=9))
@@ -120,6 +124,14 @@ def _stage(row: dict, real_stages: dict[str, str]) -> str:
     return real_stages.get(str(row["case_id"]), "intake")
 
 
+def _details(value: object) -> IntakeDetails:
+    """DB의 배정 참고 정보. 모양이 맞지 않는 값이 있으면 빈 정보로 돌려준다(조회는 막지 않는다)."""
+    try:
+        return IntakeDetails.model_validate(value or {})
+    except ValidationError:
+        return IntakeDetails()
+
+
 def intake_view(row: dict, real_stages: dict[str, str]) -> IntakeView:
     note = None
     if row.get("assignment_method"):
@@ -135,6 +147,7 @@ def intake_view(row: dict, real_stages: dict[str, str]) -> IntakeView:
         "location": row["location"],
         "description": row["description"],
         "injured_count": int(row["injured_count"]),
+        "details": _details(row.get("details")),
         "region": row["region"],
         "status": row["status"],
         "stage": _stage(row, real_stages),  # type: ignore[typeddict-item]
@@ -174,6 +187,10 @@ async def get_overview(admin_id: str) -> AdminOverview:
         "coverage": row["coverage"] if row["coverage"] in COVERAGES else None,
         "region": row["region"] if row["region"] in REGIONS else None,
         "auto_assign": bool(row["auto_assign"]),
+        "career_years": int(row["career_years"]),
+        "specialties": [s for s in row["specialties"] if s in SPECIALTIES],
+        "high_value": bool(row["high_value"]),
+        "away": bool(row["away"]),
         "cases": {"open": int(row["open_cases"]), "closed": int(row["closed_cases"])},
     } for row in staff_rows]
     return {
@@ -218,9 +235,11 @@ async def list_intakes(
 
 async def register_intake(
     admin_id: str, *, location: str, description: str, injured_count: int = 0,
-    accident_at: datetime | None = None,
+    accident_at: datetime | None = None, details: IntakeDetails | None = None,
 ) -> IntakeView:
     """관리자가 접수를 등록한다. 바로 배정하고 결과(배정 또는 미배정과 그 까닭)를 돌려준다."""
+    if details is not None and details.injury_severity is not None and injured_count <= 0:
+        raise unprocessable("invalid_intake", "다친 사람이 없으면 다친 정도를 적지 않습니다.")
     now = services.now()
     if accident_at is not None and accident_at.tzinfo is None:
         accident_at = accident_at.replace(tzinfo=KST)
@@ -229,6 +248,7 @@ async def register_intake(
     new = service.NewIntake(
         location=location.strip(), description=description.strip(),
         injured_count=injured_count, accident_at=accident_at, registered_by=admin_id,
+        details=details.model_dump(exclude_none=True) if details is not None else {},
     )
     async with _connection() as conn:
         created = await service.register(conn, new, now=now, decide=services.decide)

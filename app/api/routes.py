@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from app.api import admin, analysis, cases, facts, judgments, reports
 from app.api.deps import ActorId, AdminId, IdempotencyKey
 from app.api.errors import ApiException, unprocessable, version_conflict
-from app.schemas.admin import AdminOverview, Coverage, IntakeDetail, IntakeView
+from app.schemas.admin import AdminOverview, Coverage, IntakeDetail, IntakeDetails, IntakeView
 from app.schemas.common import UploadKind, UploadTicket
 from app.schemas.facts import FactCard, FactPatch
 from app.schemas.judgment import QuestionAnswer
@@ -88,6 +88,7 @@ class IntakeRequest(BaseModel):
     ]
     injured_count: int = Field(default=0, ge=0, le=20)
     accident_at: datetime | None = None
+    details: IntakeDetails | None = None  # 배정 참고 정보(사고 규모·가입 담보·계약자 이력)
 
 
 class AssignmentRequest(BaseModel):
@@ -301,7 +302,7 @@ async def register_admin_intake(admin_id: AdminId, body: IntakeRequest) -> Intak
     """접수를 등록하고 바로 배정한다. 담당자를 구하지 못하면 미배정으로 남고 까닭이 온다."""
     return await admin.register_intake(
         admin_id, location=body.location, description=body.description,
-        injured_count=body.injured_count, accident_at=body.accident_at,
+        injured_count=body.injured_count, accident_at=body.accident_at, details=body.details,
     )
 
 

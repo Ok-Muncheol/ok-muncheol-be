@@ -66,6 +66,55 @@ INJURIES = [
 INJURY_RATE = 0.3
 
 
+# 배정 참고 정보의 분포(대략의 값이다 — 실제 통계가 아니다)
+VEHICLE_WEIGHTS = {"passenger": 70, "imported": 15, "truck": 10, "motorcycle": 5}
+VEHICLE_COUNT_WEIGHTS = {2: 85, 3: 10, 4: 5}
+SEVERITY_WEIGHTS = {"minor": 80, "serious": 17, "fatal": 3}
+SEVERITY_TEXT = {"serious": " 한 명은 골절로 입원했습니다.", "fatal": " 한 명이 숨졌습니다."}
+PROPERTY_LIMIT_WEIGHTS = {
+    20_000_000: 2, 50_000_000: 8, 100_000_000: 25, 200_000_000: 35, 300_000_000: 15,
+    500_000_000: 10, 1_000_000_000: 5,
+}
+PERSONAL_INJURY_WEIGHTS = {"none": 5, "self_injury": 55, "auto_injury": 40}
+ACCIDENTS_3Y_WEIGHTS = {0: 60, 1: 25, 2: 10, 3: 4, 4: 1}
+COMPLAINT_WEIGHTS = {0: 88, 1: 8, 2: 3, 3: 1}
+LARGE_LOSS_RATE = 0.06  # 예상 손해액이 고액 기준(service.HIGH_VALUE_DAMAGE)을 넘는 비율
+
+
+def _weighted(rng: random.Random, weights: dict):
+    return rng.choices(list(weights), weights=list(weights.values()))[0]
+
+
+def synthetic_details(rng: random.Random, injured: int) -> dict:
+    """가상의 배정 참고 정보(schemas.admin.IntakeDetails 모양). 사람을 특정할 내용은 없다."""
+    vehicle = _weighted(rng, VEHICLE_WEIGHTS)
+    count = _weighted(rng, VEHICLE_COUNT_WEIGHTS)
+    if rng.random() < LARGE_LOSS_RATE:
+        damage = rng.randrange(service.HIGH_VALUE_DAMAGE, 120_000_000, 1_000_000)
+    else:
+        typical = 1_500_000 * (4 if vehicle == "imported" else 1) * (1.8 if count > 2 else 1)
+        damage = min(int(rng.lognormvariate(0, 0.8) * typical), service.HIGH_VALUE_DAMAGE - 1)
+        damage = max(damage // 100_000, 2) * 100_000
+    details: dict = {
+        "estimated_damage": damage, "vehicle_type": vehicle, "vehicle_count": count,
+        "policy": {
+            "bodily_injury_ii": rng.random() < 0.92,
+            "property_limit": _weighted(rng, PROPERTY_LIMIT_WEIGHTS),
+            "own_damage": rng.random() < 0.7,
+            "personal_injury": _weighted(rng, PERSONAL_INJURY_WEIGHTS),
+            "uninsured_motorist": rng.random() < 0.85,
+        },
+        "policyholder": {
+            "accidents_3y": _weighted(rng, ACCIDENTS_3Y_WEIGHTS),
+            "complaints": _weighted(rng, COMPLAINT_WEIGHTS),
+            "long_term": rng.random() < 0.35,
+        },
+    }
+    if injured:
+        details["injury_severity"] = _weighted(rng, SEVERITY_WEIGHTS)
+    return details
+
+
 def synthetic_intake(rng: random.Random, received_at: datetime) -> service.NewIntake:
     """가상의 접수 한 건. 사람·차량을 특정할 내용은 없다."""
     region = rng.choices(list(REGION_WEIGHTS), weights=list(REGION_WEIGHTS.values()))[0]
@@ -76,8 +125,13 @@ def synthetic_intake(rng: random.Random, received_at: datetime) -> service.NewIn
         injured = 2 if rng.random() < 0.25 else 1
         description += " " + rng.choice(INJURIES)
     accident_at = received_at - timedelta(minutes=rng.randint(10, 600))
+    details = synthetic_details(rng, injured)
+    if details["vehicle_count"] > 2:
+        description += f" 뒤따르던 차까지 모두 {details['vehicle_count']}대가 얽혔습니다."
+    description += SEVERITY_TEXT.get(details.get("injury_severity", ""), "")
     return service.NewIntake(location=location, description=description, injured_count=injured,
-                             accident_at=accident_at, received_at=received_at, simulated=True)
+                             accident_at=accident_at, received_at=received_at, simulated=True,
+                             details=details)
 
 
 @dataclass
