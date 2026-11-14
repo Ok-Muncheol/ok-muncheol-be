@@ -537,4 +537,89 @@ select test_helpers.assert_equal(test_helpers.scalar_as('authenticated', '000000
   $sql$select count(*) from public.judgment_runs$sql$),
   0, '이관 뒤: 이전 대인 담당자는 판단을 못 본다');
 
+-- 12. 접수 건·배정 이력(20261113200000). 브라우저는 보지도 쓰지도 못하고, 상태·일정·배정 방식의 제약이 걸린다
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a', $sql$
+  select count(*) from public.case_intakes
+$sql$, '42501', '브라우저는 접수 건을 읽지 못한다');
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a', $sql$
+  select count(*) from public.case_assignments
+$sql$, '42501', '브라우저는 배정 이력을 읽지 못한다');
+select test_helpers.expect_error('anon', null, $sql$
+  select count(*) from public.case_intakes
+$sql$, '42501', 'anon은 접수 건을 읽지 못한다');
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a', $sql$
+  insert into public.case_intakes (location, description) values ('서울', '접촉')
+$sql$, '42501', '브라우저는 접수를 넣지 못한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, status) values ('서울', '접촉', 'unassigned')
+$sql$, '23514', '미배정에는 까닭이 있어야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, status) values ('서울', '접촉', 'assigned')
+$sql$, '23514', '배정됐으면 대물 담당자가 있어야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, property_assignee_id) values ('서울', '접촉', '00000000-0000-0000-0000-00000000000a')
+$sql$, '23514', '배정 전에는 담당자를 적지 못한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, status, property_assignee_id) values ('서울', '접촉', 'assigned', '00000000-0000-0000-0000-00000000000a')
+$sql$, '23514', '배정된 실제 접수에는 사건이 있어야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, region) values ('한양', '접촉', '한양')
+$sql$, '23514', '지역은 17개 시·도 가운데 하나다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, injured_count) values ('서울', '접촉', -1)
+$sql$, '23514', '다친 사람 수는 0 이상이다');
+insert into public.case_intakes (id, location, description, status, region, property_assignee_id, case_id)
+values ('40000000-0000-0000-0000-000000000001', '서울 강남구', '접촉', 'assigned', '서울', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, status, property_assignee_id, case_id) values ('서울', '접촉', 'assigned', '00000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001')
+$sql$, '23505', '사건 하나에 접수 건은 하나다');
+select test_helpers.expect_error(null, null, $sql$
+  update public.case_intakes set status = 'closed' where id = '40000000-0000-0000-0000-000000000001'
+$sql$, '23514', '종결에는 종결 시각이 있어야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  update public.case_intakes set facts_at = now() where id = '40000000-0000-0000-0000-000000000001'
+$sql$, '23514', '실제 접수에는 단계 일정이 없다');
+-- 가상 접수: 일정이 모두 있고 순서가 맞아야 하며 사건을 갖지 않는다
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, status, property_assignee_id, simulated, received_at, facts_at, judgment_at, report_at, closes_at) values ('부산', '가상', 'assigned', '00000000-0000-0000-0000-00000000000b', true, timestamptz '2026-11-13 00:00+00' + interval '0 hours', timestamptz '2026-11-13 00:00+00' + interval '5 hours', timestamptz '2026-11-13 00:00+00' + interval '20 hours', timestamptz '2026-11-13 00:00+00' + interval '40 hours', timestamptz '2026-11-13 00:00+00' + interval '30 hours')
+$sql$, '23514', '가상 접수의 일정은 순서가 맞아야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, status, property_assignee_id, simulated) values ('부산', '가상', 'assigned', '00000000-0000-0000-0000-00000000000b', true)
+$sql$, '23514', '가상 접수에는 일정이 있어야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_intakes (location, description, status, property_assignee_id, case_id, simulated, received_at, facts_at, judgment_at, report_at, closes_at) values ('부산', '가상', 'assigned', '00000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-000000000002', true, timestamptz '2026-11-13 00:00+00' + interval '0 hours', timestamptz '2026-11-13 00:00+00' + interval '5 hours', timestamptz '2026-11-13 00:00+00' + interval '20 hours', timestamptz '2026-11-13 00:00+00' + interval '40 hours', timestamptz '2026-11-13 00:00+00' + interval '60 hours')
+$sql$, '23514', '가상 접수는 사건을 갖지 않는다');
+insert into public.case_intakes (id, location, description, status, region, property_assignee_id, simulated, received_at, facts_at, judgment_at, report_at, closes_at)
+values ('40000000-0000-0000-0000-000000000002', '부산 사상구', '가상', 'assigned', '부산', '00000000-0000-0000-0000-00000000000b', true, timestamptz '2026-11-13 00:00+00' + interval '0 hours', timestamptz '2026-11-13 00:00+00' + interval '5 hours', timestamptz '2026-11-13 00:00+00' + interval '20 hours', timestamptz '2026-11-13 00:00+00' + interval '40 hours', timestamptz '2026-11-13 00:00+00' + interval '60 hours');
+-- 배정 이력: 관리자가 한 일에만 관리자가, 이관에만 이전 담당자가 있다
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_assignments (intake_id, coverage, to_assignee_id, method, reason, decided_by) values ('40000000-0000-0000-0000-000000000001', 'property', '00000000-0000-0000-0000-00000000000a', 'rule', '규칙', '00000000-0000-0000-0000-00000000000b')
+$sql$, '23514', '자동 배정에는 결정한 관리자가 없다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_assignments (intake_id, coverage, to_assignee_id, method, reason) values ('40000000-0000-0000-0000-000000000001', 'property', '00000000-0000-0000-0000-00000000000a', 'manual', '직접')
+$sql$, '23514', '직접 배정에는 결정한 관리자가 있어야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_assignments (intake_id, coverage, to_assignee_id, method, reason, decided_by) values ('40000000-0000-0000-0000-000000000001', 'property', '00000000-0000-0000-0000-00000000000b', 'transfer', '이관', '00000000-0000-0000-0000-00000000000a')
+$sql$, '23514', '이관에는 이전 담당자가 있어야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_assignments (intake_id, coverage, from_assignee_id, to_assignee_id, method, reason, decided_by) values ('40000000-0000-0000-0000-000000000001', 'property', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'transfer', '이관', '00000000-0000-0000-0000-00000000000b')
+$sql$, '23514', '같은 사람에게는 이관하지 못한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_assignments (intake_id, coverage, to_assignee_id, method, reason) values ('40000000-0000-0000-0000-000000000001', 'life', '00000000-0000-0000-0000-00000000000a', 'rule', '규칙')
+$sql$, '23514', '분야는 대물·대인뿐이다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.case_assignments (intake_id, coverage, to_assignee_id, method, reason) values ('40000000-0000-0000-0000-000000000001', 'property', '00000000-0000-0000-0000-00000000000a', 'agent', '')
+$sql$, '23514', '배정에는 까닭을 적는다');
+insert into public.case_assignments (intake_id, coverage, to_assignee_id, method, reason, detail)
+values ('40000000-0000-0000-0000-000000000001', 'property', '00000000-0000-0000-0000-00000000000a', 'agent', '서울 지역 대물 담당자 가운데 업무량이 가장 적다', '{"candidates": 2}');
+insert into public.case_assignments (intake_id, coverage, from_assignee_id, to_assignee_id, method, reason, decided_by)
+values ('40000000-0000-0000-0000-000000000001', 'property', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b', 'transfer', '담당자 부재', '00000000-0000-0000-0000-00000000000a');
+select test_helpers.assert_equal((select count(*) from public.case_assignments where intake_id = '40000000-0000-0000-0000-000000000001'),
+  2, '대조군: 자동 배정과 이관 이력이 들어간다');
+select test_helpers.assert_equal(test_helpers.scalar_as('service_role', null,
+  'select count(*) from public.case_intakes'), 2, 'service_role은 접수 건을 본다');
+delete from public.case_intakes where id = '40000000-0000-0000-0000-000000000001';
+select test_helpers.assert_equal((select count(*) from public.case_assignments where intake_id = '40000000-0000-0000-0000-000000000001'),
+  0, '접수 건을 지우면 배정 이력도 지워진다');
+
 select 'MIGRATION_BEHAVIOR_OK' as result;

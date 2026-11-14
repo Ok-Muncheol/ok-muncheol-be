@@ -12,14 +12,16 @@ OpenAPI에서 뺀다.
 """
 
 import json
+from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Header, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Header, Query, Request
+from pydantic import BaseModel, Field, StringConstraints
 
 from app.api import admin, analysis, cases, facts, judgments, reports
 from app.api.deps import ActorId, AdminId, IdempotencyKey
 from app.api.errors import ApiException, unprocessable, version_conflict
-from app.schemas.admin import AdminOverview
+from app.schemas.admin import AdminOverview, IntakeView
 from app.schemas.common import UploadKind, UploadTicket
 from app.schemas.facts import FactCard, FactPatch
 from app.schemas.judgment import QuestionAnswer
@@ -29,6 +31,8 @@ router = APIRouter()
 
 # Modal 콜백 본문 한도: 카드 + 근거 사진(JPEG base64 12장). Vercel 함수 요청 본문 한도는 4.5MB
 CALLBACK_MAX_BYTES = 3 * 1024 * 1024
+# 접수 건 목록 한 쪽의 최대 건수(app/api/admin.py MAX_LIMIT와 같다)
+INTAKE_PAGE_MAX = 200
 
 
 class UploadRequest(BaseModel):
@@ -73,6 +77,17 @@ class EstimateRequest(BaseModel):
 
     storage_path: str = Field(min_length=1)
     party_id: str = Field(min_length=1)
+
+
+class IntakeRequest(BaseModel):
+    """관리자가 등록하는 접수. 사고 장소와 내용은 들은 대로 적는 글이다(지역은 배정이 판별한다)."""
+
+    location: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    description: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)
+    ]
+    injured_count: int = Field(default=0, ge=0, le=20)
+    accident_at: datetime | None = None
 
 
 class AgreedFaultRequest(BaseModel):
@@ -254,5 +269,29 @@ async def set_agreed_fault(
 # ── B: 관리자(관제) ────────────────────────────────────────────────
 @router.get("/admin/overview", tags=["B admin"])
 async def get_admin_overview(admin_id: AdminId) -> AdminOverview:
-    """담당자 목록과 전체 사건의 배정 현황. 관리자(토큰 app_metadata.staff_role = admin)만."""
+    """담당자 목록(업무량 포함)과 전체 현황 숫자. 관리자(토큰 app_metadata.staff_role = admin)만."""
     return await admin.get_overview(admin_id)
+
+
+@router.get("/admin/intakes", tags=["B admin"])
+async def list_admin_intakes(
+    admin_id: AdminId,
+    state: str | None = None,
+    assignee_id: str | None = None,
+    region: str | None = None,
+    before: datetime | None = None,
+    limit: Annotated[int, Query(ge=1, le=INTAKE_PAGE_MAX)] = 50,
+) -> list[IntakeView]:
+    """접수 건 목록(최근 접수 순). 다음 쪽은 마지막 건의 received_at을 before로 넘긴다."""
+    return await admin.list_intakes(
+        admin_id, state=state, assignee_id=assignee_id, region=region, before=before, limit=limit
+    )
+
+
+@router.post("/admin/intakes", tags=["B admin"], status_code=201)
+async def register_admin_intake(admin_id: AdminId, body: IntakeRequest) -> IntakeView:
+    """접수를 등록하고 바로 배정한다. 담당자를 구하지 못하면 미배정으로 남고 까닭이 온다."""
+    return await admin.register_intake(
+        admin_id, location=body.location, description=body.description,
+        injured_count=body.injured_count, accident_at=body.accident_at,
+    )

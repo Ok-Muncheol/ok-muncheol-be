@@ -27,7 +27,8 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 `app/api/routes.py`가 FE `src/lib/api/client.ts`의 `ApiClient` 메서드와 1:1로 대응한다.
 경로는 README 「API 계약 제안」 표가 기준이고, `tests/api/test_app.py`가 그 표와 아래 표를 서버 OpenAPI와 대조한다.
 모든 경로는 `Authorization: Bearer <Supabase access token>`을 요구하고, 오류는 `{"error": ApiError}`로 돌려준다.
-담당자·관리자 역할은 Supabase Auth의 `app_metadata`에 둔다(`staff_role`: adjuster·admin, `coverage`: property·injury, `region`). 서버 키로만 바꿀 수 있고 토큰에 실린다. 바꾼 뒤에는 토큰이 새로 발급돼야 반영된다.
+담당자·관리자 역할은 Supabase Auth의 `app_metadata`에 둔다(`staff_role`: adjuster·admin, `coverage`: property·injury, `region`: 17개 시·도, `auto_assign`: false면 자동 배정 제외). 서버 키로만 바꿀 수 있고 토큰에 실린다. 바꾼 뒤에는 토큰이 새로 발급돼야 반영된다.
+가상 접수(`simulated`)는 관제 화면을 채우는 시연용이다. 사건을 만들지 않고, 단계는 배정할 때 정해 둔 일정과 지금 시각을 비교해 정한다. 접수 시각이 아직 오지 않은 가상 접수는 응답에 나오지 않는다.
 
 | 메서드 | 경로 | 담당 | 비고 |
 | --- | --- | --- | --- |
@@ -49,7 +50,9 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | POST | `/cases/{id}/documents` | D | `{documents, case_facts?}` → 재산정한 `ReviewReport` 또는 null. 1차 확장 |
 | POST | `/cases/{id}/estimates` | D | `{storage_path, party_id}` → 재산정한 `ReviewReport` 또는 null. `storage_path`는 `/uploads`(kind=estimate)가 준 버킷 포함 경로 `case-files/{id}/estimates/<파일>`(버킷은 `app/storage.py` `STORAGE_BUCKET`). 권한 → 경로 확인 → 서버 키로 Storage에서 내려받기(10MB 이하 PDF). 1차 확장 |
 | PATCH | `/cases/{id}/agreed-fault` | D | `{agreed_counterparty_fault?, fault_change_reason, clear?}` → 새 `ReviewReport`. 1차 확장 |
-| GET | `/admin/overview` | B | 관리자(관제) 조회 `AdminOverview` `{staff, cases}`(`app/schemas/admin.py`). `staff`는 역할이 있는 계정 `{user_id, email, name, staff_role: adjuster·admin, coverage: property·injury·null, region, cases: {property, injury, open}}`, `cases`는 전체 사건의 `CaseSummary`에 `assignee_id`(대물 담당자)·`injury_assignee_id`(대인 담당자 또는 null)를 더한 것(최근 바뀐 순). 토큰의 `app_metadata.staff_role`이 `admin`이 아니면 403 |
+| GET | `/admin/overview` | B | 관리자(관제) 현황 `AdminOverview` `{staff, summary, generated_at}`(`app/schemas/admin.py`). `staff`는 역할이 있는 계정 `{user_id, email, name, staff_role: adjuster·admin, coverage: property·injury·null, region, auto_assign, cases: {open, closed}}`, `summary`는 `{open, unassigned, received_today, closed_today, by_stage}`(오늘은 한국 시간 기준). 토큰의 `app_metadata.staff_role`이 `admin`이 아니면 403, 접수·배정 표가 없으면 503 `dispatch_db_not_ready` |
+| GET | `/admin/intakes` | B | 접수 건 목록 `IntakeView[]`(최근 접수 순). 쿼리 `state`(open·unassigned·closed), `assignee_id`, `region`, `before`(그 시각보다 앞선 건 — 다음 쪽), `limit`(1~200, 기본 50). 값이 틀리면 422 `invalid_intake_filter`. `IntakeView`: `{intake_id, received_at, accident_at, location, description, injured_count, region, status: received·assigned·unassigned·closed, stage: unassigned·intake·analysis·facts·judgment·report·done, property_assignee_id, injury_assignee_id, unassigned_reason, case_id, simulated, closed_at, assignment: {method: agent·rule·manual·transfer, reason, created_at}·null}` |
+| POST | `/admin/intakes` | B | 201. 접수 등록 `{location, description, injured_count?: 0~20, accident_at?}` → 바로 배정한 `IntakeView`. 사고 장소 글에서 지역을 판별해 그 지역 대물 담당자(다친 사람이 있으면 대인 담당자도) 가운데 업무량이 적은 사람에게 배정하고 사건을 만든다. 담당자를 구하지 못하면 `status: unassigned`와 `unassigned_reason`. 사고 일시가 미래면 422 `invalid_intake` |
 
 | 상태 | `code` | 뜻 |
 | --- | --- | --- |
