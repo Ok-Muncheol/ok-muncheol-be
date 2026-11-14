@@ -68,6 +68,11 @@ CLOSED_SQL = (
     "(i.status = 'closed'"
     " or (i.simulated and i.status = 'assigned' and i.closes_at <= %(now)s))"
 )
+# 담당자를 기다리는 중: 미배정이고, 가상 접수면 종결 시각 전(지나면 대기열에서 빠진다)
+WAITING_SQL = (
+    "(i.status in ('received', 'unassigned')"
+    " and (not i.simulated or i.closes_at > %(now)s))"
+)
 # stage_at과 같은 판정
 STAGE_SQL = """case
   when %(now)s >= i.closes_at then 'done'

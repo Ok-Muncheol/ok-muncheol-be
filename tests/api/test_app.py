@@ -59,10 +59,11 @@ def test_openapi_matches_fe_api_client():
     # FE ApiClient(src/lib/api/client.ts) 메서드 18개(getEvidence 포함) + listCases(11/13)
     # GET /cases는 POST /cases와 경로가 같아 사건 경로 수는 그대로 17이다
     # + 관리자 경로(11/13 — FE 관리자 화면이 ApiClient에 메서드를 더한다):
-    #   GET /admin/overview, GET·POST /admin/intakes
-    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 19
+    #   GET /admin/overview, GET·POST /admin/intakes, GET /admin/intakes/{id},
+    #   POST /admin/intakes/{id}/assignments
+    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 21
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 22
+    assert ops == 24
 
 
 def test_missing_token_is_401_api_error(client):
@@ -180,6 +181,41 @@ def test_admin_intake_routes_pass_the_request_and_stay_admin_only(client, monkey
     assert res.status_code == 200 and res.json() == [INTAKE_VIEW]
     assert calls[1] == ("list", "admin-1", {"state": "open", "assignee_id": None,
                                            "region": "서울", "before": None, "limit": 10})
+
+
+def test_admin_assignment_routes_pass_the_request_and_stay_admin_only(client, monkeypatch):
+    detail = {**INTAKE_VIEW, "assignments": [{
+        "coverage": "property", "from_assignee_id": None, "to_assignee_id": "p-1",
+        "method": "manual", "reason": "담당자 부재", "decided_by": "admin-1",
+        "created_at": "2026-11-13T15:00:00+09:00"}]}
+    calls: list[tuple] = []
+
+    async def fake_get(admin_id, intake_id):
+        calls.append(("get", admin_id, intake_id))
+        return detail
+
+    async def fake_assign(admin_id, intake_id, **kw):
+        calls.append(("assign", admin_id, intake_id, kw))
+        return detail
+
+    monkeypatch.setattr(admin, "get_intake", fake_get)
+    monkeypatch.setattr(admin, "assign_intake", fake_assign)
+    body = {"coverage": "property", "assignee_id": "p-1", "reason": " 담당자 부재 "}
+    adjuster = token("adj-1", app_metadata={"staff_role": "adjuster"})
+    assert client.get("/admin/intakes/i-1", headers=adjuster).status_code == 403
+    assert client.post("/admin/intakes/i-1/assignments", json=body, headers=adjuster) \
+        .status_code == 403
+    assert calls == []
+
+    headers = token("admin-1", **ADMIN)
+    assert client.get("/admin/intakes/i-1", headers=headers).json() == detail
+    res = client.post("/admin/intakes/i-1/assignments", json=body, headers=headers)
+    assert res.status_code == 200 and res.json() == detail
+    assert calls == [("get", "admin-1", "i-1"), ("assign", "admin-1", "i-1", {
+        "coverage": "property", "assignee_id": "p-1", "reason": "담당자 부재"})]
+    for bad in ({**body, "coverage": "life"}, {**body, "reason": "  "}, {"coverage": "injury"}):
+        res = client.post("/admin/intakes/i-1/assignments", json=bad, headers=headers)
+        assert res.status_code == 422 and res.json()["error"]["code"] == "invalid_request"
 
 
 @pytest.mark.parametrize("body", [
