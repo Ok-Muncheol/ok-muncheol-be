@@ -8,6 +8,7 @@ import re
 import typing
 from pathlib import Path
 
+from app.schemas.admin import AssignmentMethod, Coverage, IntakeStatus, Region
 from app.schemas.common import JudgmentStatus, TaskStatus
 from app.schemas.judgment import ValidationCheck
 from app.workflow.graph import MAX_REBUTTAL_RETRIES, STAGES
@@ -58,3 +59,11 @@ def test_status_values_match_contracts():
 def test_rebuttal_retry_cap_matches_graph():
     assert _upper_bound("judgment_runs_retry_cap") == MAX_REBUTTAL_RETRIES
     assert _upper_bound("validation_checks_attempt_check") == MAX_REBUTTAL_RETRIES
+
+
+def test_intake_values_match_admin_contract():
+    """접수·배정 표의 지역·상태·배정 방식·분야가 app/schemas/admin.py와 같다."""
+    assert _in_list("case_intakes_region_check") == set(typing.get_args(Region))
+    assert _in_list("case_intakes_status_check") == set(typing.get_args(IntakeStatus))
+    assert _in_list("case_assignments_method_check") == set(typing.get_args(AssignmentMethod))
+    assert _in_list("case_assignments_coverage_check") == set(typing.get_args(Coverage))

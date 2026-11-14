@@ -58,10 +58,11 @@ def test_health_is_open(client):
 def test_openapi_matches_fe_api_client():
     # FE ApiClient(src/lib/api/client.ts) 메서드 18개(getEvidence 포함) + listCases(11/13)
     # GET /cases는 POST /cases와 경로가 같아 사건 경로 수는 그대로 17이다
-    # + 관리자 조회 GET /admin/overview(11/13 — FE 관리자 화면이 ApiClient에 메서드를 더한다)
-    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 18
+    # + 관리자 경로(11/13 — FE 관리자 화면이 ApiClient에 메서드를 더한다):
+    #   GET /admin/overview, GET·POST /admin/intakes
+    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 19
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 20
+    assert ops == 22
 
 
 def test_missing_token_is_401_api_error(client):
@@ -104,12 +105,29 @@ def test_dev_actor_only_in_local_off_vercel(client):
     assert client.get("/cases/case-1").status_code == 503
 
 
+ADMIN = {"app_metadata": {"staff_role": "admin"}}
+EMPTY_OVERVIEW = {
+    "staff": [], "generated_at": "2026-11-13T15:00:00+09:00",
+    "summary": {"open": 0, "unassigned": 0, "received_today": 0, "closed_today": 0,
+                "by_stage": {}},
+}
+INTAKE_VIEW = {
+    "intake_id": "i-1", "received_at": "2026-11-13T15:00:00+09:00", "accident_at": None,
+    "location": "서울 강남구", "description": "접촉", "injured_count": 1, "region": "서울",
+    "status": "assigned", "stage": "intake", "property_assignee_id": "p-1",
+    "injury_assignee_id": None, "unassigned_reason": None, "case_id": "c-1",
+    "simulated": False, "closed_at": None,
+    "assignment": {"method": "rule", "reason": "업무량이 가장 적습니다.",
+                   "created_at": "2026-11-13T15:00:00+09:00"},
+}
+
+
 def test_admin_route_needs_the_admin_role_from_app_metadata(client, monkeypatch):
     seen: list[str] = []
 
     async def fake_overview(admin_id):
         seen.append(admin_id)
-        return {"staff": [], "cases": []}
+        return EMPTY_OVERVIEW
 
     monkeypatch.setattr(admin, "get_overview", fake_overview)
     assert client.get("/admin/overview").status_code == 401
@@ -123,11 +141,59 @@ def test_admin_route_needs_the_admin_role_from_app_metadata(client, monkeypatch)
         assert res.status_code == 403 and res.json()["error"]["code"] == "forbidden", claims
     assert seen == []  # 관리자가 아니면 서비스 함수(=DB)까지 가지 않는다
 
-    res = client.get(
-        "/admin/overview", headers=token("admin-1", app_metadata={"staff_role": "admin"})
-    )
-    assert res.status_code == 200 and res.json() == {"staff": [], "cases": []}
+    res = client.get("/admin/overview", headers=token("admin-1", **ADMIN))
+    assert res.status_code == 200 and res.json() == EMPTY_OVERVIEW
     assert seen == ["admin-1"]
+
+
+def test_admin_intake_routes_pass_the_request_and_stay_admin_only(client, monkeypatch):
+    calls: list[tuple] = []
+
+    async def fake_register(admin_id, **kw):
+        calls.append(("register", admin_id, kw))
+        return INTAKE_VIEW
+
+    async def fake_list(admin_id, **kw):
+        calls.append(("list", admin_id, kw))
+        return [INTAKE_VIEW]
+
+    monkeypatch.setattr(admin, "register_intake", fake_register)
+    monkeypatch.setattr(admin, "list_intakes", fake_list)
+    body = {"location": "  서울 강남구 테헤란로  ", "description": "교차로 접촉",
+            "injured_count": 1, "accident_at": "2026-11-13T08:40:00+09:00"}
+
+    adjuster = token("adj-1", app_metadata={"staff_role": "adjuster"})
+    assert client.post("/admin/intakes", json=body).status_code == 401
+    assert client.post("/admin/intakes", json=body, headers=adjuster).status_code == 403
+    assert client.get("/admin/intakes", headers=adjuster).status_code == 403
+    assert calls == []
+
+    res = client.post("/admin/intakes", json=body, headers=token("admin-1", **ADMIN))
+    assert res.status_code == 201 and res.json() == INTAKE_VIEW
+    name, admin_id, sent = calls[0]
+    assert (name, admin_id, sent["location"], sent["injured_count"]) \
+        == ("register", "admin-1", "서울 강남구 테헤란로", 1)  # 앞뒤 공백은 뗀다
+    assert sent["accident_at"].isoformat() == "2026-11-13T08:40:00+09:00"
+
+    res = client.get("/admin/intakes?state=open&region=서울&limit=10",
+                     headers=token("admin-1", **ADMIN))
+    assert res.status_code == 200 and res.json() == [INTAKE_VIEW]
+    assert calls[1] == ("list", "admin-1", {"state": "open", "assignee_id": None,
+                                           "region": "서울", "before": None, "limit": 10})
+
+
+@pytest.mark.parametrize("body", [
+    {"description": "접촉"},  # 사고 장소 없음
+    {"location": "   ", "description": "접촉"},  # 공백뿐
+    {"location": "서울", "description": ""},
+    {"location": "서울", "description": "접촉", "injured_count": 21},
+    {"location": "서울", "description": "접촉", "accident_at": "어제"},
+])
+def test_admin_intake_body_errors_are_invalid_request(client, body):
+    res = client.post("/admin/intakes", json=body, headers=token("admin-1", **ADMIN))
+    assert res.status_code == 422 and res.json()["error"]["code"] == "invalid_request"
+    over = client.get("/admin/intakes?limit=201", headers=token("admin-1", **ADMIN))
+    assert over.status_code == 422
 
 
 def test_dev_actor_is_never_admin(client):

@@ -15,6 +15,7 @@
 | `20261113120000_fact_card_version_fks.sql` | 구준휘(통합) | 판단(`judgment_runs.fact_card_version`)·응답(`judgment_answers`의 `expected_card_version`·`resulting_card_version`)·보고서(`review_reports.fact_card_version`)를 `fact_cards (case_id, version)` 외래키로 묶는다. 다른 사건의 카드 버전은 가리킬 수 없고, 가리킨 카드 버전은 지울 수 없다 |
 | `20261113180000_case_documents_liability_kinds.sql` | 김지은 | `case_documents.kind`에 대물·대인 담당자 입력 `injured_person`·`property_damage_input` 추가(제약 다시 걸기). 칸은 `docs/contracts/liability-input.md` |
 | `20261113190000_case_injury_assignee.sql` | 구준휘(통합) | `cases.injury_assignee_id`(대인 담당자, 없으면 null). `private.can_access_case()`가 대물·대인 담당자 모두 통과시키고, `cases`에 대인 담당자용 조회 정책을 더한다. BE는 이 칼럼을 직접 읽으므로(`runs.case_assignees`) 새 DB에는 이 파일을 코드보다 먼저 적용한다 |
+| `20261113200000_case_intakes_assignments.sql` | 구준휘(통합) | 접수 건(`case_intakes`)과 배정 이력(`case_assignments`). 접수 건은 배정 전에도 있고, 실제 접수는 배정되면 `cases`와 이어진다. 가상 접수(`simulated`)는 단계 일정 칼럼만 갖고 `cases`를 만들지 않는다. 브라우저 역할에는 권한도 정책도 없다(BE 전용). 기존 사건에는 접수 건을 만들어 둔다 |
 
 ## 공통 원칙
 
