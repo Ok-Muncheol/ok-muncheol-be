@@ -28,6 +28,7 @@ from app.agents import dispatch as agent
 from app.api import admin
 from app.api.errors import ApiException
 from app.dispatch import repository, seeding, service
+from app.schemas.admin import IntakeDetails
 from tests.api.test_case_assignees_db import temp_database
 from tests.migrations.test_migrations_apply import ADMIN_URL, MIGRATIONS
 
@@ -37,6 +38,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 INTAKE_MIGRATION = "20261113200000_case_intakes_assignments.sql"
+DETAILS_MIGRATION = "20261115100000_case_intake_details.sql"
 NOW = datetime(2026, 11, 13, 6, 0, tzinfo=UTC)  # 한국 시간 11/13 15:00
 (ADMIN, SEOUL_A, SEOUL_B, BUSAN, SEOUL_INJURY, DEMO, BANNED, NO_ROLE) = (
     str(uuid.uuid4()) for _ in range(8)
@@ -269,6 +271,7 @@ def test_overview_counts_load_and_stages(api):
     assert staff[SEOUL_A] | {"cases": None} == {
         "user_id": SEOUL_A, "email": f"{SEOUL_A[:8]}@example.com", "name": "김대물",
         "staff_role": "adjuster", "coverage": "property", "region": "서울", "auto_assign": True,
+        "career_years": 0, "specialties": [], "high_value": False, "away": False,
         "cases": None,
     }
     assert (staff[DEMO]["auto_assign"], staff[DEMO]["cases"]) == (False, {"open": 0, "closed": 0})
@@ -368,7 +371,7 @@ def test_sync_is_idempotent(api):
 def test_tables_missing_is_503():
     """마이그레이션 적용 전 공용 DB를 흉내 낸다."""
     before = [m for m in MIGRATIONS if m.name < INTAKE_MIGRATION]
-    assert len(before) == len(MIGRATIONS) - 1
+    assert len(before) == len(MIGRATIONS) - 2
     old = admin.services
     with temp_database(before) as url:
         admin.configure(connect=lambda: db.connect(url), now=lambda: NOW,
@@ -378,6 +381,24 @@ def test_tables_missing_is_503():
                 == (503, "dispatch_db_not_ready")
             assert error(lambda: asyncio.run(admin.list_intakes(ADMIN))) \
                 == (503, "dispatch_db_not_ready")
+            assert error(lambda: asyncio.run(admin.register_intake(
+                ADMIN, location="서울 강남구", description="접촉"))) \
+                == (503, "dispatch_db_not_ready")
+        finally:
+            admin.services = old
+
+
+def test_details_column_missing_keeps_reads_working():
+    """배정 참고 정보 칸(details)만 아직 없는 DB: 조회는 되고 접수 등록만 503이다."""
+    before = [m for m in MIGRATIONS if m.name < DETAILS_MIGRATION]
+    assert len(before) == len(MIGRATIONS) - 1
+    old = admin.services
+    with temp_database(before) as url:
+        admin.configure(connect=lambda: db.connect(url), now=lambda: NOW,
+                        decide=service.decide_by_rule)
+        try:
+            assert asyncio.run(admin.get_overview(ADMIN))["summary"]["open"] == 0
+            assert asyncio.run(admin.list_intakes(ADMIN)) == []
             assert error(lambda: asyncio.run(admin.register_intake(
                 ADMIN, location="서울 강남구", description="접촉"))) \
                 == (503, "dispatch_db_not_ready")
@@ -418,9 +439,9 @@ def test_agent_reads_candidates_and_assigns_with_its_reason(api):
         api,
         [call("find_adjusters", region="서울", coverage="property"),
          call("find_adjusters", region="서울", coverage="injury")],
-        [call("assign", property_adjuster="P2",
-              property_reason="서울 사고이고 후보 2명 중 한 명입니다.",
-              injury_adjuster="I1", injury_reason="서울 대인 담당자가 한 명입니다.")],
+        [call("assign", coverage="property", adjuster="P2",
+              reason="서울 사고이고 후보 2명 중 한 명입니다."),
+         call("assign", coverage="injury", adjuster="I1", reason="대인 담당자가 한 명입니다.")],
     )
     view = api.register("마포구 월드컵북로 사거리", injured_count=1)  # 시·도 이름이 없는 글
 
@@ -432,21 +453,27 @@ def test_agent_reads_candidates_and_assigns_with_its_reason(api):
     # 에이전트는 접수 글을 받고, 도구가 돌려준 후보(표시·이름·업무량)만 본다
     assert "마포구 월드컵북로 사거리" in llm.seen[0][1]["content"]
     tool_results = [json.loads(m["content"]) for m in llm.seen[1] if m["role"] == "tool"]
-    assert [[c["adjuster"] for c in found] for found in tool_results] == [["P1", "P2"], ["I1"]]
-    seen_keys = {key for found in tool_results for c in found for key in c}
-    assert seen_keys == {"adjuster", "name", "open_cases"}  # 계정 ID·이메일은 넘기지 않는다
+    found = [result["candidates"] for result in tool_results]
+    assert [[c["adjuster"] for c in group] for group in found] == [["P1", "P2"], ["I1"]]
+    seen_keys = {key for group in found for c in group for key in c}
+    # 계정 ID·이메일은 넘기지 않는다
+    assert seen_keys == {"adjuster", "name", "open_cases"}  # 사건에 쓸 사실이 더 없으면 업무량만
     detail = api.rows("select detail from public.case_assignments where intake_id = %s"
                       " and coverage = 'property'", view["intake_id"])[0]["detail"]
     assert (detail["region"], detail["candidates"], detail["llm_calls"]) == ("서울", 2, 2)
 
 
+REFUSE = [call("leave_unassigned", reason="모두 진행 중인 사건이 많습니다")]
+
+
 @pytest.mark.parametrize("replies", [
     [RuntimeError("모델 호출 실패")],  # 호출이 실패한다
-    [[call("assign", property_adjuster="P9", property_reason="없는 사람")]],  # 후보에 없는 사람
-    [[call("find_adjusters", region="서울", coverage="property")],
-     [call("leave_unassigned", reason="배정하지 않겠습니다")]],  # 후보가 있는데 미배정
-    [[call("find_adjusters", region="한양", coverage="property")]],  # 없는 지역
     [[]],  # 도구를 부르지 않는다
+    [[{"id": "x", "name": "assign", "arguments": "{"}]],  # 인자가 JSON이 아니다
+    [[call("delete_everything")]],  # 모르는 도구
+    # 틀린 답을 알려 줘도 정해진 횟수 안에 고치지 못한다
+    [[call("find_adjusters", region="서울", coverage="property")],
+     *([REFUSE] * (agent.MAX_LLM_CALLS - 1))],
 ])
 def test_agent_failure_falls_back_to_the_rule(api, replies):
     with_agent(api, *replies)
@@ -455,19 +482,173 @@ def test_agent_failure_falls_back_to_the_rule(api, replies):
     assert view["assignment"]["method"] == "rule"
 
 
+@pytest.mark.parametrize(("wrong", "told"), [
+    (REFUSE, "미배정으로 둘 수 없다"),  # 후보가 있는데 미배정(업무량이 많다는 까닭)
+    ([call("assign", coverage="property", adjuster="P9", reason="없는 사람")], "후보에 없다"),
+    ([call("assign", coverage="property", adjuster="I1", reason="분야가 다르다")], "후보에 없다"),
+    ([call("find_adjusters", region="한양", coverage="property")], "17개 시·도"),  # 없는 지역
+])
+def test_agent_is_told_what_was_wrong_and_picks_again(api, wrong, told):
+    llm = with_agent(
+        api, [call("find_adjusters", region="서울", coverage="property")], wrong,
+        [call("assign", coverage="property", adjuster="P1", reason="서울 후보 2명 중 골랐습니다.")],
+    )
+    view = api.register("서울 강남구 테헤란로")
+    assert (view["status"], view["assignment"]["method"]) == ("assigned", "agent")
+    last_tool = [m for m in llm.seen[2] if m["role"] == "tool"][-1]
+    assert told in json.loads(last_tool["content"])["error"]
+    detail = api.rows("select detail from public.case_assignments where intake_id = %s",
+                      view["intake_id"])[0]["detail"]
+    assert (detail["llm_calls"], detail["corrections"]) == (3, 1)
+
+
+def test_agent_cannot_skip_the_search_when_the_place_names_a_region(api):
+    with_agent(api, [call("leave_unassigned", reason="지역을 모르겠습니다")],
+               [call("find_adjusters", region="서울", coverage="property")],
+               [call("assign", coverage="property", adjuster="P2", reason="서울 담당자입니다.")])
+    assert api.register("서울 강남구 테헤란로")["assignment"]["method"] == "agent"
+    # 지역이 정말 없는 글이면 후보를 보지 않고 미배정으로 둘 수 있다
+    with_agent(api, [call("leave_unassigned", reason="사고 장소에 지역이 없습니다.")])
+    view = api.register("집 앞 골목")
+    assert (view["status"], view["unassigned_reason"]) \
+        == ("unassigned", "사고 장소에 지역이 없습니다.")
+
+
 def test_agent_may_leave_unassigned_only_when_no_candidate_exists(api):
     with_agent(api, [call("find_adjusters", region="제주", coverage="property")],
-               [call("leave_unassigned", reason="제주 지역에 대물 담당자가 없습니다.")])
+               [call("leave_unassigned", reason="담당자가 없네요")])  # 까닭은 코드가 적는다
     view = api.register("제주 서귀포시 중문관광로")
     assert (view["status"], view["region"], view["unassigned_reason"]) \
-        == ("unassigned", "제주", "제주 지역에 대물 담당자가 없습니다.")
+        == ("unassigned", "제주", "제주 지역에 배정할 대물 담당자가 없습니다.")
+
+
+def test_agent_picking_the_injury_adjuster_first_or_alone_still_ends_with_property(api):
+    with_agent(api, [call("find_adjusters", region="서울", coverage="injury"),
+                     call("find_adjusters", region="서울", coverage="property")],
+               [call("assign", coverage="injury", adjuster="I1", reason="대인 담당자입니다.")],
+               [call("assign", coverage="property", adjuster="P1", reason="대물 담당자입니다.")])
+    view = api.register("서울 종로구 세종대로", injured_count=1)
+    assert (view["injury_assignee_id"], view["assignment"]["method"]) == (SEOUL_INJURY, "agent")
+    reasons = {r["coverage"]: r["reason"] for r in api.rows(
+        "select coverage, reason from public.case_assignments where intake_id = %s",
+        view["intake_id"])}
+    assert reasons == {"property": "대물 담당자입니다.", "injury": "대인 담당자입니다."}
 
 
 def test_agent_forgetting_the_injury_adjuster_is_filled_by_load(api):
     with_agent(api, [call("find_adjusters", region="서울", coverage="property")],
-               [call("assign", property_adjuster="P1", property_reason="업무량이 적습니다.")])
+               [call("assign", coverage="property", adjuster="P1", reason="업무량이 적습니다.")])
     view = api.register("서울 종로구 세종대로", injured_count=2)
     assert view["injury_assignee_id"] == SEOUL_INJURY and view["assignment"]["method"] == "agent"
+
+
+# ---------------------------------------------------------------- 배정 참고 정보·담당자 속성
+
+(SENIOR, JUNIOR, AWAY, DAEGU_INJURY) = (str(uuid.uuid4()) for _ in range(4))
+LARGE = {"estimated_damage": 45_000_000, "vehicle_type": "imported", "vehicle_count": 3}
+
+
+@pytest.fixture
+def daegu(api):
+    """대구에 경력·권한이 다른 담당자를 둔다. 끝나면 지운다(다른 검사의 담당자 목록 때문)."""
+    people = {
+        SENIOR: adjuster("property", "대구", career_years=9, high_value=True,
+                         specialties=["imported", "multi_vehicle"]),
+        JUNIOR: adjuster("property", "대구", career_years=1),
+        AWAY: adjuster("property", "대구", career_years=12, high_value=True, away=True),
+        DAEGU_INJURY: adjuster("injury", "대구", career_years=3),  # 고액 사건 권한 없음
+    }
+    with psycopg.connect(api.url, autocommit=True) as conn:
+        for user_id, meta in people.items():
+            profile(conn, user_id, meta)
+    yield api
+    with psycopg.connect(api.url, autocommit=True) as conn:
+        conn.execute("truncate public.case_assignments, public.case_intakes, public.cases cascade")
+        conn.execute("delete from auth.users where id = any(%s)", (list(people),))
+
+
+def details(**values) -> IntakeDetails:
+    return IntakeDetails.model_validate(values)
+
+
+def test_details_are_kept_and_returned(api):
+    sent = details(**LARGE, policy={"bodily_injury_ii": False, "property_limit": 50_000_000},
+                   policyholder={"accidents_3y": 3, "complaints": 2, "long_term": True})
+    view = api.register("부산 해운대구 우동", details=sent)
+    assert view["details"] == sent
+    stored = api.rows("select details from public.case_intakes where id = %s",
+                      view["intake_id"])[0]["details"]
+    assert stored["estimated_damage"] == 45_000_000 and "injury_severity" not in stored
+    assert stored["policy"]["own_damage"] is True  # 적지 않은 담보는 기본값으로 들어간다
+    assert api.register("부산 사상구")["details"] == IntakeDetails()  # 없으면 빈 정보
+    assert error(lambda: api.register("부산 사상구", details=details(injury_severity="minor"))) \
+        == (422, "invalid_intake")  # 다친 사람이 없는데 다친 정도
+
+
+def test_away_adjusters_are_not_candidates_and_staff_shows_attributes(daegu):
+    for _ in range(4):
+        assert daegu.register("대구 수성구 달구벌대로")["property_assignee_id"] in (SENIOR, JUNIOR)
+    staff = daegu.staff()
+    senior = staff[SENIOR]
+    assert (senior["career_years"], senior["specialties"], senior["high_value"], senior["away"]) \
+        == (9, ["imported", "multi_vehicle"], True, False)
+    assert (staff[AWAY]["away"], staff[AWAY]["cases"]["open"]) == (True, 0)
+
+
+def test_large_losses_go_only_to_adjusters_with_authority(daegu):
+    daegu.register("대구 수성구")  # 업무량이 적은 쪽에게
+    daegu.register("대구 달서구")  # 두 사람이 한 건씩
+    for _ in range(3):  # 업무량과 상관없이 권한 있는 사람에게
+        view = daegu.register("대구 중구 국채보상로", details=details(**LARGE))
+        assert view["property_assignee_id"] == SENIOR
+    assert "고액 사건 처리 권한이 있는 대물 담당자 1명" in view["assignment"]["reason"]
+    # 권한 있는 사람이 없는 지역이면 배정하지 않고 관리자에게 넘긴다
+    view = daegu.register("서울 강남구 테헤란로", details=details(**LARGE))
+    assert (view["status"], view["unassigned_reason"]) \
+        == ("unassigned", "서울 지역에 고액 사건 처리 권한이 있는 대물 담당자가 없습니다.")
+
+
+def test_severe_injuries_need_an_injury_adjuster_with_authority(daegu):
+    minor, serious = details(injury_severity="minor"), details(injury_severity="serious")
+    view = daegu.register("대구 수성구", injured_count=1, details=minor)
+    assert view["injury_assignee_id"] == DAEGU_INJURY
+    view = daegu.register("대구 수성구", injured_count=1, details=serious)
+    assert (view["status"], view["injury_assignee_id"]) == ("assigned", None)
+    assert view["unassigned_reason"] \
+        == "대구 지역에 고액 사건 처리 권한이 있는 대인 담당자가 없습니다."
+
+
+def test_agent_sees_the_details_and_only_eligible_candidates(daegu):
+    llm = with_agent(daegu, [call("find_adjusters", region="대구", coverage="property")],
+                     [call("assign", coverage="property", adjuster="P1",
+                           reason="수입차·다중 추돌 전문이고 고액 사건 권한이 있습니다.")])
+    sent = details(**LARGE, policy={"bodily_injury_ii": False, "property_limit": 50_000_000},
+                   policyholder={"complaints": 2, "accidents_3y": 1})
+    view = daegu.register("대구 중구 국채보상로", details=sent)
+    assert (view["property_assignee_id"], view["assignment"]["method"]) == (SENIOR, "agent")
+    text = llm.seen[0][1]["content"]
+    for part in ("우리 계약 차량: 수입차", "관련 차량 수: 3대", "예상 손해액: 4,500만 원",
+                 "대인배상Ⅱ 미가입", "대물 한도 5,000만 원", "최근 3년 사고 1회, 민원 2회"):
+        assert part in text
+    result = json.loads(llm.seen[1][-1]["content"])
+    assert "1명 가운데 한 명을 대물 담당자로" in result["next"]
+    assert result["count"] == 1 and result["candidates"] == [{
+        "adjuster": "P1", "name": f"{SENIOR[:8]}@example.com", "open_cases": 0,
+        "career_years": 9, "matched_specialties": ["수입차", "다중 추돌"]}]
+    assert result["case"] == {
+        "needs_specialties": ["수입차", "다중 추돌"],
+        "complications": ["계약자 민원 2회", "예상 손해액이 대물 한도에 가깝다"]}
+    assert "처리 권한이 있는 담당자만" in result["note"]
+
+
+def test_synthetic_details_fit_the_contract():
+    rng = random.Random(7)
+    made = [seeding.synthetic_intake(rng, NOW) for _ in range(400)]
+    for new in made:
+        parsed = IntakeDetails.model_validate(new.details)
+        assert (parsed.injury_severity is not None) == (new.injured_count > 0)
+    large = sum(service.needs_authority({"details": n.details}, "property") for n in made)
+    assert 8 <= large <= 50  # 고액 사건은 드물지만 있다
 
 
 # ---------------------------------------------------------------- 직접 배정·이관

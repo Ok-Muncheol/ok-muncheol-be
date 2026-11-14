@@ -12,6 +12,12 @@
 - 대물 담당자를 구하지 못하면 미배정(unassigned)으로 남기고 까닭을 적는다. 관리자가 직접 배정한다.
 - 대인 담당자만 구하지 못하면 대물 담당자는 배정하고 까닭을 접수 건에 적어 둔다.
 - 자동 배정에서 뺀 계정(app_metadata.auto_assign = false — 시연·테스트 계정)은 후보가 아니다.
+- 부재인 담당자(app_metadata.away)는 후보가 아니다.
+- 고액 사건은 처리 권한(app_metadata.high_value)이 있는 담당자만 후보다. 대물은 예상 손해액이
+  HIGH_VALUE_DAMAGE 이상일 때, 대인은 다친 정도가 중상·사망일 때다. 권한 있는 사람이 그 지역에
+  없으면 배정하지 않고 까닭을 적는다(관리자가 직접 배정한다).
+이 세 가지는 규칙 배정과 배정 에이전트가 똑같이 지킨다(eligible). 그 안에서 규칙은 업무량만 보고,
+에이전트는 전문 분야·경력·계약자 이력까지 본다.
 """
 
 import hashlib
@@ -26,6 +32,11 @@ from app.dispatch import regions, repository, simulation
 
 Row = repository.Row
 COVERAGE_LABELS = {"property": "대물", "injury": "대인"}
+HIGH_VALUE_DAMAGE = 30_000_000  # 예상 손해액이 이 값(원) 이상이면 고액 대물 사건이다
+SEVERE_INJURIES = ("serious", "fatal")
+MULTI_VEHICLE_COUNT = 3  # 관련 차량이 이 수 이상이면 다중 추돌이다
+COMPLAINTS_MANY, ACCIDENTS_MANY = 2, 3  # 계약자 민원·최근 3년 사고가 이 횟수 이상이면 까다롭다
+NEAR_LIMIT = 0.8  # 예상 손해액이 대물 한도의 이 비율 이상이면 한도에 가깝다
 
 
 class IntakeNotFound(Exception):  # noqa: N818 — API가 404로 바꾼다
@@ -49,6 +60,7 @@ class NewIntake:
     received_at: datetime | None = None  # 없으면 지금. 가상 접수를 미리 만들 때 넘긴다
     registered_by: str | None = None
     simulated: bool = False
+    details: dict = field(default_factory=dict)  # 배정 참고 정보(schemas.admin.IntakeDetails)
 
 
 @dataclass(frozen=True)
@@ -80,24 +92,88 @@ def least_loaded(candidates: list[Row], tie_break: str) -> Row:
     return min(tied, key=lambda c: hashlib.sha256(f"{tie_break}:{c['id']}".encode()).digest())
 
 
+def needs_authority(intake: Row, coverage: str) -> bool:
+    """고액 사건인가 — 처리 권한이 있는 담당자만 맡을 수 있다."""
+    details = intake.get("details") or {}
+    if coverage == "property":
+        return int(details.get("estimated_damage") or 0) >= HIGH_VALUE_DAMAGE
+    return details.get("injury_severity") in SEVERE_INJURIES
+
+
+def needed_specialties(intake: Row, coverage: str) -> list[str]:
+    """이 사건에 맞는 전문 분야(schemas.admin.Specialty). 없으면 빈 목록."""
+    details = intake.get("details") or {}
+    if coverage == "injury":
+        return ["serious_injury"] if details.get("injury_severity") in SEVERE_INJURIES else []
+    needed = ["imported"] if details.get("vehicle_type") == "imported" else []
+    if int(details.get("vehicle_count") or 0) >= MULTI_VEHICLE_COUNT:
+        needed.append("multi_vehicle")
+    return needed
+
+
+def complications(intake: Row) -> list[str]:
+    """까다로운 사건으로 볼 까닭(경력이 긴 담당자가 맡는 편이 좋다). 없으면 빈 목록."""
+    details = intake.get("details") or {}
+    holder, policy = details.get("policyholder") or {}, details.get("policy") or {}
+    found = []
+    if int(holder.get("complaints") or 0) >= COMPLAINTS_MANY:
+        found.append(f"계약자 민원 {int(holder['complaints'])}회")
+    if int(holder.get("accidents_3y") or 0) >= ACCIDENTS_MANY:
+        found.append(f"최근 3년 사고 {int(holder['accidents_3y'])}회")
+    if int(intake["injured_count"]) > 0 and policy.get("bodily_injury_ii") is False:
+        found.append("다친 사람이 있는데 대인배상Ⅱ 미가입")
+    damage, limit = details.get("estimated_damage"), policy.get("property_limit")
+    if damage and limit and int(damage) >= int(limit) * NEAR_LIMIT:
+        found.append("예상 손해액이 대물 한도에 가깝다")
+    return found
+
+
+@dataclass(frozen=True)
+class Eligible:
+    """한 지역·분야에서 이 접수를 맡을 수 있는 후보."""
+
+    rows: list[Row]
+    region: str
+    coverage: str
+    total: int  # 권한으로 거르기 전의 후보 수(부재·자동 배정 제외 계정은 이미 빠졌다)
+    restricted: bool  # 고액 사건이라 권한 있는 사람만 남겼다
+
+    def none_reason(self) -> str:
+        label = COVERAGE_LABELS[self.coverage]
+        if self.restricted and self.total:
+            return f"{self.region} 지역에 고액 사건 처리 권한이 있는 {label} 담당자가 없습니다."
+        return f"{self.region} 지역에 배정할 {label} 담당자가 없습니다."
+
+
+async def eligible(
+    conn: AsyncConnection, intake: Row, region: str, coverage: str, at: datetime
+) -> Eligible:
+    found = await repository.candidates(conn, region, coverage, at)
+    restricted = needs_authority(intake, coverage)
+    rows = [c for c in found if c["high_value"]] if restricted else found
+    return Eligible(rows, region, coverage, len(found), restricted)
+
+
 async def pick_by_load(
     conn: AsyncConnection, intake: Row, region: str, coverage: str, at: datetime
-) -> Pick | None:
-    """그 지역·분야에서 업무량이 가장 적은 담당자. 후보가 없으면 None."""
-    found = await repository.candidates(conn, region, coverage, at)
-    if not found:
-        return None
-    chosen = least_loaded(found, str(intake["id"]))
+) -> tuple[Pick | None, Eligible]:
+    """그 지역·분야에서 맡을 수 있는 담당자 가운데 업무량이 가장 적은 사람. 없으면 None."""
+    pool = await eligible(conn, intake, region, coverage, at)
+    if not pool.rows:
+        return None, pool
+    chosen = least_loaded(pool.rows, str(intake["id"]))
     label = COVERAGE_LABELS[coverage]
+    who = f"고액 사건 처리 권한이 있는 {label} 담당자" if pool.restricted else f"{label} 담당자"
     reason = (
-        f"{region} 지역 {label} 담당자 {len(found)}명 가운데 진행 중인 사건이 가장 적습니다"
+        f"{region} 지역 {who} {len(pool.rows)}명 가운데 진행 중인 사건이 가장 적습니다"
         f"({int(chosen['open_cases'])}건)."
     )
     detail = {
-        "region": region, "candidates": len(found), "open_cases": int(chosen["open_cases"]),
-        "loads": sorted(int(c["open_cases"]) for c in found),
+        "region": region, "candidates": len(pool.rows), "open_cases": int(chosen["open_cases"]),
+        "loads": sorted(int(c["open_cases"]) for c in pool.rows),
+        "high_value_only": pool.restricted,
     }
-    return Pick(str(chosen["id"]), reason, detail)
+    return Pick(str(chosen["id"]), reason, detail), pool
 
 
 async def decide_by_rule(conn: AsyncConnection, intake: Row, at: datetime) -> Decision:
@@ -106,14 +182,13 @@ async def decide_by_rule(conn: AsyncConnection, intake: Row, at: datetime) -> De
     if region is None:
         return Decision("rule", None, None,
                         unassigned_reason="사고 장소에서 지역을 판별하지 못했습니다.")
-    property_pick = await pick_by_load(conn, intake, region, "property", at)
+    property_pick, pool = await pick_by_load(conn, intake, region, "property", at)
     if property_pick is None:
-        return Decision("rule", region, None,
-                        unassigned_reason=f"{region} 지역에 배정할 대물 담당자가 없습니다.")
+        return Decision("rule", region, None, unassigned_reason=pool.none_reason())
     if int(intake["injured_count"]) <= 0:
         return Decision("rule", region, property_pick)
-    injury_pick = await pick_by_load(conn, intake, region, "injury", at)
-    note = None if injury_pick else f"{region} 지역에 배정할 대인 담당자가 없습니다."
+    injury_pick, pool = await pick_by_load(conn, intake, region, "injury", at)
+    note = None if injury_pick else pool.none_reason()
     return Decision("rule", region, property_pick, injury_pick, injury_note=note)
 
 
@@ -157,8 +232,8 @@ async def register(
         intake = await repository.insert_intake(conn, {
             "received_at": received_at, "accident_at": new.accident_at,
             "location": new.location, "description": new.description,
-            "injured_count": new.injured_count, "registered_by": new.registered_by,
-            "simulated": new.simulated, **plan,
+            "injured_count": new.injured_count, "details": new.details,
+            "registered_by": new.registered_by, "simulated": new.simulated, **plan,
         })
         decision = await decide(conn, intake, received_at)
         return await apply(conn, intake, decision, received_at)

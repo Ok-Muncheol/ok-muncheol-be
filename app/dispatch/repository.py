@@ -22,10 +22,20 @@ Row = dict[str, Any]
 
 ASSIGNEE_COLUMNS = {"property": "property_assignee_id", "injury": "injury_assignee_id"}
 
-# 자동 배정 후보: 그 지역·분야의 담당자 가운데 자동 배정에서 빼지 않은 계정. 업무량이 적은 순.
+# 담당자 속성(app_metadata). 적지 않은 계정은 경력 0년·전문 분야 없음·권한 없음·부재 아님이다
+_ATTRS_SQL = """
+       coalesce(nullif(regexp_replace(u.raw_app_meta_data ->> 'career_years', '[^0-9]', '', 'g'),
+                       '')::int, 0) as career_years,
+       case when jsonb_typeof(u.raw_app_meta_data -> 'specialties') = 'array'
+            then u.raw_app_meta_data -> 'specialties' else '[]'::jsonb end as specialties,
+       coalesce(u.raw_app_meta_data ->> 'high_value', 'false') = 'true' as high_value,
+       coalesce(u.raw_app_meta_data ->> 'away', 'false') = 'true' as away"""
+
+# 자동 배정 후보: 그 지역·분야의 담당자 가운데 자동 배정에서 빼지 않았고 부재가 아닌 계정.
+# 업무량이 적은 순.
 _CANDIDATES_SQL = """
 select u.id,
-       coalesce(nullif(u.raw_user_meta_data ->> 'name', ''), u.email) as name,
+       coalesce(nullif(u.raw_user_meta_data ->> 'name', ''), u.email) as name,{attrs},
        (select count(*) from public.case_intakes i
          where i.{column} = u.id and {visible} and {open}) as open_cases
 from auth.users u
@@ -33,6 +43,7 @@ where u.raw_app_meta_data ->> 'staff_role' = 'adjuster'
   and u.raw_app_meta_data ->> 'coverage' = %(coverage)s
   and u.raw_app_meta_data ->> 'region' = %(region)s
   and coalesce(u.raw_app_meta_data ->> 'auto_assign', 'true') <> 'false'
+  and coalesce(u.raw_app_meta_data ->> 'away', 'false') <> 'true'
   and u.deleted_at is null
   and (u.banned_until is null or u.banned_until < now())
 order by open_cases, u.id
@@ -40,10 +51,10 @@ order by open_cases, u.id
 
 _INSERT_INTAKE_SQL = """
 insert into public.case_intakes
-  (received_at, accident_at, location, description, injured_count, registered_by, simulated,
-   facts_at, judgment_at, report_at, closes_at)
+  (received_at, accident_at, location, description, injured_count, details, registered_by,
+   simulated, facts_at, judgment_at, report_at, closes_at)
 values (%(received_at)s, %(accident_at)s, %(location)s, %(description)s, %(injured_count)s,
-        %(registered_by)s, %(simulated)s,
+        %(details)s, %(registered_by)s, %(simulated)s,
         %(facts_at)s, %(judgment_at)s, %(report_at)s, %(closes_at)s)
 returning *
 """
@@ -145,7 +156,7 @@ select u.id, u.email,
        u.raw_app_meta_data ->> 'staff_role' as staff_role,
        u.raw_app_meta_data ->> 'coverage' as coverage,
        u.raw_app_meta_data ->> 'region' as region,
-       coalesce(u.raw_app_meta_data ->> 'auto_assign', 'true') <> 'false' as auto_assign,
+       coalesce(u.raw_app_meta_data ->> 'auto_assign', 'true') <> 'false' as auto_assign,{attrs},
        coalesce(l.open_cases, 0) as open_cases, coalesce(l.closed_cases, 0) as closed_cases
 from auth.users u
 left join load l on l.assignee = u.id
@@ -158,7 +169,7 @@ order by u.created_at, u.id
 
 def _fill(sql: str, **extra: str) -> str:
     return sql.format(visible=VISIBLE_SQL, open=OPEN_SQL, closed=CLOSED_SQL, stage=STAGE_SQL,
-                      waiting=WAITING_SQL, **extra)
+                      waiting=WAITING_SQL, attrs=_ATTRS_SQL, **extra)
 
 
 async def _all(conn: AsyncConnection, sql: str, params: dict) -> list[Row]:
@@ -174,12 +185,13 @@ async def _one(conn: AsyncConnection, sql: str, params: dict) -> Row:
 async def candidates(
     conn: AsyncConnection, region: str, coverage: str, now: datetime
 ) -> list[Row]:
-    """그 지역·분야의 자동 배정 후보와 `now` 기준 진행 중 건수(적은 순)."""
+    """그 지역·분야의 자동 배정 후보와 `now` 기준 진행 중 건수(적은 순). 부재인 사람은 없다."""
     sql = _fill(_CANDIDATES_SQL, column=ASSIGNEE_COLUMNS[coverage])
     return await _all(conn, sql, {"region": region, "coverage": coverage, "now": now})
 
 
 async def insert_intake(conn: AsyncConnection, values: dict) -> Row:
+    values = {**values, "details": Jsonb(values.get("details") or {})}
     return await _one(conn, _INSERT_INTAKE_SQL, values)
 
 
