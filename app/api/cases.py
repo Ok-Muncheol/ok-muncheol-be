@@ -3,9 +3,10 @@
 사건 목록(list_cases)은 서비스만 있다. FE ApiClient에 listCases가 생기면 GET /cases 경로를 연다.
 
 사건 요약(CaseSummary)은 FE src/lib/api/types.ts의 모양이다. 단계(stage)는 최신 산출물로 정한다:
-보고서(최신 판단의 것) → report, 판단(최신 카드 버전의 것) → judgment,
+보고서(최신 판단의 것, 판정이 초안 작성 가능일 때) → report, 판단(최신 카드 버전의 것) → judgment,
 끝나지 않았거나 실패한 최신 분석 → analysis, 카드 → facts, 없으면 intake.
 카드를 고쳐 새 버전이 생기면 이전 판단은 그 카드의 것이 아니므로 facts로 돌아간다.
+추가 확인 필요·보류 판정도 보고서를 만들지만(judgments.py) 승인할 수 없어 판단 단계에 둔다.
 """
 
 import uuid
@@ -176,6 +177,9 @@ def summarize(row: dict) -> dict[str, object]:
     """사건 요약 한 행 → CaseSummary.
 
     이전 카드 버전의 판단, 이전 판단의 보고서는 지금 단계로 치지 않는다.
+    보고서 단계는 최신 판정이 초안 작성 가능(draft_ready)일 때만이다. 추가 확인 필요·보류
+    판정은 보고서가 있어도 승인할 수 없으므로(reports.confirm_report) 판단 단계에 둔다 —
+    담당자가 카드를 고쳐 다시 판단해야 다음 단계로 간다.
     """
     case_id = str(row["id"])
     card_version = row.get("card_version") or 0
@@ -183,6 +187,7 @@ def summarize(row: dict) -> dict[str, object]:
     run_now = run_version is not None and row.get("run_card_version") == card_version
     report_now = (
         run_now
+        and row.get("judgment_status") == "draft_ready"
         and row.get("report_version") is not None
         and row.get("report_judgment_version") == run_version
     )

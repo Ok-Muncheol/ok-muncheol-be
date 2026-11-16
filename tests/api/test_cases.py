@@ -184,6 +184,24 @@ def test_stage_report_and_updated_at():
     assert out["updated_at"] == "2026-11-11T16:00:00+09:00"
 
 
+@pytest.mark.parametrize("status", ["deferred", "needs_confirmation"])
+def test_report_of_undecided_judgment_stays_judgment(status):
+    """보류·추가 확인 필요 판정도 보고서를 만들지만 승인할 수 없어 판단 단계에 둔다."""
+    later = datetime(2026, 11, 11, 7, 0, tzinfo=UTC)
+    judged = {"card_version": 2, "card_at": T0, "judgment_version": 1, "run_card_version": 2,
+              "run_status": "completed", "judgment_status": status,
+              "report_version": 1, "report_judgment_version": 1, "approval_status": "draft",
+              "report_at": later}
+    out = cases.summarize(row(**judged))
+    assert (out["stage"], out["task_status"], out["judgment_status"]) == (
+        "judgment", "completed", status)
+    assert out["approval_status"] is None and out["versions"]["report_version"] is None
+    assert out["versions"]["judgment_version"] == 1
+    # 영상을 새로 올려 분석 중이면(영상 없이 진행한 사건) 보고서가 있어도 분석 단계다
+    running = cases.summarize(row(**judged, analysis_status="running", analysis_at=later))
+    assert (running["stage"], running["task_status"]) == ("analysis", "running")
+
+
 def test_old_report_not_current():
     out = cases.summarize(row(card_version=2, judgment_version=2, run_card_version=2,
                               run_status="running", report_version=1, report_judgment_version=1))
