@@ -311,6 +311,30 @@ def test_list_filters_and_pages(api):
         assert error(lambda bad=bad: api.intakes(**bad)) == (422, "invalid_intake_filter")
 
 
+def test_list_by_stage_keeps_paging_past_real_intakes_of_other_stages(api):
+    ago = lambda h: api.now - timedelta(hours=h)  # noqa: E731
+    report = api.simulated("서울 서초구", ago(10), (2, 4, 6, 30))  # 보고서 단계
+    judgment = api.simulated("서울 은평구", ago(9), (2, 4, 20, 30))  # 판단 단계
+    facts = api.simulated("서울 마포구", ago(8), (2, 20, 25, 30))  # 사실 카드 단계
+    fresh = api.simulated("서울 용산구", ago(7), (20, 22, 25, 30))  # 접수 단계
+    api.simulated("부산 동래구", ago(50), (1, 2, 3, 10))  # 종결 — 어느 단계에도 들지 않는다
+    real = api.register("서울 강남구")  # 실제 접수 — 사건 요약으로 접수 단계
+
+    ids = lambda **kw: [v["intake_id"] for v in api.intakes(**kw)]  # noqa: E731
+    assert ids(stage="intake,analysis") == [real["intake_id"], str(fresh["id"])]
+    assert ids(stage="facts,judgment") == [str(facts["id"]), str(judgment["id"])]
+    assert ids(stage="report") == [str(report["id"])]
+    assert ids(stage="report", region="부산") == []
+    # 맨 앞 실제 접수(접수 단계)를 걸러 내도 한 쪽을 채우고, 다음 쪽은 마지막 건 뒤부터다
+    assert ids(stage="facts,judgment", limit=1) == [str(facts["id"])]
+    after = datetime.fromisoformat(api.intakes(stage="facts", limit=1)[0]["received_at"])
+    assert ids(stage="facts,judgment", limit=1, before=after) == [str(judgment["id"])]
+    assert len(ids(stage="")) == 6  # 빈 값은 거르지 않는다
+
+    for bad in ("done", "unassigned", "intake,closed"):
+        assert error(lambda bad=bad: api.intakes(stage=bad)) == (422, "invalid_intake_filter")
+
+
 # ---------------------------------------------------------------- 실제 사건과 맞추기
 
 

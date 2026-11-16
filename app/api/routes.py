@@ -292,14 +292,19 @@ async def get_admin_overview(admin_id: AdminId) -> AdminOverview:
 async def list_admin_intakes(
     admin_id: AdminId,
     state: str | None = None,
+    stage: str | None = None,
     assignee_id: str | None = None,
     region: str | None = None,
     before: datetime | None = None,
     limit: Annotated[int, Query(ge=1, le=INTAKE_PAGE_MAX)] = 50,
 ) -> list[IntakeView]:
-    """접수 건 목록(최근 접수 순). 다음 쪽은 마지막 건의 received_at을 before로 넘긴다."""
+    """접수 건 목록(최근 접수 순). 다음 쪽은 마지막 건의 received_at을 before로 넘긴다.
+
+    stage는 진행 중 건의 단계를 쉼표로 이은 값이다(예: facts,judgment).
+    """
     return await admin.list_intakes(
-        admin_id, state=state, assignee_id=assignee_id, region=region, before=before, limit=limit
+        admin_id, state=state, stage=stage, assignee_id=assignee_id, region=region,
+        before=before, limit=limit,
     )
 
 

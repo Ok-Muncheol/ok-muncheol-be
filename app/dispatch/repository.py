@@ -267,8 +267,13 @@ async def sync_real_cases(conn: AsyncConnection) -> Row:
 async def list_intakes(
     conn: AsyncConnection, *, now: datetime, limit: int, state: str | None = None,
     assignee_id: str | None = None, region: str | None = None, before: datetime | None = None,
+    stages: list[str] | None = None,
 ) -> list[Row]:
-    """접수 시각이 온 접수 건(최근 접수 순). state: open·unassigned·closed."""
+    """접수 시각이 온 접수 건(최근 접수 순). state: open·unassigned·closed.
+
+    stages가 있으면 진행 중 건만 본다. 가상 접수는 일정으로 단계를 거르고, 실제 접수는
+    진행 중인 것을 모두 넘긴다 — 단계가 사건 요약에서 나와 부르는 쪽(app/api/admin.py)이 거른다.
+    """
     where = [VISIBLE_SQL]
     if state == "open":
         where.append(OPEN_SQL)
@@ -276,6 +281,8 @@ async def list_intakes(
         where.append(WAITING_SQL)
     elif state == "closed":
         where.append(CLOSED_SQL)
+    if stages:
+        where.append(f"{OPEN_SQL} and (not i.simulated or ({STAGE_SQL}) = any(%(stages)s))")
     if assignee_id is not None:
         where.append("%(assignee)s in (i.property_assignee_id, i.injury_assignee_id)")
     if region is not None:
@@ -284,7 +291,7 @@ async def list_intakes(
         where.append("i.received_at < %(before)s")
     sql = _LIST_SQL.format(stage=STAGE_SQL, where=" and ".join(where))
     params = {"now": now, "limit": limit, "assignee": assignee_id, "region": region,
-              "before": before}
+              "before": before, "stages": stages}
     return await _all(conn, sql, params)
 
 
