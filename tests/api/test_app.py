@@ -109,8 +109,8 @@ def test_dev_actor_only_in_local_off_vercel(client):
 ADMIN = {"app_metadata": {"staff_role": "admin"}}
 EMPTY_OVERVIEW = {
     "staff": [], "generated_at": "2026-11-13T15:00:00+09:00",
-    "summary": {"open": 0, "unassigned": 0, "received_today": 0, "closed_today": 0,
-                "by_stage": {}},
+    "summary": {"open": 0, "unassigned": 0, "received_today": 0,
+                "received_today_by_region": {}, "closed_today": 0, "by_stage": {}},
 }
 INTAKE_VIEW = {
     "intake_id": "i-1", "received_at": "2026-11-13T15:00:00+09:00", "accident_at": None,

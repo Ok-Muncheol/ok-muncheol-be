@@ -171,10 +171,12 @@ async def _views(conn: Any, rows: list[dict]) -> list[IntakeView]:
 async def get_overview(admin_id: str) -> AdminOverview:
     """담당자 목록(업무량 포함)과 전체 현황 숫자. 관리자 확인(require_admin) 뒤에만 부른다."""
     now = services.now()
+    day_start = _day_start(now)
     async with _connection() as conn:
         await repository.sync_real_cases(conn)
         staff_rows = await repository.staff(conn, list(STAFF_ROLES), now)
-        totals = await repository.summary(conn, now, _day_start(now))
+        totals = await repository.summary(conn, now, day_start)
+        by_region = await repository.received_today_by_region(conn, now, day_start)
         by_stage = Counter(await repository.simulated_stage_counts(conn, now))
         real_stages = await _real_stages(conn, await repository.open_real_case_ids(conn, now))
     by_stage.update(stage for stage in real_stages.values() if stage != "done")
@@ -199,6 +201,8 @@ async def get_overview(admin_id: str) -> AdminOverview:
             "open": int(totals["open"]),
             "unassigned": int(totals["unassigned"]),
             "received_today": int(totals["received_today"]),
+            # 시·도 순서(REGIONS)로 두고, 오늘 접수가 없는 지역은 뺀다
+            "received_today_by_region": {r: by_region[r] for r in REGIONS if by_region.get(r)},
             "closed_today": int(totals["closed_today"]),
             "by_stage": {stage: by_stage[stage] for stage in sorted(by_stage)},
         },

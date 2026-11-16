@@ -131,6 +131,9 @@ class OverviewSummary(TypedDict):
     open: int  # 진행 중인 접수 건
     unassigned: int  # 담당자를 기다리는 접수 건
     received_today: int  # 오늘(한국 시간) 접수
+    # 오늘 접수의 지역별 수(시·도 순, 0건 지역은 빠진다). 지역을 판별하지 못한
+    # 접수는 세지 않아 합이 received_today보다 작을 수 있다
+    received_today_by_region: dict[str, int]
     closed_today: int  # 오늘(한국 시간) 종결
     by_stage: dict[str, int]  # 진행 중인 건의 단계별 수(IntakeStage 가운데 unassigned·done 제외)
 
