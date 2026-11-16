@@ -15,6 +15,10 @@
                광학 흐름 → YOLO 상대 차·박스 판단 → 움직임 분류기·장면 → 영상 모델 v2·v3·j3·유형
                판단부
                → VLM → 카드 조립(확인 표시 규칙)
+               VLM 질문에 쓰는 탐지 결과는 광학 흐름 요약뿐이다(나머지는 VLM 답이 온 뒤에 합친다).
+               그래서 광학 흐름이 끝나면 같은 질문을 먼저 보내고, 답을 기다리는 동안 YOLO·영상
+               모델을 돌린다(2026-11-16, parallel_vlm). 카드 조립이 만든 질문이 먼저 보낸 것과
+               다르면 VLM을 다시 불러서, 카드는 차례로 부를 때와 같다
 3. v1 변환     workers/vision/contract.py (영어 17칸, 자른 구간만큼 시각을 원본 기준으로 되돌림)
 
 결과 카드의 model_info.pipeline에 영상 정보·자른 구간·모델 파일·단계별 시간을 남긴다.
@@ -23,13 +27,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "data/private/models"
-PIPELINE_VERSION = "2026-11-11"
+PIPELINE_VERSION = "2026-11-16"  # 11-16: VLM 질문을 영상 모델과 나란히(결과는 11-11과 같다)
 TARGET_FPS = 15
 CLIP_SECONDS = 10
 MAX_AS_IS_SECONDS = 20  # 이 길이 이하는 자르지 않는다(AI Hub 최대 20초)
@@ -64,6 +71,9 @@ class PipelineOptions:
     prompt_version: str | None = None  # None이면 fact_card 기본값
     work_dir: Path | None = None  # 임시 파일 폴더. None이면 시스템 임시 폴더에 만들고 끝나면 지운다
     extra_model_info: dict = field(default_factory=dict)
+    # 광학 흐름 뒤 VLM 질문을 먼저 보내고 그동안 YOLO·영상 모델을 돌린다(결과 같음, VLM 시간만큼
+    # 빠르다). False면 예전처럼 영상 모델 뒤에 VLM을 부른다
+    parallel_vlm: bool = True
 
 
 # ---------------------------------------------------------------- 0·1. 입력 확인·영상 맞추기
@@ -183,9 +193,9 @@ def normalize(video_path: str, info: dict, work: Path) -> tuple[str, dict]:
 # ---------------------------------------------------------------- 2. 비전 분석
 
 
-def build_detections(video: str, work: Path, *, use_j3: bool = True) -> dict:
+def build_detections(video: str, work: Path, *, use_j3: bool = True, ego=None) -> dict:
     """평가(run_cards.py --ego --yolo --motion --video)와 같은 detections. 캐시는 이 작업
-    폴더에만."""
+    폴더에만. ego(광학 흐름 결과)를 이미 계산했으면 넘겨서 다시 계산하지 않는다."""
     from workers.vision.detection import box_detections, detect_and_track, pick_opponent
     from workers.vision.ego_motion import analyze_video as ego_analyze
     from workers.vision.motion_model import motion_opinions
@@ -194,7 +204,8 @@ def build_detections(video: str, work: Path, *, use_j3: bool = True) -> dict:
     from workers.vision.video_model import predict
 
     yolo_cache = work / "yolo.json"  # 같은 영상의 YOLO는 한 번만 돌린다
-    ego = ego_analyze(video)
+    if ego is None:
+        ego = ego_analyze(video)
     detections: dict = {"hint": ego.summary(), "ego": ego}
     detections.update(box_detections(video, yolo_cache))
     det = detect_and_track(video, cache_path=yolo_cache)
@@ -215,6 +226,64 @@ def default_vlm():
     from workers.vision.vlm import OpenAIVLM
 
     return OpenAIVLM(model="gpt-4o")
+
+
+class _PrefetchedVLM:
+    """먼저 보낸 VLM 질문의 답을 카드 조립(extract_fact_card_sync)에 돌려준다.
+
+    카드 조립이 처음 묻는 질문·사진·스키마가 먼저 보낸 것과 똑같을 때만 그 답을 쓴다. 다르면
+    (질문에 쓰는 탐지 결과가 늘어난 경우 등) 원래 VLM을 다시 부르므로 카드는 차례로 부를 때와
+    같다. name 등 나머지 속성은 원래 VLM 것을 보인다.
+    """
+
+    def __init__(self, vlm, request: tuple, future):
+        self._vlm = vlm
+        self._request = request
+        self._future = future
+        self._checked = False
+        self.used = False  # 먼저 받은 답을 썼는가
+        self.waited: float | None = None  # 카드 조립이 그 답을 기다린 시간(초)
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._vlm, name)
+
+    def generate(self, prompt: str, images: list[str], schema: dict) -> tuple[dict, dict]:
+        if not self._checked:
+            self._checked = True
+            if (prompt, images, schema) == self._request:
+                self.used = True
+                t = time.time()
+                try:
+                    return self._future.result()
+                finally:
+                    self.waited = round(time.time() - t, 1)
+            logger.info("VLM 질문이 먼저 보낸 것과 달라 다시 묻는다")
+        return self._vlm.generate(prompt, images, schema)
+
+
+def _prefetch_vlm(vlm, clip: str, ego, prompt_version: str) -> _PrefetchedVLM | None:
+    """광학 흐름 요약(hint)만으로 VLM 질문을 먼저 보낸다(다른 스레드).
+
+    카드 조립과 같은 함수(fact_card.vlm_request)·같은 인자로 질문을 만든다. 만들거나 보내지
+    못하면 None이고, 그때는 카드 조립이 원래대로 VLM을 불러 오류도 원래 단계에서 난다.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from workers.vision.fact_card import vlm_request
+
+    try:
+        vlm = vlm or default_vlm()
+        req = vlm_request(clip, {"hint": ego.summary()}, viewpoint=1, prompt_version=prompt_version)
+        request = (req["prompt"], req["images"], req["schema"])
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vlm-prefetch")
+        future = pool.submit(vlm.generate, *request)
+        pool.shutdown(wait=False)  # 보낸 질문 하나는 끝까지 돈다
+    except Exception as exc:  # noqa: BLE001 — 미리 못 보내도 차례로 부르면 된다
+        logger.info("VLM 질문을 미리 보내지 못해 차례로 묻는다: %s", type(exc).__name__)
+        return None
+    return _PrefetchedVLM(vlm, request, future)
 
 
 def model_files() -> dict:
@@ -252,7 +321,9 @@ def analyze_video_sync(
     from workers.vision.fact_card import PROMPT_VERSION, extract_fact_card_sync
 
     opts = options or PipelineOptions()
+    prompt_version = opts.prompt_version or PROMPT_VERSION
     timings: dict[str, float] = {}
+    prefetched: _PrefetchedVLM | None = None
     own_dir = opts.work_dir is None
     work = Path(tempfile.mkdtemp(prefix="vision-")) if own_dir else Path(opts.work_dir)
     work.mkdir(parents=True, exist_ok=True)
@@ -264,7 +335,12 @@ def analyze_video_sync(
 
         t = time.time()
         try:
-            detections = build_detections(clip, work, use_j3=opts.use_j3)
+            from workers.vision.ego_motion import analyze_video as ego_analyze
+
+            ego = ego_analyze(clip)
+            if opts.parallel_vlm:  # 질문에 쓰는 탐지 결과(광학 흐름 요약)가 나왔다 → 먼저 보낸다
+                prefetched = _prefetch_vlm(opts.vlm, clip, ego, prompt_version)
+            detections = build_detections(clip, work, use_j3=opts.use_j3, ego=ego)
         except VisionPipelineError:
             raise
         except Exception as exc:  # 모델 파일 없음·GPU 오류 등
@@ -280,12 +356,14 @@ def analyze_video_sync(
                 clip,
                 detections,
                 viewpoint=1,
-                vlm=opts.vlm or default_vlm(),
-                prompt_version=opts.prompt_version or PROMPT_VERSION,
+                vlm=prefetched or opts.vlm or default_vlm(),
+                prompt_version=prompt_version,
             )
         except Exception as exc:  # VLM 호출 실패는 다시 시도해 볼 수 있다
             raise VisionPipelineError("vlm", "vlm_failed", f"VLM 호출 실패: {exc!r}", True) from exc
         timings["card"] = round(time.time() - t, 1)
+        if prefetched is not None and prefetched.waited is not None:
+            timings["vlm_wait"] = prefetched.waited  # card 안에서 먼저 보낸 답을 기다린 시간
     finally:
         if own_dir:
             shutil.rmtree(work, ignore_errors=True)
@@ -300,6 +378,7 @@ def analyze_video_sync(
         "video": info,
         "cut": cut,
         "use_j3": opts.use_j3,
+        "parallel_vlm": bool(prefetched and prefetched.used),  # 먼저 보낸 질문의 답을 썼는가
         "models": model_files(),
         "seconds": timings,
         **opts.extra_model_info,

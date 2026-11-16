@@ -445,27 +445,22 @@ def assemble_card(
     }
 
 
-def extract_fact_card_sync(
-    case_id: str,
+def vlm_request(
     video_path: str,
     detections: dict | None = None,
     *,
     viewpoint: int = 1,
     collision_hint: int = 75,
-    vlm: VLM | None = None,
     context: str | None = None,
     prompt_version: str = PROMPT_VERSION,
-    type_select: bool = False,
 ) -> dict:
-    """detections가 있으면 궤적을 글로 요약해 질문에 붙이고 사진에 박스를 그린다.
+    """VLM에 보낼 사진·질문·스키마와 그 재료.
 
-    detections = {"tracks": {"A": [(frame, x, y, w, h), ...], "B": [...]}, "size": (가로, 세로),
-                  "source": "정답 박스" | "YOLO", "hint": 글, "ego": EgoMotion}
-    prompt_version: "v0.1"(처음 질문) | "v0.2"(오답 분석 후 개선) ...
-    type_select: True면 2차 질문으로 사고 유형을 고르게 하고, 유형에서 나온 칸을 최종값으로
-    쓴다(비용 약 2배)
+    detections에서는 tracks·size·source·mark_tracks·hint·facts 칸만 본다. 영상 모델·분류기
+    결과는 VLM 답이 온 뒤에 합친다(extract_fact_card_sync).
+    extract_fact_card_sync가 이것으로 VLM을 부른다. 파이프라인은 영상 모델을 돌리는 동안 같은
+    질문을 먼저 보내려고, 광학 흐름 요약(hint)이 나오자마자 이것을 부른다(pipeline._prefetch_vlm).
     """
-    vlm = vlm or OllamaVLM()
     frames = select_frames(collision_hint, version=prompt_version)
     tracks = (detections or {}).get("tracks")
     if tracks:
@@ -497,7 +492,51 @@ def extract_fact_card_sync(
         video_path, frames, collision_hint, tracks=tracks or mark, version=prompt_version
     )
     prompt = build_prompt(viewpoint, frames, collision_hint, context, version=prompt_version)
-    raw, meta = vlm.generate(prompt, images, response_schema(prompt_version))
+    return {
+        "frames": frames,
+        "tracks": tracks,
+        "mark": mark,
+        "hint": hint,
+        "facts": facts,
+        "context": context,
+        "images": images,
+        "prompt": prompt,
+        "schema": response_schema(prompt_version),
+    }
+
+
+def extract_fact_card_sync(
+    case_id: str,
+    video_path: str,
+    detections: dict | None = None,
+    *,
+    viewpoint: int = 1,
+    collision_hint: int = 75,
+    vlm: VLM | None = None,
+    context: str | None = None,
+    prompt_version: str = PROMPT_VERSION,
+    type_select: bool = False,
+) -> dict:
+    """detections가 있으면 궤적을 글로 요약해 질문에 붙이고 사진에 박스를 그린다.
+
+    detections = {"tracks": {"A": [(frame, x, y, w, h), ...], "B": [...]}, "size": (가로, 세로),
+                  "source": "정답 박스" | "YOLO", "hint": 글, "ego": EgoMotion}
+    prompt_version: "v0.1"(처음 질문) | "v0.2"(오답 분석 후 개선) ...
+    type_select: True면 2차 질문으로 사고 유형을 고르게 하고, 유형에서 나온 칸을 최종값으로
+    쓴다(비용 약 2배)
+    """
+    vlm = vlm or OllamaVLM()
+    req = vlm_request(
+        video_path,
+        detections,
+        viewpoint=viewpoint,
+        collision_hint=collision_hint,
+        context=context,
+        prompt_version=prompt_version,
+    )
+    frames, tracks, mark = req["frames"], req["tracks"], req["mark"]
+    hint, facts, context, images = req["hint"], req["facts"], req["context"], req["images"]
+    raw, meta = vlm.generate(req["prompt"], images, req["schema"])
     ego = (detections or {}).get("ego")
     vlm_place = (raw.get("location_type") or {}).get("value")
     #  영상 모델 장소(detections["video"] = video_model.predict 결과)가 있으면 그 장소로 나머지
