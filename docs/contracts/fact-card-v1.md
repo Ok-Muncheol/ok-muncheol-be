@@ -182,10 +182,11 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 ## 9. 저장·수정·확정 API
 
 `public.fact_cards`에 카드 한 버전을 한 행으로 쌓는다(`app/api/facts.py`). 비전 카드는 `save_vision_card`로 저장한다.
-- `GET /cases/{id}/evidence`: 근거 사진·미리보기 영상을 화면에서 여는 서명 URL(1시간, `app/api/analysis.py` `get_evidence`).
-  `{"frames": [{"frame_id", "timestamp_ms", "url"}], "preview_url", "expires_in": 3600}`. 사진은 최신 카드
-  `evidence_frames[].storage_path`(`case-files/{case}/frames/{task}/NN.jpg`), 미리보기는 최신 완료 분석의
-  `case-files/{case}/previews/{task}.mp4`(H.264). 파일이 없거나 이 사건 경로가 아니면 `url`·`preview_url`이 `null`.
+- `GET /cases/{id}/evidence`: 미리보기 영상을 화면에서 여는 서명 URL(1시간, `app/api/analysis.py` `get_evidence`).
+  `{"preview_url", "expires_in": 3600}`. 미리보기는 최신 완료 분석의 `case-files/{case}/previews/{task}.mp4`(H.264)이고,
+  파일이 없으면 `preview_url`이 `null`. 근거 사진(`evidence_frames[].storage_path`)은 서명하지 않는다 —
+  근거 장면은 모든 칸이 같은 고정 프레임이라 화면이 쓰지 않는다(FE #166). 분석 때도 사진을 올리지 않아
+  (11/16) `storage_path`는 `null`이다 — 필요하면 미리보기·원본 영상에서 그 시각을 다시 뽑는다.
 - `PATCH /cases/{id}/fact-card`: 고칠 칸의 값만 보낸다(`{"fields": {"movement_A": {"value": "left_turn"}}, "expected_version": 1, "reason": "..."}`).
   고친 칸은 `human_confirmed`, `model_value`·`vision_detail`은 그대로, 새 버전은 draft. 모름은 `null`로 확인한다.
 - `POST /cases/{id}/fact-card/confirm`: `needs_review` 칸이 없고 도표 A/B가 정해져야 확정된다.

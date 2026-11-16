@@ -40,7 +40,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 | GET·PATCH | `/cases/{id}/fact-card` | A | GET은 최신 버전 `FactCard`(카드 없으면 404). PATCH 본문 `FactPatch` `{expected_version, fields: {칸: {value}}, party_mapping?, reason}` → 새 버전(draft). 고친 칸은 `human_confirmed`(null = 확인한 모름), 모델 원값 보존. 최신 아님 409, v1 밖 값 422 `invalid_fact_value`·`invalid_fact_field`, 사유 없음 422 `invalid_patch`, 도표 A/B 오류 422 `invalid_party_mapping` |
 | POST | `/cases/{id}/fact-card` | A | 블랙박스 영상 없이 진행. 본문 없음, 201 → 칸이 모두 빈 `FactCard` v1(draft, origin manual). 칸은 값 없음·출처 manual·`unverified`라 확정을 막지 않고, 비워 둔 칸은 판단이 구분 질문으로 묻는다. 당사자는 P1 가입자 차량(카드 B — `video_ego_party_id`)·P2 상대 차량, 도표 A=P2·B=P1. 카드가 있으면 409 `fact_card_exists`, 분석이 대기·진행 중이면 409 `analysis_in_progress`. 뒤에 영상을 올리면 분석 카드가 다음 버전이 된다 |
 | POST | `/cases/{id}/fact-card/confirm` | A | `{expected_version}` → 확정 `FactCard`. 값 있는 칸은 모두 `human_confirmed`, 확정한 사람·시각 기록. `needs_review` 칸이나 도표 A/B 오류가 남으면 422 `card_not_confirmable`, 최신 아님 409. 이미 확정이면 그대로 돌려준다 |
-| GET | `/cases/{id}/evidence` | A | 근거 사진·미리보기 영상의 보기용 서명 URL(1시간) `{frames: [{frame_id, timestamp_ms, url}], preview_url, expires_in}`. 사진은 최신 카드 `evidence_frames`, 미리보기는 최신 완료 분석. 이 사건 `frames/`·`previews/` 경로만 서명하고 파일이 없으면 `null`. 담당자 아님 403 |
+| GET | `/cases/{id}/evidence` | A | 미리보기 영상의 보기용 서명 URL(1시간) `{preview_url, expires_in}`. 미리보기는 최신 완료 분석의 것이고, 이 사건 `previews/` 경로만 서명하며 파일이 없으면 `null`. 근거 사진(카드 `evidence_frames`)은 서명하지 않는다 — 모든 칸이 같은 고정 프레임이라 화면이 쓰지 않는다(FE #166). 담당자 아님 403 |
 | POST | `/cases/{id}/judgments` | B | `{card_version}`, `Idempotency-Key` 필수, 202. 버전 불일치 409, 미확정 422 |
 | GET | `/cases/{id}/judgment` | B | 최신 판단 실행 `JudgmentRunView`, 판단 전이면 `null`. 새로고침·재접속 복원 |
 | POST | `/cases/{id}/questions/{question_id}/answer` | B | 본문은 `QuestionAnswer`. 본문 `question_id`가 경로와 다르면 422 `question_mismatch` |
@@ -84,7 +84,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 1. `POST /cases/{id}/analysis` → `start_analysis`가 작업 행을 만들고 `app/modal_dispatch.py`로 Modal 웹 엔드포인트를 부른다.
    넘기는 값은 `{task_id, case_id, video_url, callback_url, callback_token}`이고 Modal에는 서버 키를 두지 않는다. 엔드포인트는 프록시 인증(`Modal-Key`·`Modal-Secret`)으로 막는다.
 2. Modal이 `POST /internal/analysis/{task_id}`에 `Authorization: Bearer <callback_token>`으로 결과를 보낸다. 이 경로는 OpenAPI·위 표에 넣지 않는 서버 간 경로다.
-   - 본문은 `{"status": "completed", "card": FactCard v1}` 또는 `{"status": "failed", "error": {stage?, code, message, retryable}}`이다. 근거 사진(`frames`, JPEG base64)은 정지원과 합의 중이다.
+   - 본문은 `{"status": "completed", "card": FactCard v1}` 또는 `{"status": "failed", "error": {stage?, code, message, retryable}}`이다. 근거 사진은 올리지 않는다(11/16 — 워커에 사진 업로드 칸을 주지 않는다). 워커는 미리보기 영상만 `previews/`에 올린다.
    - 경로는 본문 3MB 초과면 413 `callback_too_large`, JSON 객체가 아니면 422 `invalid_callback`을 돌려준다. 토큰이 틀리면 401 `invalid_callback_token`(서비스)이다.
    - 같은 작업에 다시 오면 바꾸지 않는다(한 번만 반영). 15분 안에 오지 않으면 조회 때 `analysis_timeout`(retryable)이다.
 3. 설정(`MODAL_ANALYZE_URL`·`MODAL_PROXY_KEY`·`MODAL_PROXY_SECRET`, 콜백 주소 `PUBLIC_BACKEND_URL` 또는 Vercel 운영 도메인)이 없으면 접수는 `analysis_not_configured`로 실패한다.
@@ -98,7 +98,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 2. FE가 `upload_url`에 키 없이 파일 본문과 `Content-Type`만 넣어 `PUT` → 200 `{"Key": "<storage_path>"}`
 3. 견적서는 `POST /cases/{id}/estimates` `{storage_path, party_id}`, 영상은 `POST /cases/{id}/analysis` `{storage_path}`
 
-- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`·`image/jpeg`만 받는다. `image/jpeg`는 근거 사진용(11/13, Modal 워커가 올린다)과 대인 증빙 사진(`medical_document`)에 쓴다.
+- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`·`image/jpeg`만 받는다. `image/jpeg`는 대인 증빙 사진(`medical_document`)에 쓴다. 근거 사진(Modal 워커가 `frames/`에 올렸다)은 11/16부터 올리지 않고, 그 전 분석의 사진은 남아 있다.
 - `medical_document`(11/13)는 대인 보상 증빙(진단서·진료비 영수증)이다. PDF·JPEG를 받고 첨부만 하며 BE가 내용을 읽지 않는다. 건강 정보라 견본·테스트에 실제 서류를 넣지 않는다.
 - 무료 플랜이라 파일 하나 50MB가 고정 한도다. 영상은 사고 구간만 잘라 올리는 것을 권한다(정지원: 지금 영상 중앙값 6.3MB, 최대 24MB).
 - 경로는 `case-files/{case_id}/estimates/{uuid}.pdf`·`case-files/{case_id}/videos/{uuid}.{확장자}`·`case-files/{case_id}/medical/{uuid}.pdf|jpg`이고, 이름은 BE가 만든다. 증빙을 받는 쪽은 그 사건의 해당 폴더 아래 경로만 받는다. Supabase는 한글 객체 이름을 거절한다(400 `InvalidKey`).
