@@ -362,6 +362,7 @@ def calculate_injury(
         "label": p.get("label"),
         "grade": grade,
         "treatment_cost": treatment,
+        "is_driver": p.get("is_driver"),
         "consolation": None,
         "damage": None,
         "after_offset": None,
