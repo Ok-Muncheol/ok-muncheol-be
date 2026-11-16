@@ -225,6 +225,14 @@ class ClaimTest(unittest.TestCase):
         self.assertIn("구상 요약표", package_html(p))
         self.assertEqual(self.package(r, docs)["idempotency_key"], p["idempotency_key"])
 
+    def test_claim_no_uses_first_8_of_uuid_case_id(self):
+        # UUID 사건 ID는 청구 번호에 앞 8자리만 쓴다(화면 caseNo와 같다).
+        # 패키지의 case_id는 전체 ID 그대로다
+        r, docs = self.report_with_calc()
+        case = "3f8a2c1d-5b6e-4f70-9a81-0c2d3e4f5a6b"
+        p = self.package({**r, "versions": {**r["versions"], "case_id": case}}, docs)
+        self.assertEqual((p["rows"][0]["claim_no"], p["case_id"]), ("3f8a2c1d-C1", case))
+
     def test_package_blocks(self):
         r, docs = self.report_with_calc(docs=[fx.contract()])
         with self.assertRaisesRegex(ClaimPackageBlocked, "견적서 필요"):  # 금액 null

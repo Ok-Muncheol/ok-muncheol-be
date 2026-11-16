@@ -140,7 +140,7 @@ confirm_report(actor, case_id, version) ─▶ 확인 기록 + 구상 청구 패
 | `EvidenceDoc` (11-06) | `related_payment_id` **삭제**(증빙은 사건에 바로 연결), `doc_type`에서 `payment_record` 삭제 |
 | `RecoveryAmounts` (11-06) | `review_reasons` **삭제**. `planned` = 산정 보험금 × 상대 과실, `claimed` = `planned`(자동), `recovered` = `null`. `NotRequired` `agreed_counterparty_fault: int \| None`(협의 상대 과실 %, `null`이면 협의 해제 기록), `fault_change_reason: str \| None` 유지 |
 | 보고서 9번 본문 (11-06) | 키: `구상 예정액(산정 보험금 × 상대 과실)`, `청구액(예정액 자동)`, `고객 자기부담금 검토액`, `협의 과실 / 변경 이유`, `주의`. `실제 청구액`·`회수액`·`확인 필요` 키 삭제. 금액이 없으면 9번은 비어 있음(`empty_reason`: "견적서·산정 후 작성") |
-| `ClaimRow` (11-06) | 사건 1건 = 1행. `payment_id`·`victim`·`paid_amount`·`paid_at` **삭제**, `insured_party_id: str \| null`·`insurance_payment: int`(산정 보험금) 추가. `claim_no`(`<case_id>-C<패키지 버전>`)·`coverage`·`counterparty_fault`·`planned_share`·`evidence_count` 유지 |
+| `ClaimRow` (11-06) | 사건 1건 = 1행. `payment_id`·`victim`·`paid_amount`·`paid_at` **삭제**, `insured_party_id: str \| null`·`insurance_payment: int`(산정 보험금) 추가. `claim_no`(`<사건 번호>-C<패키지 버전>`, 사건 번호는 UUID 사건 ID의 앞 8자리 — 11-16 `case_no`)·`coverage`·`counterparty_fault`·`planned_share`·`evidence_count` 유지 |
 | `ClaimPackage` (11-06) | `released` **삭제** → `confirmed_by: str`, `confirmed_at: str` 추가. `rule_notice: str \| null`("예시 규칙 기준 — 약관 검수 전 초안") 추가. `counterparty: CounterpartyInfo \| null`(미입력 가능). `missing_evidence`는 경고만 |
 | `ClaimAmounts` | 패키지 금액은 청구 금액만: `planned`, `claimed`(= `planned`), `recovered`(`null`), `NotRequired` `agreed_counterparty_fault`·`fault_change_reason`. 고객 자기부담금 검토액은 보고서 9번에만 |
 | `CalculationResult` | `status`에 `needs_contract_review`·`not_payable` 추가, 추가 필드(`damage`, `checks`, `formulas` 등) |
