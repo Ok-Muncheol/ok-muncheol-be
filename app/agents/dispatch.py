@@ -20,14 +20,17 @@ LLM이 하는 일은 글에서 지역을 판별하는 것과, 후보 가운데 �
   실패·시간 초과이면 규칙 배정(service.decide_by_rule)으로 대신한다. 접수는 늘 배정된다.
 - 다친 사람이 있는데 대인 담당자를 고르지 않았거나 대물과 다른 지역에서 골랐으면 같은 지역에서
   업무량으로 채운다.
-- LLM에 보내는 것은 사고 장소·내용과 배정 참고 정보뿐이다. 사람을 특정하는 정보는 접수 건에
-  애초에 없다(후보의 이름은 담당자 이름이다).
+- LLM에 보내는 것은 사고 장소·내용과 배정 참고 정보뿐이다. 접수 글은 보내기 전에
+  이메일·주민등록번호·전화번호·차량번호를 가린다(app/privacy.py). 후보는 표시(P1·I2…)로만 보내고
+  담당자 이름은 보내지 않는다(이름이 없는 계정은 이메일이 대신 나갔다). LLM이 쓴 까닭의 표시는
+  돌아온 뒤 이름으로 바꿔 저장한다(docs/external-data-transfer.md).
 service.Decider 모양이라 접수 등록(service.register)에 그대로 끼운다.
 """
 
 import json
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import TypedDict
@@ -38,12 +41,15 @@ from app import llm as llm_policy
 from app.dispatch import regions, service
 from app.dispatch.regions import REGIONS
 from app.dispatch.service import Decision, Eligible, Pick
+from app.privacy import mask_identifiers
 
 logger = logging.getLogger(__name__)
 
 MAX_LLM_CALLS = 6
 REASON_CHARS = 400
 HANDLE_PREFIX = {"property": "P", "injury": "I"}
+# 까닭 글 안의 표시(P1·I2…). 한국어 조사가 바로 붙으므로(P1은) \b 대신 앞뒤 글자를 본다
+_HANDLE_IN_TEXT = re.compile(r"(?<![A-Za-z0-9])([PI]\d+)(?!\d)", re.IGNORECASE)
 SPECIALTY_LABELS = {"imported": "수입차", "serious_injury": "중상해", "multi_vehicle": "다중 추돌"}
 VEHICLE_LABELS = {"passenger": "승용차", "imported": "수입차", "truck": "화물차",
                   "motorcycle": "이륜차"}
@@ -168,8 +174,8 @@ def _won(value: object) -> str:
 
 def _intake_text(intake: dict) -> str:
     lines = [
-        f"사고 장소: {intake['location']}",
-        f"사고 내용: {intake['description']}",
+        f"사고 장소: {mask_identifiers(intake['location'])}",
+        f"사고 내용: {mask_identifiers(intake['description'])}",
         f"다친 사람 수: {int(intake['injured_count'])}명",
     ]
     details = intake.get("details") or {}
@@ -233,9 +239,9 @@ class _Run:
             handle = f"{HANDLE_PREFIX[coverage]}{taken + 1}"
             self.seen[handle] = (pool, row)
             # 이 사건에 쓸 사실만 보인다 — 상관없는 전문 분야나 경력을 까닭으로 들지 않게.
-            # 전문 분야는 사건에 맞는 것만, 경력은 까다로운 사건일 때만 넣는다
-            candidate = {"adjuster": handle, "name": row["name"],
-                         "open_cases": int(row["open_cases"])}
+            # 전문 분야는 사건에 맞는 것만, 경력은 까다로운 사건일 때만 넣는다.
+            # 이름은 보내지 않는다(이름이 없으면 이메일이 들어 있다). 까닭의 표시는 _named가 바꾼다
+            candidate = {"adjuster": handle, "open_cases": int(row["open_cases"])}
             if needed:
                 candidate["matched_specialties"] = [SPECIALTY_LABELS[s] for s in needed
                                                     if s in row["specialties"]]
@@ -280,8 +286,24 @@ class _Run:
             "complications": service.complications(self.intake), "model": model_name(),
         }
         fallback = f"{pool.region} 지역 {label} 담당자 {len(pool.rows)}명 가운데 골랐습니다."
-        self.picks[coverage] = Pick(str(row["id"]), _reason(args.get("reason"), fallback), detail)
+        reason = _reason(self._named(args.get("reason")), fallback)
+        self.picks[coverage] = Pick(str(row["id"]), reason, detail)
         return {"ok": True, "assigned": key}
+
+    def _named(self, text: object) -> object:
+        """까닭 글의 표시(P1·I2…)를 담당자 이름으로 바꾼다.
+
+        LLM은 표시만 봤으므로 화면에 쓸 이름은 여기서 넣는다. 이 실행에서 보인 적 없는 표시는
+        그대로 둔다. 글이 아니면 그대로 돌려준다(_reason이 거른다).
+        """
+        if not isinstance(text, str):
+            return text
+
+        def name(match: re.Match[str]) -> str:
+            found = self.seen.get(match.group(1).upper())
+            return str(found[1]["name"]) if found and found[1].get("name") else match.group(0)
+
+        return _HANDLE_IN_TEXT.sub(name, text)
 
     async def finish(self) -> Decision:
         """대물 담당자를 고른 뒤의 결정. 대인 담당자가 빠졌으면 같은 지역에서 업무량으로 채운다."""
