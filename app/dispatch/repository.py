@@ -235,8 +235,8 @@ async def insert_case(
     """실제 접수가 배정되면 담당자 화면이 읽는 사건을 만든다(영상 분석으로 시작하는 사건)."""
     row = await _one(
         conn,
-        "insert into public.cases (assignee_id, injury_assignee_id, accident_date, input_path)"
-        " values (%(property_id)s, %(injury_id)s, %(accident_at)s, 'video') returning id",
+        "insert into public.cases (assignee_id, injury_assignee_id, accident_date)"
+        " values (%(property_id)s, %(injury_id)s, %(accident_at)s) returning id",
         {"property_id": property_id, "injury_id": injury_id, "accident_at": accident_at},
     )
     return row["id"]

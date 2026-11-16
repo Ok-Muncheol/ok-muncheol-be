@@ -27,7 +27,7 @@ FE의 대응 TEAM·타입·화면 초안은 [ok-muncheol-fe](https://github.com/
 | 2차 확장 | 이륜차, 대물·대인·자손·자상, 양방향 정산 | 담보별 산정과 정산표 |
 
 차대보행자·차대자전거·PM·3대 이상 연쇄 사고·단독 사고는 범위 밖이다. 접수 시 사고 유형과 당사자 수를 확인한다.
-영상이 없는 진술서 사건도 동일한 사실 카드를 직접 입력해 지원한다. 운전자보험은 포함하지 않는다.
+사건은 배정 시스템이 영상 사건으로 만들고, 당사자 진술은 담당자가 판단 화면에서 사실 카드 칸을 고쳐 반영한다. 운전자보험은 포함하지 않는다.
 
 ## 핵심 원칙
 
@@ -61,20 +61,16 @@ FE의 대응 TEAM·타입·화면 초안은 [ok-muncheol-fe](https://github.com/
 ```mermaid
 flowchart TD
     subgraph INTAKE["접수·영상 분석"]
-        A["사건 접수<br/>범위 확인<br/>POST /cases"] --> B{영상 있음?}
-        B -->|예| C["BE 발급 서명<br/>URL로 Storage<br/>직접 업로드<br/>POST …/uploads"]
+        A["사건 접수<br/>범위 확인<br/>POST /cases"] --> C["BE 발급 서명<br/>URL로 Storage<br/>직접 업로드<br/>POST …/uploads"]
         C -->|"POST …/analysis"| D["Modal GPU<br/>YOLO 추적<br/>OpenCV<br/>키프레임·궤적"]
         D --> E["OpenAI VLM<br/>탐지 결과<br/>교차 확인<br/>사실 카드 초안"]
     end
 
     subgraph CARD["사실 카드"]
-        F["담당자 직접 입력<br/>진술서 등<br/>근거 프레임 없음"]
-        G["담당자 검토<br/>수정·확정<br/>PATCH<br/>…/fact-card<br/>POST<br/>…/fact-card/<br/>confirm"]
+        G["담당자 검토<br/>수정(진술 반영)·확정<br/>PATCH<br/>…/fact-card<br/>POST<br/>…/fact-card/<br/>confirm"]
     end
 
-    B -->|아니오| F
     E --> G
-    F --> G
 
     subgraph JUDGE["판단 그래프 · LangGraph"]
         H{"범위 게이트<br/>check_chart_scope"}
@@ -171,7 +167,7 @@ ship은 `main` 머지 → main CI → 머지 커밋의 Vercel 배포 결과와 `
 각 사실 필드는 `value`, `source`, `model_confidence`, `verification_status`, `evidence_frame_ids`를 가진다.
 `needs_review`는 근거 충돌·확인 필요, `human_confirmed`는 담당자 확인을 뜻한다. 수동 입력에서 모델 확신도는
 해당 없음으로 표현하고, 담당자 수정 때문에 원래 모델 확신도를 1.0으로 덮어쓰지 않는다.
-영상이 없는 사건에는 근거 프레임이 없음을 명시하고 진술서 등 입력 근거를 별도로 연결하는 계약을 마련한다.
+당사자 진술 등 영상 밖 근거로 고친 칸은 수정 사유와 함께 새 카드 버전으로 남기고, 모델 원값·확신도는 그대로 둔다.
 
 촬영 차량·보험가입자·도표 A/B·데이터셋 A/B를 같은 것으로 가정하지 않는다. 카드 확정 및 과실 계산 전에 매핑을 검증한다.
 수정 전후 값, 수정자, 시각, 근거와 사유를 이력으로 남긴다.
