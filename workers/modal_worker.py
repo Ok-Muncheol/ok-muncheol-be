@@ -10,9 +10,11 @@ job은 BE `app/modal_dispatch.py`가 보낸다(11/11 정지원·구준휘 합의
 2. 미리보기: 분석과 나란히 H.264 사본을 만들어 PUT한다. AI Hub 영상이 mp4v라 Chrome에서 재생되지
    않아서다. 원본 전체를 자르지 않는다(근거 프레임 시각이 원본 기준). 실패해도 분석은 계속한다
 3. 분석: 정지원 `workers.vision.pipeline.analyze_video_sync` → 카드 v1
-4. 근거 프레임: 카드 `evidence_frames` 순서대로 원본에서 그 시각 프레임을 JPG로 뽑아 k번째 칸에
-   PUT하고 `storage_path`를 채운다. 못 올리면 null로 둔다
+4. 근거 프레임: 카드 `evidence_frames`의 k번째 프레임을 원본에서 그 시각 JPG로 뽑아 k번째 칸에
+   PUT하고 `storage_path`를 채운다. 여러 장을 동시에 올린다. 못 올리면 null로 둔다
 5. 콜백: `Authorization: Bearer <callback_token>`. 연결 실패·5xx·429는 몇 번 다시 보낸다
+6. 단계 시간: 받기·분석·근거 사진·미리보기 대기·콜백 시간을 로그 한 줄과 반환값에 남긴다.
+   콜백 전 단계는 카드 `model_info.worker`에도 넣는다(운영 DB에서 단계별로 볼 수 있게)
 
 서명 URL·콜백 토큰은 로그에 남기지 않는다(task_id만). 무거운 패키지(cv2·파이프라인)는 함수
 안에서만 불러서 이 모듈은 CI(`scripts/check_scaffold.py`)에서도 import된다.
@@ -28,6 +30,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 VIDEO_MAX_BYTES = 60 * 1024 * 1024  # Supabase 무료 플랜 업로드 한도(50MB)보다 넉넉히
 MAX_FRAME_UPLOADS = 12
+# 한 장씩 차례로 올리면 장마다 왕복이 쌓인다(11/13 운영: 12장에 약 13초). 동시에 이만큼 올린다
+FRAME_UPLOAD_WORKERS = 6
 FRAME_MAX_WIDTH = 1280
 FRAME_JPEG_QUALITY = 85
 PREVIEW_TIMEOUT_SECONDS = 300
@@ -149,27 +154,36 @@ def grab_frame_jpeg(video: Path, timestamp_ms: int) -> bytes | None:
 
 
 def upload_frames(video: Path, card: dict, slots: list[dict], client: httpx.Client,
-                  grab: Grab = grab_frame_jpeg) -> int:
-    """카드 근거 프레임을 칸 순서대로 올리고 storage_path를 채운다. 올린 장 수를 돌려준다."""
+                  grab: Grab = grab_frame_jpeg, workers: int = FRAME_UPLOAD_WORKERS) -> int:
+    """카드 근거 프레임 k번째를 k번째 칸에 올리고 storage_path를 채운다. 올린 장 수를 돌려준다.
+
+    여러 장을 동시에 뽑아 올린다(장마다 영상을 따로 열고, 프레임마다 다른 칸 dict만 고친다).
+    칸이 모자라거나 못 올린 프레임은 null이다.
+    """
     frames = card.get("evidence_frames") or []
-    uploaded = 0
-    for index, frame in enumerate(frames):
+    for frame in frames:
         frame["storage_path"] = None
-        if index >= len(slots):
-            continue
+    pairs = list(zip(frames, slots, strict=False))  # 칸보다 많은 프레임은 null로 남는다
+
+    def one(index: int) -> bool:
+        frame, slot = pairs[index]
         try:
             jpeg = grab(video, int(frame.get("timestamp_ms") or 0))
             if not jpeg:
-                continue
-            resp = client.put(slots[index]["upload_url"], content=jpeg,
+                return False
+            resp = client.put(slot["upload_url"], content=jpeg,
                               headers={"Content-Type": "image/jpeg"})
             resp.raise_for_status()
         except Exception as exc:  # noqa: BLE001 — 프레임 하나 실패는 카드를 막지 않는다
             logger.warning("근거 프레임 %d 업로드 실패: %s", index, type(exc).__name__)
-            continue
-        frame["storage_path"] = slots[index]["storage_path"]
-        uploaded += 1
-    return uploaded
+            return False
+        frame["storage_path"] = slot["storage_path"]
+        return True
+
+    if not pairs:
+        return 0
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(pairs)))) as pool:
+        return sum(pool.map(one, range(len(pairs))))
 
 
 def failure_body(exc: BaseException) -> dict[str, Any]:
@@ -210,6 +224,19 @@ def _default_analyze(case_id: str, video_path: str) -> dict:
     return analyze_video_sync(case_id, video_path)
 
 
+def _since(started: float) -> float:
+    return round(time.perf_counter() - started, 1)
+
+
+def _keep_worker_seconds(card: dict, seconds: dict[str, float], frames: int) -> None:
+    """콜백 전 단계 시간을 카드 model_info.worker에 넣는다(콜백 시간은 로그·반환값에만)."""
+    info = card.get("model_info")
+    if not isinstance(info, dict):
+        info = card["model_info"] = {}
+    info["worker"] = {"seconds": dict(seconds), "frames_uploaded": frames,
+                      "frame_workers": FRAME_UPLOAD_WORKERS}
+
+
 def run_job(job: dict, *, analyze: Analyze = _default_analyze, grab: Grab = grab_frame_jpeg,
             runner: Runner = subprocess.run, client: httpx.Client | None = None,
             sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
@@ -222,16 +249,20 @@ def run_job(job: dict, *, analyze: Analyze = _default_analyze, grab: Grab = grab
     video = work / "input.mp4"
     preview_ok: list[bool] = []
     preview_thread: threading.Thread | None = None
+    seconds: dict[str, float] = {}  # 단계 시간(초). 숫자만 담는다(로그에 그대로 남긴다)
     try:
+        started = time.perf_counter()
         try:
             download_video(job["video_url"], video, http)
         except Exception as exc:  # noqa: BLE001 — 받지 못하면 다시 접수할 수 있다
+            seconds["download"] = _since(started)
             logger.warning("작업 %s 영상 받기 실패: %s", task, type(exc).__name__)
             body = {"status": "failed", "error": {
                 "stage": "download", "code": "video_unavailable",
                 "message": "영상을 받지 못했습니다. 다시 접수하세요.", "retryable": True,
             }}
         else:
+            seconds["download"] = _since(started)
             if job["preview_upload_url"]:
                 preview_thread = threading.Thread(
                     target=lambda: preview_ok.append(
@@ -239,24 +270,36 @@ def run_job(job: dict, *, analyze: Analyze = _default_analyze, grab: Grab = grab
                     daemon=True,
                 )
                 preview_thread.start()
+            started = time.perf_counter()
             try:
                 card = analyze(job["case_id"], str(video))
             except Exception as exc:  # noqa: BLE001 — 모든 실패를 콜백으로 알린다
+                seconds["analyze"] = _since(started)
                 # 예외 메시지는 남기지 않는다(비밀·사건 내용이 섞일 수 있다). 이미지에 모듈이
                 # 빠진 배포 문제만 모듈 이름을 남긴다(11/13 운영 첫 실행: app 없음)
                 missing = f" ({exc.name})" if isinstance(exc, ImportError) and exc.name else ""
                 logger.warning("작업 %s 분석 실패: %s%s", task, type(exc).__name__, missing)
                 body = failure_body(exc)
             else:
+                seconds["analyze"] = _since(started)
+                started = time.perf_counter()
                 frames = upload_frames(video, card, job["frame_uploads"], http, grab)
+                seconds["frames"] = _since(started)
                 logger.info("작업 %s 분석 완료, 근거 프레임 %d장", task, frames)
                 body = {"status": "completed", "card": card}
         if preview_thread is not None:
+            started = time.perf_counter()
             preview_thread.join(PREVIEW_JOIN_SECONDS)
+            seconds["preview_wait"] = _since(started)
+        if body["status"] == "completed":
+            _keep_worker_seconds(body["card"], seconds, frames)
+        started = time.perf_counter()
         status = post_callback(job["callback_url"], job["callback_token"], body, http, sleep)
+        seconds["callback"] = _since(started)
         logger.info("작업 %s 콜백 %s", task, status)
+        logger.info("작업 %s 단계 시간(초) %s", task, seconds)
         return {"task_id": task, "status": body["status"], "callback_status": status,
-                "preview": bool(preview_ok and preview_ok[0])}
+                "preview": bool(preview_ok and preview_ok[0]), "seconds": seconds}
     finally:
         if own_client:
             http.close()

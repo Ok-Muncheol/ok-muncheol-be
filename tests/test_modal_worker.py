@@ -6,6 +6,7 @@ Modal·GPU·ffmpeg·cv2 없이 가짜로 돈다.
 import json
 import logging
 import subprocess
+import threading
 from pathlib import Path
 
 import httpx
@@ -152,6 +153,65 @@ def test_frame_upload_failure_leaves_that_frame_null():
     body = json.loads(storage.callbacks()[0].content)
     assert [f["storage_path"] for f in body["card"]["evidence_frames"]][:2] == [
         slot(1)["storage_path"], None]
+
+
+def test_frames_are_uploaded_at_the_same_time_and_keep_their_slots():
+    """한 장씩 차례로 올리면 장마다 왕복이 쌓인다(11/13 운영: 12장에 약 13초) → 동시에 올린다.
+
+    세 장이 동시에 들어와야 지나가는 장벽을 둔다. 차례로 돌면 첫 장이 5초 기다리다 실패한다.
+    """
+    barrier = threading.Barrier(3, timeout=5)
+
+    def waiting_grab(video: Path, timestamp_ms: int) -> bytes:
+        barrier.wait()
+        return fake_grab(video, timestamp_ms)
+
+    storage = FakeStorage()
+    the_card = card()
+    uploaded = worker.upload_frames(Path("v.mp4"), the_card, [slot(1), slot(2), slot(3)],
+                                    storage.client(), grab=waiting_grab)
+    assert uploaded == 3
+    assert [f["storage_path"] for f in the_card["evidence_frames"]] == [
+        slot(n)["storage_path"] for n in (1, 2, 3)]
+    # k번째 프레임이 k번째 칸으로 간다(동시에 올려도 섞이지 않는다)
+    sent = {str(r.url).split("?")[0]: r.content for r in storage.puts()}
+    for n, frame in zip((1, 2, 3), card()["evidence_frames"], strict=True):
+        assert sent[slot(n)["upload_url"].split("?")[0]] == fake_grab(Path(), frame["timestamp_ms"])
+
+
+def test_step_seconds_go_to_the_log_the_result_and_the_card(caplog):
+    caplog.set_level(logging.INFO, logger=worker.__name__)
+    storage = FakeStorage()
+    result = run(storage)
+    assert set(result["seconds"]) == {"download", "analyze", "frames", "preview_wait", "callback"}
+    assert all(isinstance(v, float) and v >= 0 for v in result["seconds"].values())
+    assert f"작업 {TASK} 단계 시간(초)" in caplog.text
+    # 콜백 전 단계만 카드에 남는다(운영 DB fact_cards에서 단계별로 볼 수 있게)
+    worker_info = json.loads(storage.callbacks()[0].content)["card"]["model_info"]["worker"]
+    assert set(worker_info["seconds"]) == {"download", "analyze", "frames", "preview_wait"}
+    assert (worker_info["frames_uploaded"], worker_info["frame_workers"]) == (
+        2, worker.FRAME_UPLOAD_WORKERS)
+
+
+def test_card_model_info_keeps_the_pipeline_entries():
+    def with_model_info(case_id, path):
+        out = card()
+        out["model_info"] = {"pipeline": {"seconds": {"detect": 5.0}}}
+        return out
+
+    storage = FakeStorage()
+    run(storage, analyze=with_model_info)
+    info = json.loads(storage.callbacks()[0].content)["card"]["model_info"]
+    assert info["pipeline"] == {"seconds": {"detect": 5.0}}
+    assert "worker" in info
+
+
+def test_failed_jobs_still_report_step_seconds():
+    def failing(case_id, path):
+        raise VisionPipelineError("vlm", "vlm_failed", "VLM 호출 실패", True)
+
+    result = run(FakeStorage(), analyze=failing)
+    assert set(result["seconds"]) == {"download", "analyze", "preview_wait", "callback"}
 
 
 def test_without_optional_slots_only_the_card_is_sent():
