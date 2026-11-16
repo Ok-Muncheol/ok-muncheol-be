@@ -75,8 +75,8 @@ SIGNAL_VALUES = (
 LANE_MARKING_VALUES = (
     "left_only", "straight_left", "straight_only", "straight_right", "right_only", "none",
 )
-# 11/16 교차로 밖 도표(차31~61): 정차·출발·후진·추월은 촬영 차량을 영상 AI가(확인 필요), 상대
-# 차는 담당자가 넣는다. 도로 밖 진입·진출, 주차구획 출차·진입은 담당자 입력이다.
+# 11/16 교차로 밖 도표(차31~61): 정차·출발·후진·추월·출차는 영상 AI가 내면 늘 확인이다(촬영 차량은
+# 카메라 움직임, 상대 차는 VLM·영상 모델 값). 도로 밖 진입·진출, 주차구획 진입은 담당자 입력이다.
 # 합류는 lane_change + lane_reduction으로 가른다
 MOVEMENT_VALUES = (
     "straight", "left_turn", "right_turn", "u_turn", "lane_change",
@@ -120,7 +120,7 @@ FACT_FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
 }
 BOOL_FIELDS = (
     "night", "unprotected_left_sign",
-    # 11/16: 이륜차·긴급자동차는 영상 AI가 채우고 늘 확인(2단계 전까지는 영상 카드에서 비어 나간다)
+    # 11/16: 상대 차(A) 이륜차·긴급자동차는 영상 AI가 채우고 늘 확인, 촬영 차(B)는 담당자 입력
     "two_wheeler_A", "two_wheeler_B", "emergency_vehicle_A", "emergency_vehicle_B",
     "center_line_crossing_A", "center_line_crossing_B", "door_open_A", "door_open_B",
     "lane_reduction", "shoulder", "traffic_jam", "secondary_collision", "bus_stop",
@@ -130,15 +130,19 @@ FACT_FIELDS: tuple[str, ...] = (
 )
 # 비전이 채우지 않는 칸(2026-11-13, 11-16 추가). 영상 카드에서는 null + unverified로 나가고 확정을
 # 막지 않는다. 도표를 가르는 데 필요할 때만 판단이 빈 칸 질문으로 묻는다.
+# 촬영 차(B)의 이륜차·긴급자동차는 보통 가입자 차라 계약 정보로 알 수 있어 담당자 입력이다(11/16 C)
 MANUAL_FIELDS = (
     "collision_signal_A", "collision_signal_B", "lane_marking_A", "lane_marking_B",
     "unprotected_left_sign",
-    "center_line_crossing_A", "center_line_crossing_B", "door_open_A", "door_open_B",
+    "two_wheeler_B", "emergency_vehicle_B", "door_open_A", "door_open_B",
     "overtake_line", "u_turn_zone", "u_turn_timing", "lane_reduction", "shoulder",
     "traffic_jam", "secondary_collision", "bus_stop", "safety_zone", "roundabout_lanes",
     "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A", "roundabout_lane_B",
 )
-# 영상 AI가 채우고 늘 needs_review로 낼 칸(2단계). 그때까지 영상 카드에서는 담당자 입력 칸처럼 빈다
-VISION_REVIEW_FIELDS = (
-    "two_wheeler_A", "two_wheeler_B", "emergency_vehicle_A", "emergency_vehicle_B",
-)
+# 영상 AI가 채우고 늘 needs_review로 내는 칸(11/16 2단계). 정답이 없어 늘 담당자가 확인한다.
+# 이륜차는 VLM 사고 대상 답·YOLO 상대 차 종류, 긴급자동차는 따로 묻는 짧은 VLM 질문으로 채운다
+VISION_REVIEW_FIELDS = ("two_wheeler_A", "emergency_vehicle_A")
+# 영상 AI가 봤을 때만 true + needs_review로 채우는 칸(11/16 C). 못 봤거나 일반 도로·고속도로가
+# 아니면 담당자 입력 칸처럼 빈다(null + unverified). 그 칸으로 갈리는 도표(차31-x·45-4)가 후보에
+# 남을 때만 판단이 묻는다
+VISION_POSITIVE_FIELDS = ("center_line_crossing_A", "center_line_crossing_B")

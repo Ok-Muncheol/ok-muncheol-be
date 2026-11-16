@@ -18,7 +18,8 @@
                VLM 질문에 쓰는 탐지 결과는 광학 흐름 요약뿐이다(나머지는 VLM 답이 온 뒤에 합친다).
                그래서 광학 흐름이 끝나면 같은 질문을 먼저 보내고, 답을 기다리는 동안 YOLO·영상
                모델을 돌린다(2026-11-16, parallel_vlm). 카드 조립이 만든 질문이 먼저 보낸 것과
-               다르면 VLM을 다시 불러서, 카드는 차례로 부를 때와 같다
+               다르면 VLM을 다시 불러서, 카드는 차례로 부를 때와 같다. 같은 사진으로 묻는
+               긴급자동차 질문(fact_card.check_emergency)도 함께 먼저 보낸다
 3. v1 변환     workers/vision/contract.py (영어 39칸, 자른 구간만큼 시각을 원본 기준으로 되돌림)
 
 결과 카드의 model_info.pipeline에 영상 정보·자른 구간·모델 파일·단계별 시간을 남긴다.
@@ -36,7 +37,9 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "data/private/models"
-PIPELINE_VERSION = "2026-11-16"  # 11-16: VLM 질문을 영상 모델과 나란히(결과는 11-11과 같다)
+# 11-16: VLM 질문을 영상 모델과 나란히(결과는 11-11과 같다)
+# 11-16.2: 교차로 밖 칸 2단계(긴급자동차 질문을 같이 먼저 보냄, 새 진행 값·이륜차·중앙선 침범)
+PIPELINE_VERSION = "2026-11-16.2"
 TARGET_FPS = 15
 CLIP_SECONDS = 10
 MAX_AS_IS_SECONDS = 20  # 이 길이 이하는 자르지 않는다(AI Hub 최대 20초)
@@ -231,18 +234,18 @@ def default_vlm():
 class _PrefetchedVLM:
     """먼저 보낸 VLM 질문의 답을 카드 조립(extract_fact_card_sync)에 돌려준다.
 
-    카드 조립이 처음 묻는 질문·사진·스키마가 먼저 보낸 것과 똑같을 때만 그 답을 쓴다. 다르면
-    (질문에 쓰는 탐지 결과가 늘어난 경우 등) 원래 VLM을 다시 부르므로 카드는 차례로 부를 때와
-    같다. name 등 나머지 속성은 원래 VLM 것을 보인다.
+    카드 조립이 묻는 질문·사진·스키마가 먼저 보낸 것과 똑같을 때만 그 답을 쓴다(질문마다 한 번).
+    다르면(질문에 쓰는 탐지 결과가 늘어난 경우 등) 원래 VLM을 다시 부르므로 카드는 차례로 부를 때와
+    같다. 첫 질문이 본 질문, 그다음은 같이 보낸 질문(긴급자동차)이다. name 등 나머지 속성은 원래
+    VLM 것을 보인다.
     """
 
-    def __init__(self, vlm, request: tuple, future):
+    def __init__(self, vlm, requests: list[tuple], futures: list):
         self._vlm = vlm
-        self._request = request
-        self._future = future
+        self._pending = list(zip(requests, futures, strict=True))
         self._checked = False
-        self.used = False  # 먼저 받은 답을 썼는가
-        self.waited: float | None = None  # 카드 조립이 그 답을 기다린 시간(초)
+        self.used = False  # 먼저 받은 본 질문 답을 썼는가
+        self.waited: float | None = None  # 카드 조립이 본 질문 답을 기다린 시간(초)
 
     def __getattr__(self, name: str):
         if name.startswith("_"):
@@ -250,15 +253,19 @@ class _PrefetchedVLM:
         return getattr(self._vlm, name)
 
     def generate(self, prompt: str, images: list[str], schema: dict) -> tuple[dict, dict]:
-        if not self._checked:
-            self._checked = True
-            if (prompt, images, schema) == self._request:
-                self.used = True
+        first = not self._checked
+        self._checked = True
+        for i, (request, future) in enumerate(self._pending):
+            if (prompt, images, schema) == request:
+                del self._pending[i]
                 t = time.time()
                 try:
-                    return self._future.result()
+                    return future.result()
                 finally:
-                    self.waited = round(time.time() - t, 1)
+                    if first and i == 0:
+                        self.used = True
+                        self.waited = round(time.time() - t, 1)
+        if first:
             logger.info("VLM 질문이 먼저 보낸 것과 달라 다시 묻는다")
         return self._vlm.generate(prompt, images, schema)
 
@@ -271,19 +278,21 @@ def _prefetch_vlm(vlm, clip: str, ego, prompt_version: str) -> _PrefetchedVLM | 
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    from workers.vision.fact_card import vlm_request
+    from workers.vision.fact_card import emergency_request, vlm_request
 
     try:
         vlm = vlm or default_vlm()
         req = vlm_request(clip, {"hint": ego.summary()}, viewpoint=1, prompt_version=prompt_version)
-        request = (req["prompt"], req["images"], req["schema"])
-        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vlm-prefetch")
-        future = pool.submit(vlm.generate, *request)
-        pool.shutdown(wait=False)  # 보낸 질문 하나는 끝까지 돈다
+        requests = [(req["prompt"], req["images"], req["schema"])]
+        if (extra := emergency_request(req)) is not None:  # 같은 사진으로 묻는 긴급자동차 질문
+            requests.append(extra)
+        pool = ThreadPoolExecutor(max_workers=len(requests), thread_name_prefix="vlm-prefetch")
+        futures = [pool.submit(vlm.generate, *request) for request in requests]
+        pool.shutdown(wait=False)  # 보낸 질문은 끝까지 돈다
     except Exception as exc:  # noqa: BLE001 — 미리 못 보내도 차례로 부르면 된다
         logger.info("VLM 질문을 미리 보내지 못해 차례로 묻는다: %s", type(exc).__name__)
         return None
-    return _PrefetchedVLM(vlm, request, future)
+    return _PrefetchedVLM(vlm, requests, futures)
 
 
 def model_files() -> dict:
