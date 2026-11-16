@@ -267,7 +267,11 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 | `POST /cases/{id}/documents` | 계약·견적·증빙 서류와 면책 체크 추가 → 자동 재산정 |
 | `POST /cases/{id}/estimates` | Storage에 올린 견적서 PDF 경로 전달 → 자동 추출·재산정 |
 | `PATCH /cases/{id}/agreed-fault` | 협의 과실 입력·해제 → 구상 금액 재계산 |
-| `GET /admin/overview` | 관리자(관제): 담당자 목록(역할·분야·지역·맡은 사건 수)과 전체 사건의 배정 현황. 토큰 `app_metadata.staff_role`이 `admin`일 때만 |
+| `GET /admin/overview` | 관리자(관제): 담당자 목록(역할·분야·지역·업무량)과 전체 현황 숫자(진행 중·미배정·오늘 접수/종결·단계별). 토큰 `app_metadata.staff_role`이 `admin`일 때만 |
+| `GET /admin/intakes` | 관리자(관제): 접수 건 목록(최근 접수 순, 상태·담당자·지역으로 거르기) |
+| `POST /admin/intakes` | 관리자(관제): 접수 등록 → 배정 에이전트가 지역의 대물 담당자(다친 사람이 있으면 대인 담당자도)에게 바로 배정. 배정 참고 정보(`details` — 사고 규모·가입 담보·계약자 이력)를 함께 받아 담당자의 전문 분야·경력·업무량과 견준다. 고액 사건은 처리 권한이 있는 담당자에게만, 부재인 담당자는 빼고 배정한다 |
+| `GET /admin/intakes/{id}` | 관리자(관제): 접수 건 하나와 배정 이력 |
+| `POST /admin/intakes/{id}/assignments` | 관리자(관제): 한 분야의 담당자를 직접 배정하거나 이관 |
 
 합의할 공통 계약은 사건 ID, 카드/보고서 버전, 작업 ID·단계·진행 상태, 판정 상태, 확인 질문,
 근거 ID·타임스탬프, 오류 코드·재시도 가능 여부다. 오래된 카드에 대한 덮어쓰기와 중복 실행을 막는다.
