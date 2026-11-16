@@ -88,7 +88,8 @@ CRITERIA_VERSION = "fault_standards:2023.6"
 # 11/16.1: 교차로 밖 장소(일반 도로·고속도로·주차장·회전교차로)와 그 도표 칸을 범위에 넣었다
 # 11/16.2: 표시하지 않은 촬영 차 이륜차·긴급자동차를 '아니오'로 읽는다
 # (card_fields.EGO_ASSUMED_FALSE)
-RULE_VERSION = "judgment-rules-2026.11.16.2"
+# 11/16.3: 도표 후보 검색 깊이 50 → 100(candidates.CHART_SEARCH_TOP_K, 5차 검수 시범 실행)
+RULE_VERSION = "judgment-rules-2026.11.16.3"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
