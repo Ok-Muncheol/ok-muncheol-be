@@ -9,7 +9,7 @@
 
 | 축 | 결정 | 조건 |
 | --- | --- | --- |
-| 사고 당사자 | 차대차(이륜차 포함, 11/16) | 1번 자료 제2장 적용 범위가 「자동차와 자동차(이륜차 포함)」다. 이륜차 특수유형(차45-2·61-x)은 `two_wheeler_A/B`로 가른다. 차대보행자·차대자전거는 MVP 밖. 영상 카드는 영상 AI 2단계 전까지 차대이륜차를 `other`로 내므로 담당자가 `car_to_car`로 고친다 |
+| 사고 당사자 | 차대차(이륜차 포함, 11/16) | 1번 자료 제2장 적용 범위가 「자동차와 자동차(이륜차 포함)」다. 이륜차 특수유형(차45-2·61-x)은 `two_wheeler_A/B`로 가른다. 차대보행자·차대자전거는 MVP 밖. 영상 카드는 차대이륜차를 `car_to_car` + `two_wheeler_A`로 낸다(11/16 2단계) |
 | 장소·상황 | 교차로 전체: 신호 있음, 신호 없음(동일폭·대로·일시정지와 그 쪽) | 카드 칸 `location_type`, `road_priority`로 판별 |
 | ↳ 교차로 밖 | 일반 도로(`straight_road`)·고속도로(`highway`)·주차장(`parking_lot`), 11/16 | 차31~55, 61. 원문에 고속도로 장이 따로 없어 두 곳에 쓰는 도표는 변형마다 장소를 적는다(아래 값 규칙) |
 | ↳ 일방통행 | MVP 밖 | 카드에 칸 없음. 넣으려면 A가 칸을 추가한 뒤 재논의 |
@@ -35,9 +35,10 @@
 | 진입 순서 | `entry_order` | 60% | 신호 없는 교차로에서만 사용. 도표 당사자 A 기준(`first` = A 선진입) |
 | 비보호 좌회전 표지 | `unprotected_left_sign` (참거짓) | 담당자 입력 | 표지로 갈리는 도표(차2-2·2-6·4-2)가 후보에 남으면 질문(11/13 #160) |
 | 야간 | (A가 칸 이름 확정) | — | 도표 선택에 쓰지 않음 (수정요소 자동 적용 안 함) |
-| 진행 방향 새 값(11/16) | `movement_A/B` `stopped`·`starting`·`reversing`·`overtaking`·`entering_road`·`leaving_road`·`parking_out`·`parking_in` | 촬영 차량 정차·출발·후진·추월은 영상 AI 2단계, 나머지는 담당자 | 진행 방향과 같다 |
-| 이륜차·긴급자동차(11/16) | `two_wheeler_A/B`, `emergency_vehicle_A/B` (참거짓) | 영상 AI 2단계(늘 확인), 그 전까지 빈 칸 | 그 칸으로 갈리는 도표가 후보에 남으면 질문 |
-| 교차로 밖 상황(11/16) | `center_line_crossing_A/B`, `door_open_A/B`, `overtake_line`, `u_turn_zone`, `u_turn_timing`, `lane_reduction`, `shoulder`, `traffic_jam`, `secondary_collision`, `bus_stop`, `safety_zone` | 담당자 입력 | 그 칸으로 갈리는 도표가 후보에 남으면 질문 |
+| 진행 방향 새 값(11/16) | `movement_A/B` `stopped`·`starting`·`reversing`·`overtaking`·`entering_road`·`leaving_road`·`parking_out`·`parking_in` | 영상 AI가 내면 늘 확인(촬영 차량 정차·출발·후진은 카메라 움직임). 도로 밖 진입·진출·주차구획 진입은 담당자 | 진행 방향과 같다 |
+| 이륜차·긴급자동차(11/16) | `two_wheeler_A/B`, `emergency_vehicle_A/B` (참거짓) | A는 영상 AI(늘 확인), B(촬영 차·가입자 차)는 담당자 입력 | 그 칸으로 갈리는 도표가 후보에 남으면 질문 |
+| 중앙선 침범(11/16) | `center_line_crossing_A/B` (참거짓) | 영상 AI가 일반 도로·고속도로에서 봤을 때만 `true`(확인 필요), 아니면 담당자 입력 | 그 칸으로 갈리는 도표(차31-x·45-4)가 후보에 남으면 질문 |
+| 교차로 밖 상황(11/16) | `door_open_A/B`, `overtake_line`, `u_turn_zone`, `u_turn_timing`, `lane_reduction`, `shoulder`, `traffic_jam`, `secondary_collision`, `bus_stop`, `safety_zone` | 담당자 입력 | 그 칸으로 갈리는 도표가 후보에 남으면 질문 |
 | 회전교차로(11/16) | `roundabout_lanes`, `roundabout_move_A/B`, `roundabout_lane_A/B` | 담당자 입력 | 회전 차로 수·회전 진행은 회전교차로 필수 칸, 회전 차로는 갈리는 도표가 남으면 질문 |
 
 장소별 필수 칸(`REQUIRED_CONFIRMED_FIELDS`, 11/16 추가):
@@ -181,5 +182,5 @@
 - A: `one_way`(일방통행)·야간 칸 추가 여부와 enum 확정.
 - 팀: 회전교차로 포함 여부 결정 → 11/16 포함.
 - C: 교차로 밖 47개 검수(5차). 짝 도표의 `false`(이륜차·긴급자동차 등)는 이미 검수한 교차로 도표에도 더한다.
-- A 몫(B 대행): 영상 AI 2단계. 촬영 차량 정차·출발·후진·추월, 이륜차·긴급자동차(늘 확인), 차대이륜차 → `car_to_car`, 주차장 → `parking_lot`, 질문 버전 올리기, 정답 64건으로 기존 칸 재확인(v0.5 포함).
+- A 몫(B 대행): 영상 AI 2단계 → 11/16 반영. 기존 VLM 질문(v0.5)은 그대로 두고 값 매핑·이륜차(VLM 답·YOLO)·중앙선 침범(VLM 답)·긴급자동차(따로 묻는 짧은 질문 `e0.1`)로 채워 정답 64건 재확인은 하지 않았다(64건은 움직임 A·B 정답뿐).
 - C·B: 범위 내 도표마다 정답 카드 1~2건으로 평가셋 작성.
