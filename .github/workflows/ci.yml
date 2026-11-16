@@ -6,10 +6,12 @@ on:
   pull_request:
 permissions:
   contents: read
-# 같은 PR에 새 push가 오면 이전 런을 취소한다. main push 런은 진행 중이어도 취소하지 않는다 —
+# PR은 같은 PR에 새 push가 오면 이전 런을 취소한다(그룹 = PR ref).
+# main push는 커밋마다 그룹을 따로 둔다(그룹 = 커밋 SHA). 그룹이 같으면 대기 런이 하나만 남아서,
+# 머지가 몇 초 간격으로 몰리면 앞 머지 커밋의 대기 런이 cancelled로 끝났다(2026-11-16 #227).
 # 머지 커밋마다 런이 끝까지 남아야 그 커밋의 검증 기록이 된다 (automation/pipeline.md Step 2)
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
