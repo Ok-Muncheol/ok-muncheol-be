@@ -41,12 +41,11 @@ UPLOAD_FOLDERS: dict[str, str] = {
 }
 
 
-INPUT_PATHS = ("video", "manual")
 KST = timezone(timedelta(hours=9))
 
 # 사건 + 최신 카드·판단(대체되지 않은 것)·보고서 + 남은 질문 수. where 절은 호출하는 쪽이 붙인다
 SUMMARY_SQL = """
-select c.id, c.assignee_id, c.injury_assignee_id, c.accident_date, c.input_path,
+select c.id, c.assignee_id, c.injury_assignee_id, c.accident_date,
        c.created_at, c.updated_at,
        fc.version as card_version, fc.updated_at as card_at,
        jr.judgment_version, jr.fact_card_version as run_card_version, jr.status as run_status,
@@ -82,16 +81,14 @@ class PostgresCaseRepo:
     def __init__(self, conn: Any):
         self.conn = conn
 
-    async def insert_case(
-        self, actor_id: str, accident_date: datetime | None, input_path: str
-    ) -> str:
+    async def insert_case(self, actor_id: str, accident_date: datetime | None) -> str:
         from psycopg import errors
 
         try:
             cur = await self.conn.execute(
-                "insert into public.cases (assignee_id, accident_date, input_path)"
-                " values (%s, %s, %s) returning id",
-                (actor_id, accident_date, input_path),
+                "insert into public.cases (assignee_id, accident_date)"
+                " values (%s, %s) returning id",
+                (actor_id, accident_date),
             )
         except errors.ForeignKeyViolation as exc:  # 토큰의 사용자가 auth.users에 없다
             raise forbidden("담당자 계정을 찾을 수 없습니다.") from exc
@@ -214,7 +211,6 @@ def summarize(row: dict) -> dict[str, object]:
         "accident_date": _iso(row.get("accident_date")),
         # 배정(사건 생성) 시각 — 보드의 배정일 · 배정 순 정렬
         "created_at": _iso(row.get("created_at")),
-        "input_path": row["input_path"],
         "stage": stage,
         "task_status": task_status,
         "judgment_status": row.get("judgment_status") if run_now else None,
@@ -233,9 +229,10 @@ def summarize(row: dict) -> dict[str, object]:
 async def create_case(actor_id: str, payload: dict[str, object]) -> dict[str, object]:
     """사고 범위·당사자 수 검사 후 로그인한 담당자의 사건을 만든다. 응답은 CaseSummary.
 
-    payload: {accident_date?, input_path?: "video"|"manual", accident_type?, party_count?}.
+    payload: {accident_date?, accident_type?, party_count?}.
     범위는 차대차 2대(docs/contracts/mvp-chart-scope.md). 범위 밖은 422 case_out_of_scope로
-    접수하지 않는다.
+    접수하지 않는다. 사건은 모두 영상 분석으로 카드를 만든다 — 당사자 진술은 담당자가
+    판단 화면에서 카드 칸을 고쳐 반영한다(PATCH /cases/{id}/fact-card).
     """
     accident_type = payload.get("accident_type", "car_to_car")
     party_count = payload.get("party_count", 2)
@@ -245,13 +242,10 @@ async def create_case(actor_id: str, payload: dict[str, object]) -> dict[str, ob
             "지금은 차대차 2대 사고만 접수합니다. "
             "차대보행자·이륜차·단독·3대 이상 사고는 범위 밖입니다.",
         )
-    input_path = payload.get("input_path", "video")
-    if input_path not in INPUT_PATHS:
-        raise unprocessable("invalid_case", "input_path는 video 또는 manual이어야 합니다.")
     accident_date = _accident_date(payload.get("accident_date"))
     async with services.connect() as conn:
         repo = services.repo(conn)
-        case_id = await repo.insert_case(actor_id, accident_date, str(input_path))
+        case_id = await repo.insert_case(actor_id, accident_date)
         rows = await repo.summaries(case_id=case_id)
     return summarize(rows[0])
 

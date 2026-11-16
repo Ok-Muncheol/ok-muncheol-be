@@ -1,7 +1,7 @@
 """A: 사건 접수·조회 — app/api/cases.py create_case·list_cases·get_case·summarize.
 
 DB 없이 메모리 저장소(cases.configure)로 확인한다. SUMMARY_SQL은 Docker Postgres로 따로 확인했다.
-- 접수: 차대차 2대만(422 case_out_of_scope), input_path·날짜 검사, 응답은 CaseSummary(stage=intake)
+- 접수: 차대차 2대만(422 case_out_of_scope), 날짜 검사, 응답은 CaseSummary(stage=intake)
 - 조회: 다른 담당자 403, 없는 사건 404, 목록은 자기 사건만(대물·대인 담당자 모두 자기 사건이다)
 - 단계: 보고서 → report, 최신 카드의 판단 → judgment, 카드 → facts, 없으면 intake
 """
@@ -30,7 +30,7 @@ def row(**kw) -> dict:
     base = {
         "id": "33333333-3333-3333-3333-333333333333", "assignee_id": ACTOR,
         "injury_assignee_id": None,
-        "accident_date": None, "input_path": "video", "created_at": T0, "updated_at": T0,
+        "accident_date": None, "created_at": T0, "updated_at": T0,
         "card_version": None, "card_at": None, "judgment_version": None,
         "run_card_version": None, "run_status": None, "judgment_status": None, "run_at": None,
         "open_questions": 0, "report_version": None, "report_judgment_version": None,
@@ -44,10 +44,9 @@ class MemoryCaseRepo:
     def __init__(self):
         self.rows: dict[str, dict] = {}
 
-    async def insert_case(self, actor_id, accident_date, input_path):
+    async def insert_case(self, actor_id, accident_date):
         case_id = str(uuid.uuid4())
-        self.rows[case_id] = row(id=case_id, assignee_id=actor_id, accident_date=accident_date,
-                                 input_path=input_path)
+        self.rows[case_id] = row(id=case_id, assignee_id=actor_id, accident_date=accident_date)
         return case_id
 
     async def expire_analysis(self, case_id):
@@ -82,8 +81,8 @@ def error(exc_info) -> tuple[int, str]:
 
 
 def test_create_case_returns_intake_summary(repo):
-    out = run(cases.create_case(ACTOR, {"accident_date": "2026-11-08", "input_path": "video"}))
-    assert out["stage"] == "intake" and out["input_path"] == "video"
+    out = run(cases.create_case(ACTOR, {"accident_date": "2026-11-08"}))
+    assert out["stage"] == "intake"
     assert out["accident_date"] == "2026-11-08T00:00:00+09:00"  # 시간대 없으면 한국 시간
     assert out["versions"] == {"case_id": out["case_id"], "fact_card_version": 0,
                                "judgment_version": None, "report_version": None}
@@ -92,7 +91,13 @@ def test_create_case_returns_intake_summary(repo):
 
 def test_create_case_defaults(repo):
     out = run(cases.create_case(ACTOR, {}))
-    assert out["input_path"] == "video" and out["accident_date"] is None
+    assert out["accident_date"] is None
+
+
+def test_create_case_has_no_manual_path(repo):
+    # 직접 입력 경로는 없다 — input_path를 보내도 무시하고 영상 사건을 만든다
+    out = run(cases.create_case(ACTOR, {"input_path": "manual"}))
+    assert out["stage"] == "intake" and "input_path" not in out
 
 
 @pytest.mark.parametrize(
@@ -101,7 +106,6 @@ def test_create_case_defaults(repo):
      ({"party_count": 3}, "case_out_of_scope"),
      ({"party_count": 1}, "case_out_of_scope"),
      ({"party_count": True}, "case_out_of_scope"),
-     ({"input_path": "cctv"}, "invalid_case"),
      ({"accident_date": "어제"}, "invalid_case")],
 )
 def test_create_case_rejects(repo, payload, code):
