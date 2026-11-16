@@ -8,18 +8,18 @@
    이 함수를 부른다. 토큰 확인 → completed면 카드 새 버전 저장 + 작업 completed(한 트랜잭션),
    failed면 오류 그대로. 끝난 작업에 다시 오면 바꾸지 않는다(같은 콜백은 한 번만).
 3. 콜백이 안 오면 조회·재접수 때 15분 넘은 queued·running을 failed(analysis_timeout)로 바꾼다.
-4. get_evidence(GET /cases/{id}/evidence): 최신 카드 근거 사진과 최신 완료 분석의 미리보기 영상을
-   보기용 서명 URL(1시간)로 준다. 이 사건의 frames/·previews/ 경로만 서명한다.
-   파일이 없으면 url null.
+4. get_evidence(GET /cases/{id}/evidence): 최신 완료 분석의 미리보기 영상을 보기용 서명 URL(1시간)로
+   준다. 이 사건의 previews/ 경로만 서명하고 파일이 없으면 null. 근거 사진은 서명하지 않는다 —
+   카드의 근거 장면은 모든 칸이 같은 고정 프레임이라 화면이 쓰지 않는다(FE #166).
 
 dispatch에 넘기는 값: {task_id, case_id, video_url, callback_path, callback_token,
 frame_uploads, preview_upload_url}.
-- frame_uploads: 근거 사진 칸 최대 12개 [{storage_path, upload_url}]. 경로는
-  case-files/{case}/frames/{task}/NN.jpg. 워커가 카드 evidence_frames 순서대로 올리고
-  storage_path를 채운다(workers/modal_worker.py).
+- frame_uploads: 늘 빈 목록이다(빈 목록은 dispatch가 보내지 않는다). 워커는 칸이 없으면 근거 사진을
+  뽑거나 올리지 않는다(workers/modal_worker.py upload_frames). 사진은 읽는 곳이 없어 11/16에 끊었다.
 - preview_upload_url: H.264 미리보기(case-files/{case}/previews/{task}.mp4, preview_path).
-- 서명 업로드 URL을 못 만들면 사진 없이 분석한다(빈 목록·null). 사진은 분석을 막지 않는다.
-- 콜백 카드의 evidence_frames[].storage_path는 이 작업의 frames/ 경로만 남기고 나머지는 null로 둔다.
+- 서명 업로드 URL을 못 만들면 미리보기 없이 분석한다(null). 미리보기는 분석을 막지 않는다.
+- 콜백 카드의 evidence_frames[].storage_path는 이 작업의 frames/ 경로만 남기고 나머지는 null로 둔다
+  (워커가 칸 없이 돌면 모두 null이다).
 callback_url은 BE 주소를 아는 호출 함수가 callback_path로 만든다. 콜백 본문:
 {"status": "completed", "card": FactCard v1} 또는
 {"status": "failed", "error": {stage?, code, message, retryable}}.
@@ -27,7 +27,6 @@ callback_url은 BE 주소를 아는 호출 함수가 callback_path로 만든다.
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import hashlib
 import hmac
@@ -52,14 +51,6 @@ CALLBACK_PATH = "/internal/analysis/{task_id}"
 _VIDEO_PATH = re.compile(
     r"^case-files/(?P<case>[0-9a-f-]{36})/videos/[0-9a-f-]{36}\.(mp4|mov|avi|webm|mkv)$"
 )
-FRAME_UPLOADS = 12  # 워커 MAX_FRAME_UPLOADS와 같다
-
-
-def frame_path(case_id: str, task_id: str, index: int) -> str:
-    """근거 사진 index(1부터)의 Storage 경로(버킷 포함)."""
-    return storage.storage_path_of(f"{case_id}/frames/{task_id}/{index:02d}.jpg")
-
-
 def preview_path(case_id: str, task_id: str) -> str:
     """H.264 미리보기 영상의 Storage 경로(버킷 포함). 화면 재생용."""
     return storage.storage_path_of(f"{case_id}/previews/{task_id}.mp4")
@@ -218,21 +209,17 @@ def task_view(row: dict) -> dict[str, object]:
 
 
 async def _upload_slots(case_id: str, task_id: str) -> dict[str, object]:
-    """근거 사진 12칸과 미리보기의 서명 업로드 URL. 하나라도 못 만들면 사진 없이 간다."""
-    paths = [frame_path(case_id, task_id, i) for i in range(1, FRAME_UPLOADS + 1)]
-    paths.append(preview_path(case_id, task_id))
-    keys = [p.removeprefix(f"{storage.STORAGE_BUCKET}/") for p in paths]
+    """미리보기의 서명 업로드 URL. 못 만들면 미리보기 없이 간다.
+
+    근거 사진 칸(frame_uploads)은 비워 보낸다 — 워커는 칸이 없으면 사진을 뽑거나 올리지 않는다.
+    사진은 읽는 곳이 없고(모듈 설명 4) 필요하면 미리보기·원본 영상에서 다시 뽑을 수 있다.
+    """
+    key = preview_path(case_id, task_id).removeprefix(f"{storage.STORAGE_BUCKET}/")
     try:
-        urls = await asyncio.gather(*(services.sign_upload(k) for k in keys))
+        url = await services.sign_upload(key)
     except Exception:  # noqa: BLE001 — 저장소 설정·연결 문제여도 분석은 한다
-        return {"frame_uploads": [], "preview_upload_url": None}
-    return {
-        "frame_uploads": [
-            {"storage_path": path, "upload_url": url}
-            for path, url in zip(paths[:-1], urls[:-1], strict=True)
-        ],
-        "preview_upload_url": urls[-1],
-    }
+        url = None
+    return {"frame_uploads": [], "preview_upload_url": url}
 
 
 def _own_frames(card: object, case_id: str, task_id: str) -> object:
@@ -372,7 +359,10 @@ class _AlreadyDone(Exception):
 
 
 async def get_evidence(actor_id: str, case_id: str) -> dict[str, object]:
-    """근거 사진·미리보기 영상의 보기용 서명 URL. 담당자만. 카드가 없으면 빈 목록."""
+    """미리보기 영상의 보기용 서명 URL. 담당자만. 완료한 분석이 없으면 null.
+
+    근거 사진은 서명하지 않는다 — 화면이 쓰지 않는다(모듈 설명 4).
+    """
     case_id = _uuid(case_id, "사건")
     async with services.connect() as conn:
         repo = services.repo(conn)
@@ -381,30 +371,11 @@ async def get_evidence(actor_id: str, case_id: str) -> dict[str, object]:
             raise not_found("사건을 찾을 수 없습니다.")
         if actor_id not in assignees:
             raise forbidden()
-        card = await services.fact_repo(conn).latest(case_id)
         task = await repo.latest_completed(case_id)
-    frames = [f for f in ((card or {}).get("evidence_frames") or []) if isinstance(f, dict)]
-    prefix = storage.storage_path_of(f"{case_id}/frames/")
-
-    async def sign(path: object) -> str | None:
-        ok = isinstance(path, str) and path.startswith(prefix) and ".." not in path
-        if not ok:
-            return None
-        key = str(path).removeprefix(f"{storage.STORAGE_BUCKET}/")
-        return await services.sign_download(key, EVIDENCE_URL_SECONDS)
-
-    preview = preview_path(case_id, str(task["id"])) if task else None
-    urls = await asyncio.gather(*(sign(f.get("storage_path")) for f in frames))
     preview_url = None
-    if preview:
+    if task:
+        preview = preview_path(case_id, str(task["id"]))
         preview_url = await services.sign_download(
             preview.removeprefix(f"{storage.STORAGE_BUCKET}/"), EVIDENCE_URL_SECONDS
         )
-    return {
-        "frames": [
-            {"frame_id": f.get("frame_id"), "timestamp_ms": f.get("timestamp_ms"), "url": url}
-            for f, url in zip(frames, urls, strict=True)
-        ],
-        "preview_url": preview_url,
-        "expires_in": EVIDENCE_URL_SECONDS,
-    }
+    return {"preview_url": preview_url, "expires_in": EVIDENCE_URL_SECONDS}

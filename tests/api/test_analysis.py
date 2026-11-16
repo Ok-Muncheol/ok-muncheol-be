@@ -316,20 +316,14 @@ def test_signed_download_url_missing_file_is_none(monkeypatch):
 # ---------------------------------------------------------------- 근거 사진·미리보기
 
 
-def test_start_passes_frame_and_preview_upload_slots(env):
-    """워커(workers/modal_worker.py)가 받는 모양: 12칸 {storage_path, upload_url} + 미리보기 URL."""
-    import re
+def test_start_passes_only_the_preview_upload_slot(env):
+    """워커(workers/modal_worker.py)가 받는 모양: 미리보기 URL만, 근거 사진 칸은 비운다.
 
+    사진은 읽는 곳이 없어 올리지 않는다 — 워커는 칸이 없으면 사진을 뽑지 않는다.
+    """
     _, _, jobs = env
     task = start()["task_id"]
-    slots = jobs[0]["frame_uploads"]
-    assert len(slots) == analysis.FRAME_UPLOADS == 12
-    worker_path = re.compile(  # workers/modal_worker.py _FRAME_PATH
-        r"^case-files/[0-9a-f-]{36}/frames/[0-9a-f-]{36}/[0-9A-Za-z._-]+\.jpg$")
-    for i, slot in enumerate(slots, start=1):
-        assert slot["storage_path"] == f"case-files/{CASE}/frames/{task}/{i:02d}.jpg"
-        assert worker_path.match(slot["storage_path"])
-        assert slot["upload_url"].endswith(f"{slot['storage_path']}?token=u")
+    assert jobs[0]["frame_uploads"] == []
     assert jobs[0]["preview_upload_url"].endswith(f"case-files/{CASE}/previews/{task}.mp4?token=u")
     assert analysis.preview_path(CASE, task) == f"case-files/{CASE}/previews/{task}.mp4"
 
@@ -366,12 +360,17 @@ def test_callback_keeps_only_this_tasks_frame_paths(env):
 # ---------------------------------------------------------------- 근거 보기 URL
 
 
-def _evidence_env(env, uploaded):
-    """sign_download이 uploaded에 있는 경로만 서명한다(Storage에 있는 파일)."""
+def _evidence_env(env, uploaded, signed=None):
+    """sign_download이 uploaded에 있는 경로만 서명한다(Storage에 있는 파일).
+
+    signed가 있으면 서명을 부른 경로를 쌓는다.
+    """
     tasks, cards, jobs = env
 
     async def sign(object_key, expires_in):
         path = f"case-files/{object_key}"
+        if signed is not None:
+            signed.append(path)
         if path == VIDEO:
             return "https://x/video"
         assert expires_in == analysis.EVIDENCE_URL_SECONDS
@@ -381,39 +380,32 @@ def _evidence_env(env, uploaded):
     return tasks, cards, jobs
 
 
-def test_evidence_signs_own_frames_and_preview(env):
+def test_evidence_signs_only_the_preview(env):
+    """미리보기 영상만 서명한다 — 근거 사진은 화면이 쓰지 않아 올라가 있어도 서명하지 않는다."""
     uploaded: set[str] = set()
-    _, _, jobs = _evidence_env(env, uploaded)
+    signed: list[str] = []
+    _, _, jobs = _evidence_env(env, uploaded, signed)
     task = start()["task_id"]
-    own = [f"case-files/{CASE}/frames/{task}/0{i}.jpg" for i in (1, 2)]
-    uploaded.update([own[0], f"case-files/{CASE}/previews/{task}.mp4"])
+    own = f"case-files/{CASE}/frames/{task}/01.jpg"
+    uploaded.update([own, f"case-files/{CASE}/previews/{task}.mp4"])
     body = card()
-    body["evidence_frames"] = [
-        {"frame_id": "f001", "timestamp_ms": 100, "storage_path": own[0]},
-        {"frame_id": "f002", "timestamp_ms": 200, "storage_path": own[1]},  # 아직 안 올라감
-        {"frame_id": "f003", "timestamp_ms": 300, "storage_path": None},
-    ]
+    body["evidence_frames"] = [{"frame_id": "f001", "timestamp_ms": 100, "storage_path": own}]
     callback(task, jobs[0]["callback_token"], {"status": "completed", "card": body})
     out = run(analysis.get_evidence(ACTOR, CASE))
-    assert [(f["frame_id"], f["url"]) for f in out["frames"]] == [
-        ("f001", f"https://x/view/{own[0]}"), ("f002", None), ("f003", None)]
-    assert out["preview_url"] == f"https://x/view/case-files/{CASE}/previews/{task}.mp4"
-    assert out["expires_in"] == 3600
+    assert out == {"preview_url": f"https://x/view/case-files/{CASE}/previews/{task}.mp4",
+                   "expires_in": 3600}
+    assert [path for path in signed if "/frames/" in path] == []
 
 
-def test_evidence_never_signs_other_paths(env):
-    _, cards, _ = _evidence_env(env, uploaded=set())
+def test_evidence_without_completed_analysis_signs_nothing(env):
+    signed: list[str] = []
+    _, cards, _ = _evidence_env(env, uploaded=set(), signed=signed)
     body = card()
-    body["evidence_frames"] = [
-        {"frame_id": "f001", "timestamp_ms": 0, "storage_path": VIDEO},
-        {"frame_id": "f002", "timestamp_ms": 0,
-         "storage_path": f"case-files/{CASE}/frames/../videos/a.mp4"},
-    ]
+    body["evidence_frames"] = [{"frame_id": "f001", "timestamp_ms": 0, "storage_path": VIDEO}]
     cards.rows.append({"card": {**body, "case_id": CASE, "version": 1}, "origin": "vision",
                        "reason": None, "actor": None})
-    out = run(analysis.get_evidence(ACTOR, CASE))
-    assert [f["url"] for f in out["frames"]] == [None, None]
-    assert out["preview_url"] is None
+    assert run(analysis.get_evidence(ACTOR, CASE)) == {"preview_url": None, "expires_in": 3600}
+    assert signed == []
 
 
 def test_injury_assignee_starts_analysis_and_reads_evidence(env):
@@ -422,7 +414,7 @@ def test_injury_assignee_starts_analysis_and_reads_evidence(env):
     tasks.by_case[CASE] = (ACTOR, INJURY)
     out = start(actor=INJURY)
     assert out["status"] == "running" and tasks.tasks[out["task_id"]]["requested_by"] == INJURY
-    assert run(analysis.get_evidence(INJURY, CASE))["frames"] == []
+    assert run(analysis.get_evidence(INJURY, CASE))["preview_url"] is None  # 분석이 아직 안 끝났다
     with pytest.raises(ApiException) as e:
         start(actor=OTHER, key="analysis-key-0002")
     assert error(e) == (403, "forbidden")
@@ -430,8 +422,7 @@ def test_injury_assignee_starts_analysis_and_reads_evidence(env):
 
 def test_evidence_empty_before_analysis_and_checks_assignee(env):
     _evidence_env(env, uploaded=set())
-    assert run(analysis.get_evidence(ACTOR, CASE)) == {
-        "frames": [], "preview_url": None, "expires_in": 3600}
+    assert run(analysis.get_evidence(ACTOR, CASE)) == {"preview_url": None, "expires_in": 3600}
     with pytest.raises(ApiException) as e:
         run(analysis.get_evidence("99999999-9999-9999-9999-999999999999", CASE))
     assert error(e) == (403, "forbidden")
