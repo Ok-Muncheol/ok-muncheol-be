@@ -540,7 +540,8 @@ def assemble_card(
         ),
         "party_mapping": {
             "video_ego_party_id": ego,
-            "insured_party_id": None,
+            # 가입자는 블랙박스(촬영) 차로 고정한다(카드 v1 2절). 촬영 차를 모르면 비운다
+            "insured_party_id": ego,
             "chart_party_A_id": "P2" if viewpoint == 1 else "P1",
             "chart_party_B_id": "P1" if viewpoint == 1 else "P2",
         },
