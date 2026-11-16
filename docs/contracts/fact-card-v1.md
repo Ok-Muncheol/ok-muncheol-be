@@ -186,7 +186,8 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
   `{"preview_url", "expires_in": 3600}`. 미리보기는 최신 완료 분석의 `case-files/{case}/previews/{task}.mp4`(H.264)이고,
   파일이 없으면 `preview_url`이 `null`. 근거 사진(`evidence_frames[].storage_path`)은 서명하지 않는다 —
   근거 장면은 모든 칸이 같은 고정 프레임이라 화면이 쓰지 않는다(FE #166). 분석 때도 사진을 올리지 않아
-  (11/16) `storage_path`는 `null`이다 — 필요하면 미리보기·원본 영상에서 그 시각을 다시 뽑는다.
+  (11/16) `storage_path`는 `null`이다 — 필요하면 미리보기·원본 영상에서 그 시각을 다시 뽑는다. 그 전 카드 버전의
+  `storage_path`는 11/16에 지운 파일을 가리킨다(읽는 곳이 없어 카드 이력은 고치지 않았다).
 - `PATCH /cases/{id}/fact-card`: 고칠 칸의 값만 보낸다(`{"fields": {"movement_A": {"value": "left_turn"}}, "expected_version": 1, "reason": "..."}`).
   고친 칸은 `human_confirmed`, `model_value`·`vision_detail`은 그대로, 새 버전은 draft. 모름은 `null`로 확인한다.
 - `POST /cases/{id}/fact-card/confirm`: `needs_review` 칸이 없고 도표 A/B가 정해져야 확정된다.

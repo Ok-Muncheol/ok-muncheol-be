@@ -98,7 +98,7 @@ OpenAPI 확정 시 타입 생성 도구·재생성 명령을 추가한다.
 2. FE가 `upload_url`에 키 없이 파일 본문과 `Content-Type`만 넣어 `PUT` → 200 `{"Key": "<storage_path>"}`
 3. 견적서는 `POST /cases/{id}/estimates` `{storage_path, party_id}`, 영상은 `POST /cases/{id}/analysis` `{storage_path}`
 
-- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`·`image/jpeg`만 받는다. `image/jpeg`는 대인 증빙 사진(`medical_document`)에 쓴다. 근거 사진(Modal 워커가 `frames/`에 올렸다)은 11/16부터 올리지 않고, 그 전 분석의 사진은 남아 있다.
+- 버킷 `case-files`는 비공개이고 `application/pdf`·`video/*`·`image/jpeg`만 받는다. `image/jpeg`는 대인 증빙 사진(`medical_document`)에 쓴다. 근거 사진(Modal 워커가 `frames/`에 올렸다)은 11/16부터 올리지 않고, 그 전에 올린 204개(사건 14개)도 11/16에 지웠다.
 - `medical_document`(11/13)는 대인 보상 증빙(진단서·진료비 영수증)이다. PDF·JPEG를 받고 첨부만 하며 BE가 내용을 읽지 않는다. 건강 정보라 견본·테스트에 실제 서류를 넣지 않는다.
 - 무료 플랜이라 파일 하나 50MB가 고정 한도다. 영상은 사고 구간만 잘라 올리는 것을 권한다(정지원: 지금 영상 중앙값 6.3MB, 최대 24MB).
 - 경로는 `case-files/{case_id}/estimates/{uuid}.pdf`·`case-files/{case_id}/videos/{uuid}.{확장자}`·`case-files/{case_id}/medical/{uuid}.pdf|jpg`이고, 이름은 BE가 만든다. 증빙을 받는 쪽은 그 사건의 해당 폴더 아래 경로만 받는다. Supabase는 한글 객체 이름을 거절한다(400 `InvalidKey`).
