@@ -26,6 +26,7 @@
 import hashlib
 import json
 import posixpath
+import re
 from datetime import UTC, datetime
 from urllib.parse import unquote
 
@@ -62,6 +63,19 @@ class ClaimPackageBlocked(ValueError):
     def __init__(self, *reasons: str):
         self.reasons = list(reasons)
         super().__init__("; ".join(reasons))
+
+
+_UUID = re.compile(r"([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+
+
+def case_no(case_id: str) -> str:
+    """청구 번호에 쓰는 사건 번호. UUID 사건 ID는 앞 8자리만 쓴다.
+
+    화면(FE src/lib/cases/intake.ts caseNo)과 같은 번호다. 상대 보험사로 나가는
+    문서에 36자 ID를 싣지 않는다. UUID가 아니면(견본·테스트 ID) 그대로다.
+    """
+    m = _UUID.fullmatch(case_id)
+    return m.group(1) if m else case_id
 
 
 def idempotency_key(case_id: str, stage: str, version: int, *parts: str) -> str:
@@ -279,7 +293,7 @@ def build_claim_package(
     payment = int(calc["insurance_payment"])  # type: ignore[arg-type]
     insured = (r.get("party_mapping") or {}).get("insured_party_id")
     evidence = claim_evidence(documents, insured)
-    claim_no = f"{case_id}-C{package_version}"
+    claim_no = f"{case_no(case_id)}-C{package_version}"
     row: ClaimRow = {
         "claim_no": claim_no,
         "insured_party_id": insured,

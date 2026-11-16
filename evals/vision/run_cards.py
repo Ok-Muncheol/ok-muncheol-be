@@ -227,6 +227,7 @@ def main():
                 vlm=vlm,
                 prompt_version=args.prompt,
                 type_select=args.type_select,
+                emergency_check=False,  # 긴급자동차 질문(11/16)은 정답이 없어 평가 실행에서 끈다
             )
         except Exception as e:  # 한 건 실패로 전체를 멈추지 않는다
             meta["failed"].append({"video": name, "error": repr(e)})

@@ -120,6 +120,8 @@ def main():
             viewpoint=viewpoint,
             vlm=ReplayVLM(old),
             prompt_version=mi.get("prompt_version", "v0.2"),
+            # 저장된 본 질문 답만 있어 긴급자동차 질문(11/16)은 재생하지 않는다
+            emergency_check=False,
         )
         (out / path.name).write_text(
             json.dumps(card, ensure_ascii=False, indent=1), encoding="utf-8"

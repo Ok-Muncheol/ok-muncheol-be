@@ -3,8 +3,8 @@
 작성: 2026-11-11 · 상태: **확정** (영어 값 17칸). v0(11/5 초안)과 11/11 오전 한국어 22칸안을 대체한다.
 11/13: 남은 도표(차11-x, 1-2·2-3·2-5·3-5, 1-5·3-7·3-8, 2-2)를 가르려고 **담당자 입력 칸 5개**(`collision_signal_A/B`, `lane_marking_A/B`, `unprotected_left_sign`)와 **점멸 신호 값**(`flashing_yellow`, `flashing_red`)을 더했다(B 요청).
 11/16: 교차로 밖 도표(차31~61, 49개 중 47개)를 가르려고 **칸 22개**(담당자 입력 18, 영상 AI 4)와 장소 `parking_lot`, 진행 값 8개를 더했다(C 김지은 안, B 반영). 지금 **39칸**이다.
-이륜차·긴급자동차 칸과 촬영 차량의 정차·출발·후진·추월은 영상 AI 2단계에서 채운다. 그 전까지 이 칸은 영상 카드에서 빈 칸(`null` + `unverified`)이다.
-예시: [fact-card-v1.example.json](fact-card-v1.example.json) — 지금 코드로 만든 실제 카드 1장(AI Hub 신호 없는 사거리 영상)
+11/16 2단계(영상 AI, 기존 VLM 질문 v0.5는 그대로): 상대 차 이륜차·긴급자동차(`two_wheeler_A`·`emergency_vehicle_A`)를 채워 **늘 확인**으로 내고, 중앙선 침범은 일반 도로·고속도로에서 침범을 봤을 때만 채운다. 새 진행 값(정차·출발·후진·추월·출차)과 주차장도 낸다. 촬영 차(B)의 이륜차·긴급자동차는 가입자 차라 계약 정보로 알 수 있어 담당자 입력이다(C 결정).
+예시: [fact-card-v1.example.json](fact-card-v1.example.json) — 코드로 만든 실제 카드 1장(AI Hub 신호 없는 사거리 영상). 11/16 2단계 전에 만든 카드라 `two_wheeler_A`·`emergency_vehicle_A`가 빈 담당자 칸이다(지금 코드는 확인 필요 칸으로 낸다)
 
 판단(B)·도표 레코드(C)·검색 필터(D)·화면(FE)은 이 문서의 칸 이름과 값을 쓴다.
 비전 안에서는 학습·평가에 쓰는 한국어 세분 값을 쓰고, 밖으로 낼 때만 `workers/vision/contract.py`가 이 값으로 바꾼다(7절).
@@ -54,15 +54,15 @@
 | `road_priority` | `same_width` · `major_A` · `major_B` · `stop_A` · `stop_B` · `other` · `none` | ✅ 신호 없는 교차로 | 21/30 |
 | `signal_A`, `signal_B` | `green` · `yellow` · `red` · `green_left_arrow` · `flashing_yellow` · `flashing_red` · `no_signal` | ✅ 신호 교차로(**진입 시점** 신호) | 0/4 → **신호 교차로에서 늘 확인 표시** |
 | `collision_signal_A`, `collision_signal_B` | `signal_*`와 같은 값 | 진입 시와 충돌 시 신호가 다른 도표(차1-2, 2-3, 2-5, 3-5) | 담당자 입력 |
-| `movement_A`, `movement_B` | `straight` · `left_turn` · `right_turn` · `u_turn` · `lane_change` · `stopped` · `starting` · `reversing` · `overtaking` · `entering_road` · `leaving_road` · `parking_out` · `parking_in` · `other` | ✅ (회전교차로 제외) | A 60/92 (65%), B 69/92 (75%). 11/16 새 값 8개는 정답이 없다 |
+| `movement_A`, `movement_B` | `straight` · `left_turn` · `right_turn` · `u_turn` · `lane_change` · `stopped` · `starting` · `reversing` · `overtaking` · `entering_road` · `leaving_road` · `parking_out` · `parking_in` · `other` | ✅ (회전교차로 제외) | A 60/92 (65%), B 69/92 (75%). 11/16 새 값은 정답이 없어 영상 AI가 내면 늘 확인 |
 | `lane_marking_A`, `lane_marking_B` | `left_only` · `straight_left` · `straight_only` · `straight_right` · `right_only` · `none` | 교차로 노면 표시 위반(차11-1~11-6) | 담당자 입력 |
 | `relative_position` | `same_direction_front` · `same_direction_rear` · `opposite` · `left` · `right` | 맞은편·측면·좌우 도표 | 19/30 (좌·우 구분) |
 | `entry_order` | `first` · `second` · `simultaneous` · `none` | ✅ 신호 없는 교차로 | 14/30 |
 | `night` | `true` · `false` | 참고(수정요소 자동 적용 안 함) | — |
 | `unprotected_left_sign` | `true` · `false` | 비보호 좌회전 표지(차2-2 `false`, 차2-6·4-2 `true`) | 담당자 입력 |
-| `two_wheeler_A`, `two_wheeler_B` | `true` · `false` | 이륜차 특수유형(차45-2, 61-x)과 짝 도표 | 영상 AI 2단계(늘 확인). 그 전까지 빈 칸 |
-| `emergency_vehicle_A`, `emergency_vehicle_B` | `true` · `false` | 긴급자동차 사고(차55-x)와 짝 도표 | 영상 AI 2단계(늘 확인). 그 전까지 빈 칸 |
-| `center_line_crossing_A`, `center_line_crossing_B` | `true` · `false` | 중앙선 침범(차31-x) | 담당자 입력 |
+| `two_wheeler_A`, `two_wheeler_B` | `true` · `false` | 이륜차 특수유형(차45-2, 61-x)과 짝 도표 | A: 영상 AI(VLM 사고 대상 답·YOLO 상대 차 종류, 늘 확인). B: 담당자 입력(표시하지 않으면 판단은 '아니오'로 읽음) |
+| `emergency_vehicle_A`, `emergency_vehicle_B` | `true` · `false` | 긴급자동차 사고(차55-x)와 짝 도표 | A: 영상 AI(따로 묻는 짧은 VLM 질문 `e0.1`, 늘 확인). B: 담당자 입력(표시하지 않으면 판단은 '아니오'로 읽음) |
+| `center_line_crossing_A`, `center_line_crossing_B` | `true` · `false` | 중앙선 침범(차31-x, 45-4) | 영상 AI가 일반 도로·고속도로에서 침범을 봤을 때만 `true`(확인 필요). 아니면 담당자 입력 |
 | `door_open_A`, `door_open_B` | `true` · `false` | 문 열림(차52-1, 61-3) | 담당자 입력 |
 | `overtake_line` | `yellow_solid` · `yellow_dashed` · `white_solid` · `no_passing_zone` · `none` | 추월(차45-x) | 담당자 입력 |
 | `u_turn_zone` | `always` · `signal` · `none` | 직진(우회전) 대 유턴(차33-x) | 담당자 입력 |
@@ -77,10 +77,10 @@
 
 ## 4. 값 뜻
 
-- `unsignalized_intersection`: 신호 없는 사거리와 T자형 교차로. `parking_lot`: 주차장(11/16). `other`: 차도와 차도 아닌 곳 등(범위 밖). 영상 AI는 2단계 전까지 주차장도 `other`로 낸다(담당자가 고친다).
+- `unsignalized_intersection`: 신호 없는 사거리와 T자형 교차로. `parking_lot`: 주차장(11/16). `other`: 차도와 차도 아닌 곳 등(범위 밖).
 - `major_A` = A가 대로(B가 소로). `stop_A` = A 쪽에 일시정지 표지. `other` = 한쪽에만 신호등. `none` = 교차로가 아님.
 - `lane_change` = 진로변경. 합류(차43-1)는 `lane_change` + `lane_reduction`이다. 11/16 새 진행 값: `overtaking` 추월·앞지르기, `stopped` 정차·주정차, `starting` 정차 후 출발, `reversing` 후진, `entering_road` 도로가 아닌 곳에서 도로로 진입, `leaving_road` 도로가 아닌 곳으로 진출, `parking_out` 주차구획에서 출차, `parking_in` 주차구획으로 진입. `other` = 그 밖(회전교차로 진입·회전은 `roundabout_move_*`로 가른다).
-  영상 AI는 2단계 전까지 예전처럼 추월·합류를 `lane_change`로, 정차 후 출발·주정차·출차·후진·회전교차로 진입·회전을 `other`로 낸다(담당자가 고친다).
+  영상 AI는 촬영 차량의 주정차·정차 후 출발·후진을 카메라 움직임으로, 그 밖은 VLM·영상 모델 값으로 낸다. 새 값은 늘 확인이다. 회전교차로 진입·회전은 `other`로 두고 `roundabout_move_*`는 담당자가 넣는다.
 - `green_left_arrow` = 녹색 좌회전, 녹색 직진+좌회전 동시 신호. `flashing_yellow`·`flashing_red` = 황색·적색 점멸.
 - `signal_*` = 그 차가 **교차로에 들어갈 때** 신호, `collision_signal_*` = **충돌할 때** 신호. 둘이 같으면 같은 값을 넣는다.
 - `lane_marking_*` = 그 차가 있던 **차로의 방향 화살표**. `left_only` 좌회전 전용, `straight_left` 직진·좌회전, `straight_only` 직진 전용, `straight_right` 직진·우회전, `right_only` 우회전 전용, `none` 표시 없음. 예: 차11-1은 A가 `left_only`에서 직진, B가 `straight_left`에서 좌회전.
@@ -112,8 +112,10 @@
 | `relative_position` | VLM ≠ 영상 모델 v3(좌·우는 측면으로 묶어 비교) |
 | `collision_time_ms` | 긴 영상을 잘라 분석했을 때 항상 |
 | 그 밖 | 값이 `null`, VLM 자신감 < 0.7, 탐지·VLM 불일치 |
-| `two_wheeler_*`, `emergency_vehicle_*` | 2단계부터 **항상**(정답이 없어서). 그 전까지는 아래 담당자 입력 칸과 같다 |
-| 담당자 입력 칸(`collision_signal_*`, `lane_marking_*`, `unprotected_left_sign`, 11/16 칸 18개 = `MANUAL_FIELDS`) | **표시하지 않음.** 영상 카드에서는 `null` + `unverified`(출처 `manual`)로 나가 확정을 막지 않는다. 도표를 가르는 데 필요할 때 판단이 빈 칸 질문으로 묻는다(9절) |
+| `two_wheeler_A`, `emergency_vehicle_A` (`VISION_REVIEW_FIELDS`) | **항상**(정답이 없어서, 11/16) |
+| `center_line_crossing_*` (`VISION_POSITIVE_FIELDS`) | 일반 도로·고속도로에서 침범을 봤을 때(`true`)만. 아니면 담당자 입력 칸처럼 빈다(교차로 카드의 확인할 칸을 늘리지 않는다) |
+| `movement_*`가 11/16 새 값(정차·출발·후진·추월·출차) | 항상 |
+| 담당자 입력 칸(`collision_signal_*`, `lane_marking_*`, `unprotected_left_sign`, 11/16 칸 18개 = `MANUAL_FIELDS` 23개) | **표시하지 않음.** 영상 카드에서는 `null` + `unverified`(출처 `manual`)로 나가 확정을 막지 않는다. 도표를 가르는 데 필요할 때 판단이 빈 칸 질문으로 묻는다(9절) |
 
 B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참고값이다(VLM 자신감은 0.8~0.9로 거의 일정).
 
@@ -139,6 +141,7 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 - `internal_value`: 비전 내부 값(v1으로 바꾸며 뭉친 값, 예: `추월` → `lane_change`).
 - `eval`: 이 칸의 평가 정확도와 근거. 담당자가 어떤 칸부터 볼지 정하는 데 쓴다.
 - 칸에 따라 더 붙는 키: `video_v3`·`video_j3`(확인 표시용 영상 모델 값), `type_choice`, `tidy`(장소 규칙으로 바꾼 전후), `by_place`.
+- 11/16: `two_wheeler_A`는 `detection.cls`(YOLO가 고른 상대 차 종류)와 `vlm.from: accident_object`, `emergency_vehicle_A`는 `reason`(VLM이 적은 근거)과 `question`(질문 버전 `e0.1`)이 붙는다.
 - 담당자가 고쳐도 `model_value`, `model_confidence`, `vision_detail`은 바꾸지 않는다.
 
 ## 7. 비전 내부 카드와 변환
@@ -149,17 +152,20 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 
 | v1 칸 | 내부 칸 | 내부 값 → v1 값 |
 | --- | --- | --- |
-| `accident_type` | `accident_object` (+ `party_count` 3 이상이면 `other`) | 차대차 → `car_to_car`, 나머지 → `other` |
-| `location_type` | `location_type` | 사거리_신호있음 → `signalized_intersection`, 사거리_신호없음·T자형교차로 → `unsignalized_intersection`, 회전교차로 → `roundabout`, 직선도로 → `straight_road`, 고속도로 → `highway`, 주차장·차도와비차도 → `other` (2단계에서 주차장 → `parking_lot`) |
+| `accident_type` | `accident_object` (+ `party_count` 3 이상이면 `other`) | 차대차·차대이륜차 → `car_to_car`(11/16, 제2장은 이륜차 포함), 나머지 → `other` |
+| `location_type` | `location_type` | 사거리_신호있음 → `signalized_intersection`, 사거리_신호없음·T자형교차로 → `unsignalized_intersection`, 회전교차로 → `roundabout`, 직선도로 → `straight_road`, 고속도로 → `highway`, 주차장 → `parking_lot`, 차도와비차도 → `other` |
 | `road_priority` | `road_priority` | 동일폭 → `same_width`, A대로/B대로 → `major_A`/`major_B`, A쪽_일시정지/B쪽_일시정지 → `stop_A`/`stop_B`, 한쪽만_신호등 → `other`, 해당없음 → `none` |
 | `signal_*` | `signal_*` | 녹색·황색·적색 → `green`·`yellow`·`red`, 녹색좌회전·녹색직진좌회전 → `green_left_arrow`, 신호없음 → `no_signal` |
-| `movement_*` | `movement_*` | 직진·좌회전·우회전·유턴 → 그대로 영어, 진로변경·추월·합류 → `lane_change`, 나머지 → `other` (2단계에서 추월·정차후출발·주정차·후진·출차를 11/16 값으로 나눈다) |
+| `movement_*` | `movement_*` | 직진·좌회전·우회전·유턴 → 그대로 영어, 진로변경·합류 → `lane_change`, 추월 → `overtaking`, 주정차 → `stopped`, 정차후출발 → `starting`, 후진 → `reversing`, 출차 → `parking_out`(11/16), 나머지(회전교차로 진입·회전) → `other` |
 | `relative_position` | `relative_position` | 같은방향_앞/뒤 → `same_direction_front`/`rear`, 맞은편 → `opposite`, 왼쪽/오른쪽 → `left`/`right` |
 | `entry_order` | `entry_order` | A먼저/B먼저/동시/해당없음 → `first`/`second`/`simultaneous`/`none` |
 | `night` | `time_condition` | 야간 → `true`, 나머지 → `false` |
+| `two_wheeler_A` | `two_wheeler_A`(카드 조립이 만듦) | 사고 대상 차대이륜차 → 있음, 차대차 → 없음, 모르면 YOLO 상대 차 종류(motorcycle → 있음). 있음/없음 → `true`/`false` |
+| `emergency_vehicle_A` | `emergency_vehicle_A`(카드 조립이 만듦) | 따로 묻는 짧은 VLM 질문(`fact_card.check_emergency`, 충돌 구간 사진 3장) 있음/없음 → `true`/`false`. 답 근거는 `vision_detail.reason` |
+| `center_line_crossing_*` | `centerline_cross_*` | 있음 → `true`(일반 도로·고속도로만), 그 밖은 빈 담당자 칸 |
 
-내부 칸이 없는 칸(담당자 입력 23개 `MANUAL_FIELDS`, 2단계 전의 이륜차·긴급자동차 4개 `VISION_REVIEW_FIELDS`)은 `V1_FIELDS`의 내부 칸이 `None`이라 `null` + `unverified`(출처 `manual`)로 나간다.
-`불명`은 모두 `null` + `needs_review`. 내부에만 있고 v1에 내지 않는 칸: `party_count`, `lane_change_*`, `centerline_cross_*`,
+담당자 입력 23개(`MANUAL_FIELDS`)는 `V1_FIELDS`의 내부 칸이 `None`이라 `null` + `unverified`(출처 `manual`)로 나간다.
+`불명`은 모두 `null` + `needs_review`. 내부에만 있고 v1에 내지 않는 칸: `party_count`, `lane_change_*`,
 `collision_part_*`, `motion_trend_*`, `weather`.
 
 ## 8. `app/schemas/chart_scope.py`(11/6 임시안)와 다른 점
@@ -191,4 +197,4 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 - B(구준휘): `chart_scope.py`에 8절 값 반영, 2절 맞바꾸기 규칙을 도표 선택에 넣기.
 - C(김지은): 도표 레코드 속성을 도표 A 기준 v1 값으로 적기(`*` 무관 표기는 그대로).
 - D(옥석현)·FE: 화면에 보여 줄 칸과 값 이름, `vision_detail.eval`(칸별 정확도) 표시.
-- 11/16: C(김지은) 교차로 밖 47개 도표 검수(5차). 영상 AI 2단계(원래 A 몫)는 B(구준휘)가 맡는다.
+- 11/16: C(김지은) 교차로 밖 47개 도표 검수(5차). 영상 AI 2단계(원래 A 몫)는 B(구준휘)가 했다. 기존 VLM 질문을 바꾸지 않아 정답 64건 재확인은 하지 않았다(64건 정답은 움직임 A·B뿐이라 새 칸도 v0.5 상대 위치도 잴 수 없다).

@@ -4,11 +4,15 @@
 assemble_card(값 고르기·장소 정리·확인 표시). 팀 계약 v1(영어 39칸)으로는 contract.py가 바꾼다.
 카드 칸·확인 표시 규칙: docs/contracts/fact-card-v1.md.
 - detections가 없으면 VLM 단독으로 동작한다.
+- 11/16 2단계: 상대 차가 긴급자동차인지만 기존 질문과 따로 짧게 묻는다(check_emergency). 기존 질문
+  (PROMPT_VERSION)은 바꾸지 않아 다른 칸 답은 그대로다. 이륜차(A)는 사고 대상 답과 YOLO 상대 차
+  종류로 채운다(_two_wheeler_A).
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from app.schemas.facts import FactCard
@@ -31,6 +35,8 @@ from workers.vision.prompts import (
 )
 from workers.vision.tracks import summarize_tracks
 from workers.vision.vlm import VLM, OllamaVLM
+
+logger = logging.getLogger(__name__)
 
 # ---------- 2차 질문: 사고 유형 고르기 ----------
 
@@ -126,6 +132,71 @@ def choose_type(
         "n_candidates": len(cands),
         "prompt_tokens": meta.get("prompt_tokens"),
         "output_tokens": meta.get("output_tokens"),
+    }
+
+
+# ---------- 3차 질문: 상대 차가 긴급자동차인가(11/16 2단계) ----------
+# 기존 질문에 끼우면 다른 칸 답이 흔들릴 수 있어 따로 묻는다(정답 64건으로 다시 잴 필요가 없게).
+# 사진은 기존 질문 사진 중 충돌 구간 3장이다(분석 1건에 약 1,600토큰, gpt-4o 약 $0.005).
+# 파이프라인은 기존 질문과 함께 먼저 보낸다(pipeline._prefetch_vlm). 답은 늘 확인(needs_review)이다
+EMERGENCY_VERSION = "e0.1"
+EMERGENCY_FRAMES = (67, 73, 80)
+EMERGENCY_VALUES = ("있음", "없음", "불명")
+EMERGENCY_SCHEMA = {
+    "type": "object",
+    "required": ["reason", "value", "confidence"],
+    "properties": {
+        "reason": {"type": "string"},
+        "value": {"enum": list(EMERGENCY_VALUES)},
+        "confidence": {"type": "number"},
+    },
+}
+EMERGENCY_PROMPT = "\n".join([
+    "1인칭 블랙박스 영상에서 뽑은 사진이다(시간 순, 왼쪽 위가 프레임 번호와 시각). "
+    "B는 블랙박스가 달린 촬영 차량, A는 B와 부딪힌 상대 차량이다.",
+    "A가 긴급 운행 중인 긴급자동차인지 판단하라. "
+    "경광등을 켠 구급차·소방차·경찰차 등이면 '있음'이다.",
+    "일반 차량이거나 긴급자동차라도 경광등이 꺼져 있으면 '없음'이다. "
+    "사진으로 알 수 없으면 '불명'이다.",
+    "reason에 근거를 짧게 먼저 적고 value를 고른다. confidence는 0~1이다. JSON만 출력한다.",
+])
+
+
+def emergency_request(req: dict) -> tuple[str, list[str], dict] | None:
+    """기존 질문(vlm_request 결과)의 사진 중 충돌 구간 사진으로 긴급자동차 질문을 만든다.
+
+    사진 번호가 없거나 맞는 번호가 없으면 마지막 3장을 쓴다. 사진이 없으면 None.
+    """
+    frames, images = req.get("frames") or [], req.get("images") or []
+    picked = [img for n, img in zip(frames, images, strict=False) if n in EMERGENCY_FRAMES]
+    picked = picked or list(images[-3:])
+    return (EMERGENCY_PROMPT, picked, EMERGENCY_SCHEMA) if picked else None
+
+
+def check_emergency(vlm: VLM, req: dict) -> dict | None:
+    """상대 차(A)가 긴급 운행 중인 긴급자동차인가. 질문을 못 만들면 None.
+
+    이 질문이 실패해도 카드는 만든다(칸은 빈 채 늘 확인). 답이 허용값 밖이면 모름으로 둔다.
+    """
+    request = emergency_request(req)
+    if request is None:
+        return None
+    try:
+        raw, meta = vlm.generate(*request)
+    except Exception as exc:  # noqa: BLE001 — 긴급자동차 질문이 안 돼도 나머지 카드는 쓸 수 있다
+        logger.info("긴급자동차 질문 실패, 빈 칸으로 둔다: %s", type(exc).__name__)
+        return {"version": EMERGENCY_VERSION, "value": None, "confidence": None,
+                "reason": None, "error": type(exc).__name__}
+    raw = raw if isinstance(raw, dict) else {}
+    value = raw.get("value") if raw.get("value") in EMERGENCY_VALUES else None
+    conf = raw.get("confidence")
+    reason = raw.get("reason")
+    return {
+        "version": EMERGENCY_VERSION, "value": value,
+        "confidence": float(conf) if isinstance(conf, int | float) else None,
+        "reason": reason if isinstance(reason, str) else None,
+        "prompt_tokens": meta.get("prompt_tokens"), "output_tokens": meta.get("output_tokens"),
+        "seconds": meta.get("seconds"),
     }
 
 
@@ -233,6 +304,45 @@ def needs_review(
     return unknown and is_required(name, values) and not other_signal
 
 
+def _vision_field(value, conf, frame_ids: list[str], detail: dict) -> dict:
+    """11/16 2단계 내부 칸(늘 확인). 값은 내부 한국어 값(있음/없음/None)이다."""
+    return {
+        "value": value, "model_value": value, "source": "vision", "model_confidence": conf,
+        "verification_status": "needs_review", "evidence_frame_ids": frame_ids,
+        "source_document_ids": [], "vision_detail": detail,
+    }
+
+
+def _two_wheeler_A(values: dict, fields: dict, detections: dict | None, frame_ids: list[str]):
+    """상대 차가 이륜차인가: VLM 사고 대상 답(차대이륜차)이 먼저, 없으면 YOLO 상대 차 종류."""
+    vlm_value = {"차대이륜차": "있음", "차대차": "없음"}.get(values.get("accident_object"))
+    cls = ((detections or {}).get("yolo_info") or {}).get("cls")
+    det_value = None if cls is None else ("있음" if cls == "motorcycle" else "없음")
+    agree = None if vlm_value is None or det_value is None else vlm_value == det_value
+    conf = (fields.get("accident_object") or {}).get("model_confidence") if vlm_value else None
+    detection = None if det_value is None else {
+        "value": det_value, "confidence": None, "source": "YOLO 상대 차 종류", "cls": cls,
+    }
+    return _vision_field(vlm_value or det_value, conf, frame_ids, {
+        "detection": detection,
+        "vlm": {"value": values.get("accident_object"), "confidence": conf,
+                "from": "accident_object"},
+        "agree": agree,
+    })
+
+
+def _emergency_A(emergency: dict | None, frame_ids: list[str]) -> dict:
+    """상대 차가 긴급 운행 중인 긴급자동차인가(check_emergency 답). 모르면 None."""
+    e = emergency or {}
+    value = e.get("value") if e.get("value") in ("있음", "없음") else None
+    return _vision_field(value, e.get("confidence"), frame_ids, {
+        "detection": None,
+        "vlm": {"value": e.get("value"), "confidence": e.get("confidence")},
+        "agree": None, "reason": e.get("reason"), "question": e.get("version"),
+        **({"error": e["error"]} if e.get("error") else {}),
+    })
+
+
 def assemble_card(
     case_id: str,
     raw: dict,
@@ -242,9 +352,10 @@ def assemble_card(
     viewpoint: int,
     model_info: dict,
     type_pick: dict | None = None,
+    emergency: dict | None = None,
 ) -> dict:
     """type_pick: choose_type 결과. 고른 유형에서 나온 칸은 그 값을 최종값으로 쓰고, 1차 답과 다르면
-    확인 표시."""
+    확인 표시. emergency: check_emergency 답(1인칭만)."""
     det_values = (detections or {}).get("field_opinions", {})
     vlm_values = dict(raw)
     vlm_values["collision_time_ms"] = raw.get("collision_frame")
@@ -390,6 +501,10 @@ def assemble_card(
         # (기타이거나 지금 값이 직진·좌·우 밖의 특별한 움직임이면 그대로)
         if field in fields:
             fields[field]["vision_detail"]["by_place"] = by_place
+    # 11/16 2단계: 질문을 바꾸지 않고 채우는 상대 차 칸(늘 확인). 1인칭만(A = 상대 차량)
+    if viewpoint == 1:
+        fields["two_wheeler_A"] = _two_wheeler_A(values, fields, detections, frame_ids)
+        fields["emergency_vehicle_A"] = _emergency_A(emergency, frame_ids)
     text = raw.get("narrative") if isinstance(raw.get("narrative"), str) else None
     fields["narrative"] = {
         "value": text,
@@ -516,6 +631,7 @@ def extract_fact_card_sync(
     context: str | None = None,
     prompt_version: str = PROMPT_VERSION,
     type_select: bool = False,
+    emergency_check: bool = True,
 ) -> dict:
     """detections가 있으면 궤적을 글로 요약해 질문에 붙이고 사진에 박스를 그린다.
 
@@ -524,6 +640,7 @@ def extract_fact_card_sync(
     prompt_version: "v0.1"(처음 질문) | "v0.2"(오답 분석 후 개선) ...
     type_select: True면 2차 질문으로 사고 유형을 고르게 하고, 유형에서 나온 칸을 최종값으로
     쓴다(비용 약 2배)
+    emergency_check: 1인칭이면 상대 차가 긴급자동차인지 따로 묻는다(11/16, 저장된 답 재생 등은 끈다)
     """
     vlm = vlm or OllamaVLM()
     req = vlm_request(
@@ -537,6 +654,7 @@ def extract_fact_card_sync(
     frames, tracks, mark = req["frames"], req["tracks"], req["mark"]
     hint, facts, context, images = req["hint"], req["facts"], req["context"], req["images"]
     raw, meta = vlm.generate(req["prompt"], images, req["schema"])
+    emergency = check_emergency(vlm, req) if emergency_check and viewpoint == 1 else None
     ego = (detections or {}).get("ego")
     vlm_place = (raw.get("location_type") or {}).get("value")
     #  영상 모델 장소(detections["video"] = video_model.predict 결과)가 있으면 그 장소로 나머지
@@ -650,8 +768,10 @@ def extract_fact_card_sync(
         type_pick = choose_type(vlm, images, viewpoint, place, ego_movement, raw.get("scene_notes"))
     elif type_select:  # 기본: 코드가 점수로 고르기(추가 API 없음)
         type_pick = score_type(raw, viewpoint, ego_movement)
-    tin = meta["prompt_tokens"] + ((type_pick or {}).get("prompt_tokens") or 0)
-    tout = meta["output_tokens"] + ((type_pick or {}).get("output_tokens") or 0)
+    tin = (meta["prompt_tokens"] + ((type_pick or {}).get("prompt_tokens") or 0)
+           + ((emergency or {}).get("prompt_tokens") or 0))
+    tout = (meta["output_tokens"] + ((type_pick or {}).get("output_tokens") or 0)
+            + ((emergency or {}).get("output_tokens") or 0))
     info = {
         "prompt_version": prompt_version,
         "scene_notes": raw.get("scene_notes"),
@@ -674,6 +794,8 @@ def extract_fact_card_sync(
         "scene_hint": (detections or {}).get("scene"),  # 담당자 참고: 장면 분류기의 장소·도로 관계
         "yolo": (detections or {}).get("yolo_info"),
     }
+    if emergency is not None:
+        info["emergency_check"] = emergency
     if type_pick:
         c = type_pick.get("candidate")
         info["type_choice"] = {
@@ -687,7 +809,7 @@ def extract_fact_card_sync(
             "top3": type_pick.get("top3"),
         }
     card = assemble_card(
-        case_id, raw, detections, frames, collision_hint, viewpoint, info, type_pick
+        case_id, raw, detections, frames, collision_hint, viewpoint, info, type_pick, emergency
     )
     card["model_info"]["raw_output"] = raw
     return card

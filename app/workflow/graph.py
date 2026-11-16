@@ -55,6 +55,7 @@ from app.workflow.candidates import (
 )
 from app.workflow.card_fields import (
     UNKNOWN,
+    assumed_fields,
     card_field_key,
     chart_fields,
     chart_key,
@@ -85,7 +86,9 @@ MAX_LISTED_UNREVIEWED = 3
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
 # 11/16.1: 교차로 밖 장소(일반 도로·고속도로·주차장·회전교차로)와 그 도표 칸을 범위에 넣었다
-RULE_VERSION = "judgment-rules-2026.11.16.1"
+# 11/16.2: 표시하지 않은 촬영 차 이륜차·긴급자동차를 '아니오'로 읽는다
+# (card_fields.EGO_ASSUMED_FALSE)
+RULE_VERSION = "judgment-rules-2026.11.16.2"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
@@ -582,6 +585,11 @@ def build_graph(
             return update
         unresolved = _unresolved_modifiers(best)
         matched = _matched_fields(best, values)
+        # '아니오'로 본 촬영 차 칸 중 후보 도표가 실제로 가르는 칸만 이유에 적는다(보고서에 보임)
+        assumed = [k for k in assumed_fields(card)
+                   if any(k in _concrete(c["attributes"])
+                          or any(k in _concrete(v["conditions"]) for v in c["base_variants"])
+                          for c in _eligible(state))]
         selection: ChartSelection = {
             "chart_id": best["chart_id"], "parent_id": best["parent_id"],
             "edition": best["edition"], "variant": variant,  # type: ignore[typeddict-item]
@@ -591,6 +599,7 @@ def build_graph(
             "reasons": [
                 f"{best['chart_id']} 선택: 확인한 칸 {len(matched)}개 일치 ({', '.join(matched)})",
                 *(f"{k}: 확인 불가 — {best['chart_id']} 선택에는 쓰지 않음" for k in unknown),
+                *(f"{k}: 담당자 표시 없음 — 촬영 차(가입자 차)라 '아니오'로 봄" for k in assumed),
             ],
             "modifier_decisions": modifier_decisions(best, unresolved),
             "alternative_reasons": alternative_reasons(state, best, ranked[1:], skipped, values),

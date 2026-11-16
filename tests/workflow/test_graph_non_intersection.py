@@ -146,3 +146,24 @@ def test_roundabout_asks_lanes_and_moves_not_movement():
     out, _ = start(answered, [one, two], thread="run-roundabout-answered")
     result = out["result"]
     assert (result["status"], result["chart_id"], result["fault_A"]) == ("draft_ready", "RB-1", 20)
+
+
+def test_special_ego_chart_drops_out_unless_marked_and_the_reason_says_so():
+    """촬영 차 긴급자동차를 표시하지 않으면 '아니오'로 봐서 특수 도표(차55-x 모양)가 빠진다."""
+    # 표시하면(true) 맞는 칸이 하나 더 많은 특수 도표가 1순위다(11/16 C 검수 기준)
+    signal = {"location_type": "signalized_intersection", "movement_A": "straight",
+              "movement_B": "straight", "signal_A": "green", "signal_B": "red"}
+    general = candidate("G-1", signal, 0)
+    special = candidate("E-1", {**signal, "emergency_vehicle_B": "true"}, 60)
+    c = en_v1_card(movement_B=field("straight"))
+    out, _ = start(c, [general, special], thread="run-ego-unmarked")
+    result = out["result"]
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "G-1")
+    assert any("emergency_vehicle_B: 담당자 표시 없음" in r for r in result["reasons"])
+    marked = en_v1_card(movement_B=field("straight"), emergency_vehicle_B=field(True))
+    out, _ = start(marked, [general, special], thread="run-ego-marked")
+    assert (out["result"]["status"], out["result"]["chart_id"]) == ("draft_ready", "E-1")
+    assert not any("담당자 표시 없음" in r for r in out["result"]["reasons"])
+    # 후보가 그 칸을 가르지 않으면 이유에 적지 않는다
+    out, _ = start(c, [general], thread="run-ego-irrelevant")
+    assert not any("담당자 표시 없음" in r for r in out["result"]["reasons"])

@@ -77,7 +77,7 @@ def test_v1_has_every_contract_field_in_english():
     from app.schemas.facts import FACT_FIELDS
 
     out = contract.to_contract_card(internal_card())
-    # 11/16 교차로 밖 도표 칸 22개가 더해져 39칸이다(담당자 입력 18 + 이륜차·긴급자동차 4)
+    # 11/16 교차로 밖 도표 칸 22개가 더해져 39칸이다(담당자 입력 18 + 영상 AI 4)
     assert tuple(out["fields"]) == FACT_FIELDS and len(FACT_FIELDS) == 39
     assert set(out["fields"]) >= {
         "accident_type",
@@ -103,7 +103,8 @@ def test_v1_has_every_contract_field_in_english():
     assert v["location_type"] == "unsignalized_intersection"  # T자형 묶음
     assert v["road_priority"] == "major_B"
     assert v["signal_B"] == "green_left_arrow"
-    assert v["movement_A"] == "lane_change" and v["movement_B"] == "other"
+    # 11/16 2단계: 추월·주정차를 새 진행 값으로 낸다(예전에는 lane_change·other로 뭉쳤다)
+    assert v["movement_A"] == "overtaking" and v["movement_B"] == "stopped"
     assert v["relative_position"] == "left" and v["entry_order"] == "first"
     assert v["night"] is True and v["collision_time_ms"] == 4667
 
@@ -121,17 +122,125 @@ def test_manual_fields_are_null_unverified_and_do_not_block_confirm():
     assert not any(name in p for p in problems for name in contract.MANUAL_FIELDS)
 
 
-def test_vision_review_fields_stay_empty_until_the_vision_step():
-    """11/16 이륜차·긴급자동차 칸은 영상 AI 연결(2단계) 전까지 담당자 입력 칸처럼 빈다."""
-    from app.schemas.facts import VISION_REVIEW_FIELDS
+# ---------------------------------------------------------------- 11/16 2단계 칸
 
-    out = contract.to_contract_card(internal_card())
-    for name in VISION_REVIEW_FIELDS:
-        f = out["fields"][name]
+
+def yes_no(value, status="needs_review"):
+    return field(value, status)
+
+
+def test_new_values_map_and_new_movements_always_need_review():
+    """주차장·차대이륜차·새 진행 값을 v1 값으로 내고, 정답이 없는 새 진행 값은 늘 확인한다."""
+    out = contract.to_contract_card(internal_card(
+        accident_object=field("차대이륜차"), location_type=field("주차장"),
+        movement_A=field("후진"), movement_B=field("출차"),
+    ))
+    f = out["fields"]
+    assert f["accident_type"]["value"] == "car_to_car"  # 제2장은 이륜차 포함(11/16 C)
+    assert f["location_type"]["value"] == "parking_lot"
+    assert (f["movement_A"]["value"], f["movement_B"]["value"]) == ("reversing", "parking_out")
+    assert f["movement_B"]["verification_status"] == "needs_review"
+    assert f["movement_B"]["vision_detail"]["internal_value"] == "출차"
+    kept = contract.to_contract_card(internal_card(movement_B=field("직진")))
+    kept = kept["fields"]["movement_B"]
+    assert (kept["value"], kept["verification_status"]) == ("straight", "unverified")
+    roundabout = contract.to_contract_card(internal_card(movement_B=field("회전교차로회전")))
+    assert roundabout["fields"]["movement_B"]["value"] == "other"  # 회전 진행은 담당자 칸
+
+
+def test_vision_review_fields_always_need_review_and_b_side_is_manual():
+    """상대 차 이륜차·긴급자동차는 늘 확인(값은 참거짓), 촬영 차 쪽은 담당자 입력(11/16 C)."""
+    from app.schemas.facts import MANUAL_FIELDS, VISION_REVIEW_FIELDS
+
+    assert VISION_REVIEW_FIELDS == ("two_wheeler_A", "emergency_vehicle_A")
+    assert {"two_wheeler_B", "emergency_vehicle_B"} <= set(MANUAL_FIELDS)
+    out = contract.to_contract_card(internal_card(
+        two_wheeler_A=yes_no("있음"), emergency_vehicle_A=yes_no("없음")))
+    f = out["fields"]
+    assert (f["two_wheeler_A"]["value"], f["two_wheeler_A"]["verification_status"]) == (
+        True, "needs_review")
+    assert (f["emergency_vehicle_A"]["value"], f["emergency_vehicle_A"]["source"]) == (
+        False, "vision")
+    assert f["emergency_vehicle_A"]["verification_status"] == "needs_review"
+    assert f["two_wheeler_B"]["source"] == "manual"
+    # 내부 칸이 없는 카드(옛 실행·재생)도 빈 칸 + 확인으로 나가 계약 칸이 빠지지 않는다
+    old = contract.to_contract_card(internal_card())["fields"]["two_wheeler_A"]
+    assert (old["value"], old["source"], old["verification_status"]) == (
+        None, "vision", "needs_review")
+
+
+@pytest.mark.parametrize(("place", "answer", "kept"), [
+    ("직선도로", "있음", True), ("고속도로", "있음", True),
+    ("직선도로", "없음", False), ("직선도로", "불명", False), ("사거리_신호없음", "있음", False),
+])
+def test_center_line_crossing_is_filled_only_when_seen_on_a_road(place, answer, kept):
+    """중앙선 침범은 일반 도로·고속도로에서 침범을 봤을 때만 true + 확인, 아니면 빈 담당자 칸."""
+    out = contract.to_contract_card(internal_card(
+        location_type=field(place), centerline_cross_B=field(answer)))
+    f = out["fields"]["center_line_crossing_B"]
+    if kept:
         assert (f["value"], f["source"], f["verification_status"]) == (
-            None, "manual", "unverified"), name
-    assert not contract.to_contract_card(internal_card())["fields"]["two_wheeler_A"].get(
-        "vision_detail")
+            True, "vision", "needs_review")
+    else:
+        assert f == contract.manual_field()
+    assert out["fields"]["center_line_crossing_A"] == contract.manual_field()  # 내부 칸 없음
+
+
+def test_two_wheeler_A_uses_the_accident_object_answer_then_the_yolo_class():
+    from workers.vision import fact_card as fc
+
+    def card(obj, cls):
+        raw = {"accident_object": {"value": obj, "confidence": 0.8}}
+        detections = {"yolo_info": {"cls": cls}} if cls else None
+        return fc.assemble_card("c1", raw, detections, [75], 75, 1, {})["fields"]
+
+    f = card("차대이륜차", "car")["two_wheeler_A"]
+    assert (f["value"], f["verification_status"], f["vision_detail"]["agree"]) == (
+        "있음", "needs_review", False)
+    assert f["vision_detail"]["detection"]["cls"] == "car"
+    assert card("불명", "motorcycle")["two_wheeler_A"]["value"] == "있음"  # VLM이 모르면 YOLO
+    assert card("차대차", None)["two_wheeler_A"]["value"] == "없음"
+    assert card("불명", None)["two_wheeler_A"]["value"] is None
+    # 3인칭 영상은 A가 상대 차가 아니라 내지 않는다(계약 변환이 빈 칸 + 확인으로 채운다)
+    third = fc.assemble_card("c1", {}, None, [75], 75, 2, {})["fields"]
+    assert "two_wheeler_A" not in third
+
+
+class FakeVLM:
+    name = "fake:vlm"
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.prompts = []
+
+    def generate(self, prompt, images, schema):
+        self.prompts.append((prompt, images))
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer, {"seconds": 0.1, "prompt_tokens": 10, "output_tokens": 2}
+
+
+def test_emergency_question_uses_collision_frames_and_keeps_only_allowed_answers():
+    from workers.vision import fact_card as fc
+
+    req = {"frames": [1, 30, 67, 70, 73, 80, 95], "images": ["a", "b", "c", "d", "e", "f", "g"]}
+    prompt, images, schema = fc.emergency_request(req)
+    assert images == ["c", "e", "f"] and "긴급자동차" in prompt and schema is fc.EMERGENCY_SCHEMA
+    assert fc.emergency_request({"frames": [], "images": ["x", "y"]})[1] == ["x", "y"]
+    assert fc.emergency_request({"images": []}) is None
+    vlm = FakeVLM([{"reason": "경광등", "value": "있음", "confidence": 0.7},
+                   {"reason": "?", "value": "아마", "confidence": "높음"},
+                   TimeoutError("down")])
+    yes = fc.check_emergency(vlm, req)
+    assert (yes["value"], yes["confidence"], yes["version"]) == ("있음", 0.7, fc.EMERGENCY_VERSION)
+    odd = fc.check_emergency(vlm, req)
+    assert (odd["value"], odd["confidence"]) == (None, None)
+    failed = fc.check_emergency(vlm, req)  # 실패해도 카드는 만든다
+    assert (failed["value"], failed["error"]) == (None, "TimeoutError")
+    field_ = fc._emergency_A(yes, ["f075"])
+    assert (field_["value"], field_["verification_status"]) == ("있음", "needs_review")
+    assert field_["vision_detail"]["reason"] == "경광등"
 
 
 def test_unknown_becomes_null_and_needs_review():
@@ -309,6 +418,11 @@ class RecordingVLM:
         return {"scene_notes": f"답 {len(self.calls)}"}, meta
 
 
+def main_calls(vlm):
+    """본 질문만(같이 먼저 보내는 긴급자동차 질문 빼고). (스레드, 질문) 목록."""
+    return [(thread, prompt) for thread, prompt in vlm.calls if "긴급자동차" not in prompt]
+
+
 def fake_stages(monkeypatch, *, wait_for=None, extra=None, build_error=None):
     """카드 조립은 진짜처럼 fact_card.vlm_request로 질문을 만들어 VLM을 한 번 부른다.
 
@@ -361,9 +475,13 @@ def test_vlm_question_goes_out_before_the_video_models_and_its_answer_is_used(mo
     vlm = RecordingVLM()
     seen = fake_stages(monkeypatch, wait_for=vlm.started)
     out = pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
-    # 한 번만 물었고(먼저 받은 답을 썼다), 카드 조립 스레드가 아닌 곳에서 물었다
-    assert len(vlm.calls) == 1 and vlm.calls[0][0] != threading.current_thread().name
-    assert "카메라: 직진 중 충돌" in vlm.calls[0][1]  # 광학 흐름 요약이 질문에 들어간다
+    # 본 질문은 한 번만 물었고(먼저 받은 답을 썼다), 카드 조립 스레드가 아닌 곳에서 물었다.
+    # 같은 사진으로 묻는 긴급자동차 질문도 함께 먼저 나간다(11/16)
+    [(thread, prompt)] = main_calls(vlm)
+    assert thread != threading.current_thread().name
+    assert "카메라: 직진 중 충돌" in prompt  # 광학 흐름 요약이 질문에 들어간다
+    early = [t for t, p in vlm.calls if "긴급자동차" in p]
+    assert len(vlm.calls) == 2 and early and early[0] != threading.current_thread().name
     assert seen["raw"] == {"scene_notes": "답 1"} and seen["vlm_name"] == "fake:vlm"
     assert isinstance(seen["ego"], HintEgo)  # 광학 흐름은 한 번만 계산해 넘긴다
     info = out["model_info"]["pipeline"]
@@ -387,10 +505,31 @@ def test_question_changed_by_later_detections_is_asked_again(monkeypatch):
     vlm = RecordingVLM()
     seen = fake_stages(monkeypatch, wait_for=vlm.started, extra={"facts": "신호등: 적색"})
     out = pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
-    assert len(vlm.calls) == 2
-    assert "신호등: 적색" not in vlm.calls[0][1] and "신호등: 적색" in vlm.calls[1][1]
-    assert seen["raw"] == {"scene_notes": "답 2"}  # 다시 물은 답으로 카드를 만든다
+    first, again = main_calls(vlm)
+    assert "신호등: 적색" not in first[1] and "신호등: 적색" in again[1]
+    asked_again = 1 + [p for _, p in vlm.calls].index(again[1])
+    assert seen["raw"] == {"scene_notes": f"답 {asked_again}"}  # 다시 물은 답으로 카드를 만든다
     assert out["model_info"]["pipeline"]["parallel_vlm"] is False
+
+
+def test_emergency_question_sent_early_is_not_asked_again(monkeypatch):
+    """카드 조립이 묻는 긴급자동차 질문이 먼저 보낸 것과 같으면 그 답을 쓴다(시간이 늘지 않음)."""
+    from workers.vision import fact_card
+
+    vlm = RecordingVLM()
+    seen = fake_stages(monkeypatch, wait_for=vlm.started)
+
+    def extract(case_id, clip, detections, *, vlm, prompt_version, **kw):
+        req = fact_card.vlm_request(clip, detections, viewpoint=1, prompt_version=prompt_version)
+        vlm.generate(req["prompt"], req["images"], req["schema"])
+        seen["emergency"] = fact_card.check_emergency(vlm, req)
+        return internal_card()
+
+    monkeypatch.setattr(fact_card, "extract_fact_card_sync", extract)
+    out = pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
+    assert len(vlm.calls) == 2  # 본 질문·긴급자동차 질문 모두 먼저 받은 답을 썼다
+    assert seen["emergency"]["version"] == fact_card.EMERGENCY_VERSION
+    assert out["model_info"]["pipeline"]["parallel_vlm"] is True
 
 
 def test_failed_early_answer_is_a_retryable_vlm_error_without_asking_twice(monkeypatch):
@@ -399,7 +538,7 @@ def test_failed_early_answer_is_a_retryable_vlm_error_without_asking_twice(monke
     with pytest.raises(pl.VisionPipelineError) as e:
         pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
     assert (e.value.stage, e.value.code, e.value.retryable) == ("vlm", "vlm_failed", True)
-    assert len(vlm.calls) == 1
+    assert len(main_calls(vlm)) == 1
 
 
 def test_detection_failure_stays_a_detect_error_while_the_question_is_out(monkeypatch):
@@ -426,11 +565,13 @@ def test_question_that_cannot_be_sent_early_is_asked_in_order(monkeypatch):
 
 def test_v1_tables_only_produce_allowed_values():
     """변환표가 내는 값이 팀 계약 허용값(app/schemas/facts.py) 안에 있다. 카드 저장 API가 받는다."""
-    from app.schemas.facts import FACT_FIELD_OPTIONS, FACT_FIELDS
+    from app.schemas.facts import BOOL_FIELDS, FACT_FIELD_OPTIONS, FACT_FIELDS
 
     assert tuple(contract.V1_FIELDS) == FACT_FIELDS
     for v1_name, (_, table) in contract.V1_FIELDS.items():
-        if table is not None and v1_name != "accident_type":
+        if table is contract.YES_NO:  # 11/16 참거짓 칸(이륜차·긴급자동차·중앙선 침범)
+            assert v1_name in BOOL_FIELDS and set(table.values()) == {True, False}, v1_name
+        elif table is not None and v1_name != "accident_type":
             assert set(table.values()) <= set(FACT_FIELD_OPTIONS[v1_name]), v1_name
     assert set(contract.MOVE.values()) | {"other"} <= set(FACT_FIELD_OPTIONS["movement_A"])
 
