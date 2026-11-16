@@ -23,6 +23,8 @@
   (`opposite`는 그대로). 질문의 칸 이름도 카드 쪽 이름으로 되돌린다(`card_field_key`).
 - 11/16 교차로 밖 장소(`straight_road`·`highway`·`parking_lot`·`roundabout`)는 v1 카드에서 그대로
   범위 안 값이다. 한국어 안·11/6 카드는 교차로만 읽는다(한국어 안의 직선도로 등은 `other`).
+- 촬영 차(카드 B)의 이륜차·긴급자동차는 담당자가 표시하지 않았으면 '아니오'로 읽는다
+  (`EGO_ASSUMED_FALSE`, v1 카드만). 판단 결과 이유에 그렇게 봤다고 적는다(graph).
 """
 
 from collections.abc import Mapping
@@ -285,9 +287,45 @@ def chart_fields(
     return out
 
 
+# 촬영 차(카드 B)는 보통 가입자 차라 차종·긴급 운행 여부를 계약 정보로 안다. 담당자가 표시하지
+# 않았으면(칸이 없거나 값 없이 확인 전) '아니오'로 읽는다(11/16 C 제안). 이 칸으로 갈리는 특수 도표
+# (차55-x 긴급자동차는 도표 B, 차45-2·61-x 이륜차는 도표 A)가 후보에 남을 때마다 묻지 않으려고
+# 한다.
+# 값을 넣었거나 모름으로 확인했으면 그 답을 쓴다
+EGO_ASSUMED_FALSE = ("two_wheeler_B", "emergency_vehicle_B")
+
+
+def _ego_assumed(card: FactCard) -> dict[str, FactField]:
+    """담당자가 표시하지 않은 촬영 차 칸 → '아니오'로 본 칸(카드 칸 이름). v1 카드만."""
+    if card_format(card) != "v1":
+        return {}
+    out: dict[str, FactField] = {}
+    for key in EGO_ASSUMED_FALSE:
+        field = card["fields"].get(key)
+        if field is None or (
+            field.get("value") is None and field.get("verification_status") != "human_confirmed"
+        ):
+            out[key] = {
+                "value": False, "model_value": None, "source": "manual", "model_confidence": None,
+                "verification_status": "human_confirmed", "evidence_frame_ids": [],
+                "source_document_ids": [],
+            }
+    return out
+
+
+def assumed_fields(card: FactCard) -> list[str]:
+    """'아니오'로 본 촬영 차 칸의 도표 선택 칸 이름(v1 2절 맞바꿈 포함)."""
+    keys = list(_ego_assumed(card))
+    return [_SWAP_KEYS.get(k, k) for k in keys] if is_swapped(card) else keys
+
+
 def chart_view(card: FactCard) -> dict[str, FactField]:
-    """카드 전체를 도표 선택 칸·값으로(v1 2절 맞바꿈 포함). 판단은 이것으로 카드를 읽는다."""
-    return chart_fields(card["fields"], swapped=is_swapped(card))
+    """카드 전체를 도표 선택 칸·값으로(v1 2절 맞바꿈 포함). 판단은 이것으로 카드를 읽는다.
+
+    표시하지 않은 촬영 차 이륜차·긴급자동차는 '아니오'로 읽는다(`EGO_ASSUMED_FALSE`).
+    """
+    fields = {**card["fields"], **_ego_assumed(card)}
+    return chart_fields(fields, swapped=is_swapped(card))
 
 
 def confirmed_unknown_fields(card: FactCard) -> list[str]:
