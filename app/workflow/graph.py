@@ -89,7 +89,8 @@ CRITERIA_VERSION = "fault_standards:2023.6"
 # 11/16.2: 표시하지 않은 촬영 차 이륜차·긴급자동차를 '아니오'로 읽는다
 # (card_fields.EGO_ASSUMED_FALSE)
 # 11/16.3: 도표 후보 검색 깊이 50 → 100(candidates.CHART_SEARCH_TOP_K, 5차 검수 시범 실행)
-RULE_VERSION = "judgment-rules-2026.11.16.3"
+# 11/16.4: 교차로 밖 같은 방향 직진·정차 두 차의 검색어에 '추돌'(candidates._REAR_END_MOVES)
+RULE_VERSION = "judgment-rules-2026.11.16.4"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)

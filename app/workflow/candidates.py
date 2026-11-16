@@ -124,6 +124,12 @@ _FIELD_WORDS: dict[str, dict[str, str]] = {
 # (예: 후행 직진 대 선행 진로변경). 교차로 검색 문장(검수한 50개 도표)은 그대로 둔다
 _INTERSECTIONS = frozenset({"signalized_intersection", "unsignalized_intersection"})
 _ORDER_WORDS = {"same_direction_front": ("선행", "후행"), "same_direction_rear": ("후행", "선행")}
+# 교차로 밖에서 같은 방향 앞뒤 두 차가 직진·정차·정차 후 출발이면 추돌 사고다(차41-1 「후방 추돌」,
+# 차42-x 「주정차 차량 추돌」). 2026-11-16 5차 검수 시범 실행: 이 낱말이 없으면 41-1 일반 도로
+# 변형이 검색 50위 밖(78위)이었고, 넣으니 변형 153개가 모두 50위 안·41-1은 10위 안이었다.
+# 「일반 도로」 장소 낱말은 원문 제목에 거의 없어 41-1을 못 올리고 다른 도표 6개를 밀어내서
+# 넣지 않는다
+_REAR_END_MOVES = frozenset({"straight", "stopped", "starting"})
 
 
 def confirmed_values(card: FactCard) -> dict[str, str]:
@@ -172,6 +178,8 @@ def build_search_query(card: FactCard, top_k: int = CHART_SEARCH_TOP_K) -> Searc
     if order := word("entry_order"):
         words.append(order)
     words += [w for key, table in _FIELD_WORDS.items() if (w := table.get(values.get(key, "")))]
+    if order_words and {values.get("movement_A"), values.get("movement_B")} <= _REAR_END_MOVES:
+        words.append("추돌")
     return {
         "text": " ".join(words) or ("차대차 교차로 사고" if intersection else "차대차 사고"),
         # 사고 일자를 모르면 빈 값(검색 도구는 YYYY-MM-DD나 빈 값만 받는다)
