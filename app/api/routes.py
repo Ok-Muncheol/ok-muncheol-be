@@ -18,7 +18,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, Query, Request
 from pydantic import BaseModel, Field, StringConstraints
 
-from app.api import admin, analysis, cases, facts, judgments, reports
+from app.api import admin, analysis, cases, facts, judgments, partner_medical, reports
 from app.api.deps import ActorId, AdminId, IdempotencyKey
 from app.api.errors import ApiException, unprocessable, version_conflict
 from app.schemas.admin import AdminOverview, Coverage, IntakeDetail, IntakeDetails, IntakeView
@@ -269,6 +269,17 @@ async def upload_estimate(
     return await reports.upload_estimate_from_storage(
         actor_id, case_id, body.storage_path, body.party_id
     )
+
+
+@router.get("/cases/{case_id}/partner-medical", tags=["D reports"])
+async def get_partner_medical(
+    actor_id: ActorId, case_id: str
+) -> list[partner_medical.PartnerMedicalRecord]:
+    """시연용 가데이터: 제휴 병원이 보내온 것으로 보이는 진료 정보(다친 사람마다 급수·치료관계비).
+
+    실제 연동이 아니다. 사건 ID로 정해지는 값이고 저장하지 않는다. 담당자가 화면에서 반영하면
+    대인 입력(POST /cases/{id}/documents)으로 저장된다."""
+    return await partner_medical.get_partner_medical(actor_id, case_id)
 
 
 @router.patch("/cases/{case_id}/agreed-fault", tags=["D reports"])
