@@ -61,9 +61,10 @@ def test_openapi_matches_fe_api_client():
     # + 관리자 경로(11/13 — FE 관리자 화면이 ApiClient에 메서드를 더한다):
     #   GET /admin/overview, GET·POST /admin/intakes, GET /admin/intakes/{id},
     #   POST /admin/intakes/{id}/assignments
+    # + POST /cases/{id}/fact-card(영상 없이 진행, 11/16 — GET·PATCH와 경로가 같아 경로 수는 그대로)
     assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 21
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 24
+    assert ops == 25
 
 
 def test_missing_token_is_401_api_error(client):

@@ -174,6 +174,12 @@ async def get_fact_card(actor_id: ActorId, case_id: str) -> FactCard:
     return await facts.get_fact_card(actor_id, case_id)
 
 
+@router.post("/cases/{case_id}/fact-card", tags=["A facts"], status_code=201)
+async def start_fact_card(actor_id: ActorId, case_id: str) -> FactCard:
+    """블랙박스 영상 없이 진행: 칸이 모두 빈 카드 v1을 만든다. 카드가 있거나 분석 중이면 409."""
+    return await facts.start_without_video(actor_id, case_id)
+
+
 @router.patch("/cases/{case_id}/fact-card", tags=["A facts"])
 async def patch_fact_card(actor_id: ActorId, case_id: str, patch: FactPatch) -> FactCard:
     return await facts.patch_fact_card(actor_id, case_id, patch)

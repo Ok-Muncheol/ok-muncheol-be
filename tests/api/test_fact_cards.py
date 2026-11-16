@@ -5,12 +5,14 @@ DB 없이 메모리 저장소(facts.configure)로 확인한다. SQL 표 제약�
 - 수정: 기대 버전 409, 값 검사 422, 사유 필수, 고친 칸 human_confirmed·모델 원값 보존, 새 버전 draft
 - 확정: needs_review·매핑 문제면 422, 값 있는 칸은 human_confirmed, 같은 확정 다시 보내도 같은 결과
 - 비전 카드 저장: 버전이 1부터 늘고 늘 draft
+- 영상 없이 진행: 빈 카드 v1(확정을 막지 않음), 카드가 있거나 분석 중이면 409, 뒤에 영상을 올리면 v2
 """
 
 import asyncio
 import copy
 import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -43,6 +45,14 @@ class MemoryRepo:
     def __init__(self, assignees):
         self.by_case = assignees  # 사건 → 담당자. 대인 담당자가 있으면 (대물 담당자, 대인 담당자)
         self.rows: list[dict] = []  # {"card", "origin", "reason", "actor"}
+        self.accident_dates: dict[str, datetime] = {}  # 사건 → cases.accident_date
+        self.active: set[str] = set()  # 영상 분석이 대기·진행 중인 사건
+
+    async def accident_date(self, case_id):
+        return self.accident_dates.get(case_id)
+
+    async def analysis_active(self, case_id):
+        return case_id in self.active
 
     async def assignees(self, case_id):
         return assignees_of(self.by_case, case_id)
@@ -339,3 +349,66 @@ def test_patch_rejects_bad_manual_values(repo, key, value):
     with pytest.raises(ApiException) as e:
         run(facts.patch_fact_card(ACTOR, CASE, patch(1, {key: value})))
     assert error(e) == (422, "invalid_fact_value")
+
+
+# ---------------------------------------------------------------- 영상 없이 진행
+
+
+def test_start_without_video_makes_blank_card(repo):
+    repo.accident_dates[CASE] = datetime(2026, 11, 10, 23, 40, tzinfo=UTC)
+    card = run(facts.start_without_video(ACTOR, CASE))
+    assert (card["version"], card["status"]) == (1, "draft")
+    assert card["accident_date"] == "2026-11-11T08:40:00+09:00"  # 사건의 사고 일시(한국 시간)
+    assert set(card["fields"]) == set(FACT_FIELDS)
+    for f in card["fields"].values():
+        assert (f["value"], f["source"], f["verification_status"]) == (None, "manual", "unverified")
+        assert (f["model_value"], f["model_confidence"]) == (None, None)
+    assert card["evidence_frames"] == []
+    # 가입자 차가 카드 B(1인칭 영상의 촬영 차량 자리)다. 도표 A/B는 계약 기본값이다
+    assert card["party_mapping"] == {"video_ego_party_id": "P1", "insured_party_id": "P1",
+                                     "chart_party_A_id": "P2", "chart_party_B_id": "P1"}
+    assert [p["role"] for p in card["parties"]] == ["가입자 차량", "상대 차량"]
+    assert (repo.rows[0]["origin"], repo.rows[0]["actor"]) == ("manual", ACTOR)
+    TypeAdapter(FactCard).validate_python(card)
+    assert run(facts.get_fact_card(ACTOR, CASE)) == card
+
+
+def test_blank_card_confirms_without_filling(repo):
+    """비워 둔 칸은 판단의 구분 질문이 묻는다 — 빈 칸이 확정을 막지 않는다."""
+    run(facts.start_without_video(ACTOR, CASE))
+    out = run(facts.confirm_fact_card(ACTOR, CASE, 1))
+    assert out["status"] == "confirmed" and out["confirmed_by"] == ACTOR
+    assert all(f["verification_status"] == "unverified" for f in out["fields"].values())
+
+
+def test_start_without_video_refuses_during_analysis_or_with_a_card(repo):
+    repo.active.add(CASE)
+    with pytest.raises(ApiException) as e:
+        run(facts.start_without_video(ACTOR, CASE))
+    assert error(e) == (409, "analysis_in_progress")
+    repo.active.clear()
+    saved(repo)  # 영상 분석 카드가 이미 있다
+    with pytest.raises(ApiException) as e:
+        run(facts.start_without_video(ACTOR, CASE))
+    assert error(e) == (409, "fact_card_exists")
+    assert [r["origin"] for r in repo.rows] == ["vision"]
+
+
+@pytest.mark.parametrize(
+    ("actor", "case", "code"),
+    [(OTHER, CASE, (403, "forbidden")), (ACTOR, "44444444-4444-4444-4444-444444444444",
+     (404, "not_found")), (ACTOR, "not-a-uuid", (404, "not_found"))],
+)
+def test_start_without_video_checks_assignee(repo, actor, case, code):
+    with pytest.raises(ApiException) as e:
+        run(facts.start_without_video(actor, case))
+    assert error(e) == code
+    assert not repo.rows
+
+
+def test_video_after_blank_card_comes_as_next_version(repo):
+    """영상 없이 진행한 뒤 영상을 올리면 분석 카드가 다음 버전(draft)으로 들어간다."""
+    run(facts.start_without_video(ACTOR, CASE))
+    out = saved(repo)
+    assert (out["version"], out["status"]) == (2, "draft")
+    assert out["evidence_frames"] and [r["origin"] for r in repo.rows] == ["manual", "vision"]

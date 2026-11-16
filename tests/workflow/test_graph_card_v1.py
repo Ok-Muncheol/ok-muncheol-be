@@ -342,3 +342,18 @@ def test_fields_of_variants_that_no_longer_fit_the_card_are_not_asked():
         filled = en_v1_card(signal_B=field("green"), unprotected_left_sign=field(value))
         _, out, _, _ = start(filled, cands=cands, thread=f"run-green-left-{value}")
         assert (out["result"]["chart_id"], out["result"]["fault_A"]) == expected
+
+
+def test_blank_card_without_video_goes_to_questions():
+    """영상 없이 진행해 칸을 비워 둔 채 확정한 카드는 보류가 아니라 구분 질문으로 간다.
+
+    장소를 모르면 범위 필수 칸(사고 유형·장소)부터 묻는다 — 담당자가 판단 화면에서 진술로 답한다.
+    """
+    from app.api.facts import blank_card, confirmed_card
+
+    empty = confirmed_card(blank_card("case-blank", None), "actor", "2026-11-16T00:00:00+00:00")
+    _, out, retrieve, reviewer = start(empty, thread="run-blank")
+    assert "__interrupt__" in out
+    keys = [q["field_key"] for q in out["__interrupt__"][0].value["questions"]]
+    assert keys[:2] == ["accident_type", "location_type"]
+    assert (retrieve.await_count, reviewer.await_count) == (1, 0)

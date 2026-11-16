@@ -208,3 +208,15 @@ def test_stage_facts_after_analysis_completed_or_older_failure():
     new_fail = cases.summarize(row(analysis_status="failed", analysis_at=later, card_version=1,
                                    card_at=T0))
     assert (new_fail["stage"], new_fail["task_status"]) == ("analysis", "failed")
+
+
+def test_stage_analysis_when_video_added_after_judgment():
+    """영상 없이 진행해 판단까지 간 사건에 영상을 올리면 분석이 끝날 때까지 분석 단계다."""
+    later = datetime(2026, 11, 11, 7, 0, tzinfo=UTC)
+    judged = {"card_version": 1, "card_at": T0, "judgment_version": 1, "run_card_version": 1,
+              "run_status": "completed", "judgment_status": "needs_confirmation"}
+    running = cases.summarize(row(**judged, analysis_status="running", analysis_at=later))
+    assert (running["stage"], running["task_status"]) == ("analysis", "running")
+    # 새로 올린 영상의 분석이 실패하면 이전 판단은 그대로라 판단 단계로 둔다
+    failed = cases.summarize(row(**judged, analysis_status="failed", analysis_at=later))
+    assert (failed["stage"], failed["task_status"]) == ("judgment", "completed")

@@ -10,6 +10,8 @@
 - 확정: needs_review 칸이 남았거나 도표 A/B 매핑이 틀리면 422. 통과하면 값이 있는 칸은 모두
   human_confirmed(담당자가 카드 전체를 확인했다는 뜻, 2026-11-11 결정)이고 확정한 사람·시각을
   남긴다.
+- 영상 없이 진행(POST): 카드가 없고 영상 분석이 대기·진행 중이 아니면 칸이 모두 빈 카드 v1을
+  담당자 이름으로 만든다(origin manual). 비워 둔 칸은 판단이 구분 질문으로 묻는다.
 """
 
 from __future__ import annotations
@@ -18,13 +20,23 @@ import copy
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from app import db
-from app.api.errors import forbidden, not_found, unprocessable, version_conflict
-from app.schemas.facts import BOOL_FIELDS, FACT_FIELD_OPTIONS, FACT_FIELDS, FactCard, FactPatch
+from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
+from app.schemas.facts import (
+    BOOL_FIELDS,
+    FACT_FIELD_OPTIONS,
+    FACT_FIELDS,
+    FactCard,
+    FactField,
+    FactPatch,
+    Party,
+)
 from app.workflow import runs
+
+KST = timezone(timedelta(hours=9))
 
 
 class FactRepo(Protocol):
@@ -34,6 +46,8 @@ class FactRepo(Protocol):
         self, card: FactCard, origin: str, reason: str | None, actor_id: str | None
     ) -> bool: ...
     async def confirm(self, card: FactCard) -> bool: ...
+    async def accident_date(self, case_id: str) -> datetime | None: ...
+    async def analysis_active(self, case_id: str) -> bool: ...
 
 
 class PostgresFactRepo:
@@ -78,6 +92,27 @@ class PostgresFactRepo:
             "update public.fact_cards set card = %s"
             " where case_id = %s and version = %s and status = 'draft' returning version",
             (Json(card), card["case_id"], card["version"]),
+        )
+        return await cur.fetchone() is not None
+
+    async def accident_date(self, case_id: str) -> datetime | None:
+        cur = await self.conn.execute(
+            "select accident_date from public.cases where id = %s", (case_id,)
+        )
+        row = await cur.fetchone()
+        return row["accident_date"] if row else None
+
+    async def analysis_active(self, case_id: str) -> bool:
+        """대기·진행 중인 영상 분석이 있는가. 콜백이 15분 넘게 안 온 작업은 먼저 실패로 바꾼다."""
+        from psycopg.types.json import Jsonb
+
+        from app.api.analysis import EXPIRE_SQL, TIMEOUT_ERROR
+
+        await self.conn.execute(EXPIRE_SQL, (Jsonb(TIMEOUT_ERROR), case_id))
+        cur = await self.conn.execute(
+            "select 1 from public.analysis_tasks"
+            " where case_id = %s and status in ('queued', 'running') limit 1",
+            (case_id,),
         )
         return await cur.fetchone() is not None
 
@@ -198,6 +233,39 @@ def confirmed_card(card: FactCard, actor_id: str, now: str) -> FactCard:
     return out
 
 
+# 영상 없이 시작한 카드의 당사자. 가입자 차를 카드 B(1인칭 영상의 촬영 차량 자리, P1)에 두어
+# 판단의 도표 A/B 맞바꿈(is_swapped)과 화면의 맞바꾸기가 영상 카드와 같은 규칙으로 돈다.
+BLANK_PARTIES: tuple[Party, ...] = (
+    {"party_id": "P1", "role": "가입자 차량", "track_id": None},
+    {"party_id": "P2", "role": "상대 차량", "track_id": None},
+)
+
+
+def _empty_field() -> FactField:
+    return {
+        "value": None, "model_value": None, "source": "manual", "model_confidence": None,
+        "verification_status": "unverified", "evidence_frame_ids": [], "source_document_ids": [],
+    }
+
+
+def blank_card(case_id: str, accident_date: str | None) -> FactCard:
+    """영상 없이 시작하는 카드 v1(draft). 칸은 모두 값 없음·출처 manual·unverified다.
+
+    확정을 막지 않고, 비워 둔 칸은 판단이 구분 질문으로 묻는다. 도표 A/B는 계약 기본값
+    (A = 상대 차 P2, B = 가입자 차 P1)이고 담당자가 맞바꿀 수 있다. 근거 장면은 없다.
+    """
+    return {
+        "case_id": case_id, "version": 1, "accident_date": accident_date,
+        "fields": {key: _empty_field() for key in FACT_FIELDS},
+        "parties": copy.deepcopy(list(BLANK_PARTIES)),
+        "party_mapping": {
+            "video_ego_party_id": "P1", "insured_party_id": "P1",
+            "chart_party_A_id": "P2", "chart_party_B_id": "P1",
+        },
+        "evidence_frames": [], "status": "draft", "confirmed_by": None, "confirmed_at": None,
+    }
+
+
 # ── 서비스 ───────────────────────────────────────────────────────
 
 
@@ -256,6 +324,35 @@ async def confirm_fact_card(actor_id: str, case_id: str, expected_version: int) 
         if not await repo.confirm(out):
             raise version_conflict("다른 요청이 먼저 확정했습니다. 최신 카드를 다시 불러오세요.")
         return out
+
+
+def _card_exists() -> ApiException:
+    message = "이미 사실 카드가 있습니다. 판단 화면에서 이어서 진행하세요."
+    return ApiException(409, "fact_card_exists", message, False)
+
+
+async def start_without_video(actor_id: str, case_id: str) -> FactCard:
+    """블랙박스 영상 없이 진행한다. 카드가 없고 분석이 대기·진행 중이 아니면 빈 카드 v1을 만든다.
+
+    담당자는 판단 화면에서 진술로 칸을 고치고 확정한다. 나중에 영상을 올리면 분석 카드가 다음
+    버전으로 들어가고(store_vision_card), 그 전 판단은 이전 카드의 것이라 사실 카드 단계로 돌아간다.
+    """
+    case_id = _case_uuid(case_id)
+    async with services.connect() as conn:
+        repo = services.repo(conn)
+        await _require_assignee(repo, actor_id, case_id)
+        if await repo.latest(case_id) is not None:
+            raise _card_exists()
+        if await repo.analysis_active(case_id):
+            raise ApiException(
+                409, "analysis_in_progress",
+                "영상 분석이 진행 중입니다. 분석이 끝나면 판단 화면에서 이어서 진행하세요.", False,
+            )
+        accident = await repo.accident_date(case_id)
+        card = blank_card(case_id, accident.astimezone(KST).isoformat() if accident else None)
+        if not await repo.insert(card, "manual", None, actor_id):
+            raise _card_exists()  # 같은 요청이 동시에 와서 다른 쪽이 먼저 만들었다
+        return card
 
 
 async def store_vision_card(repo: FactRepo, case_id: str, card: FactCard) -> FactCard:

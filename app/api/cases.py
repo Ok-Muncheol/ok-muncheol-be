@@ -186,20 +186,23 @@ def summarize(row: dict) -> dict[str, object]:
         and row.get("report_version") is not None
         and row.get("report_judgment_version") == run_version
     )
-    # 최신 분석이 끝나지 않았거나 실패했고, 그 뒤에 만든 카드가 없으면 분석 단계다
+    # 최신 분석이 끝나지 않았거나 실패했고, 그 뒤에 만든 카드가 없으면 분석 단계다.
+    # 판단까지 간 사건에 영상을 새로 올렸으면(영상 없이 진행한 사건) 분석이 대기·진행 중인
+    # 동안만 분석 단계다. 끝나면 분석 카드가 새 버전이라 사실 카드로 돌아가고,
+    # 실패하면 이전 판단이 그대로다
     analysis = row.get("analysis_status")
     card_at, analysis_at = row.get("card_at"), row.get("analysis_at")
     analysis_now = (
         analysis in ("queued", "running", "failed")
-        and not run_now
+        and (not run_now or analysis in ("queued", "running"))
         and (not card_version or (card_at is not None and analysis_at > card_at))
     )
     if report_now:
         stage, task_status = "report", None
-    elif run_now:
-        stage, task_status = "judgment", row.get("run_status")
     elif analysis_now:
         stage, task_status = "analysis", analysis
+    elif run_now:
+        stage, task_status = "judgment", row.get("run_status")
     elif card_version:
         stage, task_status = "facts", None
     else:
