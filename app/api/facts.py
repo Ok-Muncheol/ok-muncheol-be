@@ -222,8 +222,15 @@ def confirm_problems(card: FactCard) -> list[str]:
 
 
 def confirmed_card(card: FactCard, actor_id: str, now: str) -> FactCard:
-    """확정한 카드. 값이 있는 unverified 칸은 human_confirmed가 된다(담당자가 전체를 확인함)."""
+    """확정한 카드. 값이 있는 unverified 칸은 human_confirmed가 된다(담당자가 전체를 확인함).
+
+    가입자는 촬영 차로 맞춘다.
+    """
     out: FactCard = copy.deepcopy(card)
+    # 가입자는 촬영 차(카드 B)로 고정한다(카드 v1 2절). 이전에 비워 두거나 달리 고른 카드도 맞춘다
+    mapping = out.get("party_mapping") or {}
+    if mapping.get("video_ego_party_id"):
+        mapping["insured_party_id"] = mapping["video_ego_party_id"]
     for f in out["fields"].values():
         if f.get("verification_status") == "unverified" and f.get("value") is not None:
             f["verification_status"] = "human_confirmed"

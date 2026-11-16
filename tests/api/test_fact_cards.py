@@ -273,6 +273,9 @@ def test_confirm_marks_valued_fields_confirmed(repo):
     assert statuses["movement_B"] == "human_confirmed"  # 표시 없던 칸도 확정으로 확인됨
     assert statuses["entry_order"] == "human_confirmed"  # 모름으로 확인한 칸
     assert repo.rows[-1]["card"]["status"] == "confirmed"
+    # 가입자는 촬영 차로 맞춘다(비워 둔 이전 카드 포함)
+    mapping = out["party_mapping"]
+    assert mapping["insured_party_id"] == mapping["video_ego_party_id"] is not None
     # 같은 확정을 다시 보내도 같은 결과, 새 행 없음
     assert run(facts.confirm_fact_card(ACTOR, CASE, 2)) == out and len(repo.rows) == 2
 
