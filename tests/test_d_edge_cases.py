@@ -356,22 +356,25 @@ class ApiEdgeFlowTest(unittest.TestCase):
             )
         )
 
-    def test_missing_handler_input_is_assumed_none(self):
-        calc = self.calculate({"무면허": False, "음주": False})  # 고의 미입력 → 해당 없음으로 가정
+    def test_missing_handler_input_is_unknown(self):
+        """#204: 미입력은 해당 없음으로 가정하지 않고 확인 필요(unknown). 금액은 계산된다."""
+        calc = self.calculate({"무면허": False, "음주": False})  # 고의 미입력
         checks = self.exclusion_checks(calc)
         self.assertEqual(
             (checks["exclusion:고의"]["result"], checks["exclusion:고의"]["detail"]),
-            ("assumed", "면책 사실 미입력 — 해당 없음으로 가정"),
+            ("unknown", "면책 확인 필요 — 사실 미입력"),
         )
-        self.assertEqual(calc["status"], "needs_contract_review")  # 가정이 있으면 확정 산정 아님
-        self.assertIn("면책(고의): 면책 사실 미입력 — 해당 없음으로 가정", calc["assumptions"])
+        self.assertEqual(calc["status"], "needs_contract_review")  # 확정 산정 아님, 지급 불가 아님
+        self.assertIn("고의 사고 면책: 면책 확인 필요 — 사실 미입력", calc["reasons"])
+        self.assertNotIn("면책", " ".join(calc["assumptions"]))
         self.assertEqual(calc["insurance_payment"], 9_500_000)  # 금액은 계산
 
-    def test_no_handler_input_assumes_all_none(self):
+    def test_no_handler_input_is_all_unknown(self):
         calc = self.calculate({})
-        self.assertEqual({c["result"] for c in self.exclusion_checks(calc).values()}, {"assumed"})
-        self.assertIn("면책: 면책 사실 미입력 — 해당 없음으로 가정", calc["assumptions"])
+        self.assertEqual({c["result"] for c in self.exclusion_checks(calc).values()}, {"unknown"})
+        self.assertNotIn("면책", " ".join(calc["assumptions"]))
         self.assertEqual(calc["status"], "needs_contract_review")
+        self.assertEqual(calc["insurance_payment"], 9_500_000)
 
     def test_handler_flag_true_is_not_payable(self):
         calc = self.calculate({**NO_FLAGS, "음주": True})
@@ -413,8 +416,8 @@ class ApiEdgeFlowTest(unittest.TestCase):
         with patch("app.calculation.exclusions.validate_hits", evidence_d.skip_validation):
             checks = self.exclusion_checks(self.calculate(NO_FLAGS))
         self.assertEqual(
-            {c["decided_by"] for c in checks.values()}, {"code"}
-        )  # flag_judge 기본 + 조항 ID 유지
+            {c["decided_by"] for c in checks.values()}, {"handler"}
+        )  # flag_judge 기본: 담당자 입력으로 판정(#204) + 조항 ID 유지
         self.assertEqual(checks["exclusion:음주"]["clause_ids"], ["synthetic-clause"])
 
     def test_agreed_fault_used_by_package_and_kept_on_recalculation(self):
