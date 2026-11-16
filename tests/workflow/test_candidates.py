@@ -43,11 +43,14 @@ def test_default_retriever_reads_chart_records_from_db_index(monkeypatch, db_ind
 
 
 def test_default_retriever_searches_deep_enough_for_reviewed_charts(monkeypatch):
-    """검수 도표가 상위 10개 밖이어도 후보가 되게 깊게 검색한다(시범 실행에서 차4-2가 28위)."""
+    """검수 도표가 상위 10개 밖이어도 후보가 되게 깊게 검색한다(시범 실행에서 차4-2가 28위).
+
+    11/16 5차 검수(96개)에서 차41-1 일반 도로 변형이 50위 밖이라 검색 도구 최대인 100으로 올렸다.
+    """
     search = AsyncMock(return_value=[])
     monkeypatch.setattr(common, "search", search)
     asyncio.run(retrieve_from_corpus(card()))
-    assert search.await_args.args[0]["top_k"] == CHART_SEARCH_TOP_K == 50
+    assert search.await_args.args[0]["top_k"] == CHART_SEARCH_TOP_K == 100
 
 
 def test_default_retriever_needs_no_index_when_nothing_found(monkeypatch):
