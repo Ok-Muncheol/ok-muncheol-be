@@ -315,11 +315,17 @@ def test_list_filters_and_pages(api):
 
 
 def approve_latest_report(api: Api, case_id: str, actor: str) -> None:
-    """그 사건에 확인 완료된 보고서 v1을 넣는다(카드 v1 → 판단 v1 → 보고서 v1)."""
+    """그 사건에 확인 완료된 보고서 v1을 넣는다(카드 v1 → 판단 v1 → 보고서 v1).
+
+    확인 완료는 초안 작성 가능(draft_ready) 판정의 보고서만 된다 —
+    판단 v1도 그 판정으로 끝난 것으로 둔다.
+    """
     card = {"case_id": case_id, "version": 1, "status": "draft", "fields": {},
             "confirmed_by": None, "confirmed_at": None}
     versions = {"case_id": case_id, "report_version": 1, "judgment_version": 1,
                 "fact_card_version": 1}
+    result = {"versions": versions, "status": "draft_ready", "chart_id": "차1-1",
+              "fault_A": 20, "fault_B": 80}
     report = {"versions": versions, "approval_status": "approved", "approved_by": actor,
               "approved_at": "2026-11-13T05:00:00Z"}
     with psycopg.connect(api.url, autocommit=True) as conn:
@@ -327,8 +333,9 @@ def approve_latest_report(api: Api, case_id: str, actor: str) -> None:
                      " values (%s, 1, %s, 'vision')", (case_id, Json(card)))
         conn.execute(
             "insert into public.judgment_runs (case_id, judgment_version, fact_card_version,"
-            " criteria_version, rule_version, requested_by) values (%s, 1, 1, 'c', 'r', %s)",
-            (case_id, actor))
+            " criteria_version, rule_version, status, stage, result, requested_by, completed_at)"
+            " values (%s, 1, 1, 'c', 'r', 'completed', 'build_judgment_result', %s, %s, now())",
+            (case_id, Json(result), actor))
         conn.execute(
             "insert into public.review_reports (case_id, report_version, judgment_version,"
             " fact_card_version, report, created_by) values (%s, 1, 1, 1, %s, %s)",
