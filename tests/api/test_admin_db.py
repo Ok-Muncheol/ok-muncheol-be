@@ -456,17 +456,42 @@ def test_agent_reads_candidates_and_assigns_with_its_reason(api):
     assert view["property_assignee_id"] in (SEOUL_A, SEOUL_B)
     assert view["assignment"]["method"] == "agent"
     assert view["assignment"]["reason"] == "서울 사고이고 후보 2명 중 한 명입니다."
-    # 에이전트는 접수 글을 받고, 도구가 돌려준 후보(표시·이름·업무량)만 본다
+    # 에이전트는 접수 글을 받고, 도구가 돌려준 후보(표시·업무량)만 본다
     assert "마포구 월드컵북로 사거리" in llm.seen[0][1]["content"]
     tool_results = [json.loads(m["content"]) for m in llm.seen[1] if m["role"] == "tool"]
     found = [result["candidates"] for result in tool_results]
     assert [[c["adjuster"] for c in group] for group in found] == [["P1", "P2"], ["I1"]]
     seen_keys = {key for group in found for c in group for key in c}
-    # 계정 ID·이메일은 넘기지 않는다
-    assert seen_keys == {"adjuster", "name", "open_cases"}  # 사건에 쓸 사실이 더 없으면 업무량만
+    # 계정 ID·이름·이메일(이름이 없는 계정)은 넘기지 않는다
+    assert seen_keys == {"adjuster", "open_cases"}  # 사건에 쓸 사실이 더 없으면 업무량만
     detail = api.rows("select detail from public.case_assignments where intake_id = %s"
                       " and coverage = 'property'", view["intake_id"])[0]["detail"]
     assert (detail["region"], detail["candidates"], detail["llm_calls"]) == ("서울", 2, 2)
+
+
+def test_agent_gets_no_names_or_numbers_and_the_saved_reason_names_people(api):
+    """LLM에는 담당자 이름과 접수 글의 번호를 보내지 않는다.
+
+    까닭 글의 표시는 저장할 때 이름으로 바꾼다.
+    """
+    llm = with_agent(
+        api,
+        [call("find_adjusters", region="서울", coverage="property")],
+        [call("assign", coverage="property", adjuster="P1",
+              reason="P1은 p2보다 진행 중인 사건이 적습니다. P9는 후보가 아닙니다.")],
+    )
+    view = api.register("서울 마포구", description="12가3456 차주 010-1234-5678 연락 요청")
+
+    assert "사고 내용: [차량번호] 차주 [전화번호] 연락 요청" in llm.seen[0][1]["content"]
+    candidates = json.loads(llm.seen[1][-1]["content"])["candidates"]
+    assert [c["adjuster"] for c in candidates] == ["P1", "P2"]
+    assert all("name" not in c for c in candidates)
+    # 이름이 없는 계정은 저장소가 이메일을 이름으로 쓴다(app/dispatch/repository.py). 저장만 한다
+    names = {SEOUL_A: "김대물", SEOUL_B: f"{SEOUL_B[:8]}@example.com"}
+    picked = view["property_assignee_id"]
+    other = next(user for user in names if user != picked)
+    assert view["assignment"]["reason"] \
+        == f"{names[picked]}은 {names[other]}보다 진행 중인 사건이 적습니다. P9는 후보가 아닙니다."
 
 
 REFUSE = [call("leave_unassigned", reason="모두 진행 중인 사건이 많습니다")]
@@ -639,7 +664,7 @@ def test_agent_sees_the_details_and_only_eligible_candidates(daegu):
     result = json.loads(llm.seen[1][-1]["content"])
     assert "1명 가운데 한 명을 대물 담당자로" in result["next"]
     assert result["count"] == 1 and result["candidates"] == [{
-        "adjuster": "P1", "name": f"{SENIOR[:8]}@example.com", "open_cases": 0,
+        "adjuster": "P1", "open_cases": 0,
         "career_years": 9, "matched_specialties": ["수입차", "다중 추돌"]}]
     assert result["case"] == {
         "needs_specialties": ["수입차", "다중 추돌"],

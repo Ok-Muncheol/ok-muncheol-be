@@ -14,6 +14,8 @@
 - 시간 제한은 LLM 호출에만 둔다(app/llm.py — 호출 1회 45초·재시도 1회). 질문 하나의 LLM 호출
   시간 합계는 llm_budget_seconds(120초, cure-agent-be 대화 전체 상한)이고 도구 실행 시간은 세지
   않는다. 넘으면 QaTimedOut이다. 가정 실행은 반박 검토 LLM도 부르므로 질문당 MAX_SIMULATIONS번이다.
+- 담당자 질문과 검색 문장은 OpenAI(답 LLM·질의 임베딩)로 나가기 전에 이메일·주민등록번호·전화번호·
+  차량번호를 가린다(app/privacy.py). 이름·주소는 가리지 못한다(docs/external-data-transfer.md).
 """
 
 import asyncio
@@ -26,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Literal, TypedDict
 
 from app import llm as llm_policy
+from app.privacy import mask_identifiers
 from app.schemas.chart_scope import FIELD_OPTIONS
 from app.schemas.judgment import (
     CitationSource,
@@ -300,7 +303,8 @@ class _Session:
             if isinstance(args.get(key), str) and args[key].strip()
         }
         query: SearchQuery = {
-            "text": text.strip()[:500], "accident_date": self.ctx.accident_date,
+            # 질의 임베딩도 OpenAI로 나가므로 가린 뒤 자른다(자른 끝에 번호 일부가 남지 않게)
+            "text": mask_identifiers(text.strip())[:500], "accident_date": self.ctx.accident_date,
             "filters": filters, "top_k": SEARCH_TOP_K,
         }
         try:
@@ -362,7 +366,7 @@ def user_prompt(question: str, ctx: QaContext) -> str:
         f"공식 판단 요약(판단 버전 {ctx.judgment_version}): 판정 {result['status']}, "
         f"도표 {result.get('chart_id') or '없음'}, "
         f"과실 A {result.get('fault_A')} : B {result.get('fault_B')}. "
-        f"사고 일자 {ctx.accident_date or '미상'}.\n질문: {question.strip()}"
+        f"사고 일자 {ctx.accident_date or '미상'}.\n질문: {mask_identifiers(question.strip())}"
     )
 
 

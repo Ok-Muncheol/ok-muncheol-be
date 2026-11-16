@@ -163,6 +163,24 @@ def test_search_passes_the_case_date_and_filters_and_reports_missing_index():
     assert out["citations"][0]["parent_id"] == "synthetic-dispute:case-9"
 
 
+def test_question_and_search_text_are_masked_before_they_reach_openai():
+    """담당자 질문과 검색 문장의 번호는 답 LLM·질의 임베딩(OpenAI)으로 가기 전에 가린다."""
+    found = AsyncMock(return_value=[])
+    llm = scripted(
+        reply(None, call("search_dispute_cases",
+                         {"text": "12가3456 운전자 010-1234-5678 좌회전 사고"})),
+        reply("비슷한 결정례를 찾지 못했습니다."),
+    )
+    asyncio.run(qa.answer_question(
+        "12가3456 차주(010-1234-5678)가 좌회전했는데 왜 B가 80인가요?", context(),
+        qa.QaDependencies(llm=llm, search_dispute_cases=found)))
+
+    prompt = llm.seen[0]["messages"][1]["content"]
+    assert "질문: [차량번호] 차주([전화번호])가 좌회전했는데 왜 B가 80인가요?" in prompt
+    assert "12가3456" not in prompt and "010-1234-5678" not in prompt
+    assert found.await_args.args[0]["text"] == "[차량번호] 운전자 [전화번호] 좌회전 사고"
+
+
 def test_unknown_tools_and_bad_arguments_are_errors_for_the_model():
     llm = scripted(
         reply(None, {"id": "c1", "name": "delete_report", "arguments": "{}"},
