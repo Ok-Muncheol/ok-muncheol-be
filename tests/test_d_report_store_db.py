@@ -302,6 +302,40 @@ def test_claim_c1_reused_across_report_versions_persists(database_url, store):
     )
 
 
+def test_claim_evidence_excludes_counterparty_estimate_and_medical(database_url, store):
+    """#198: DB에서 다시 불러와도 청구서 증빙에 상대 차 견적서(자동 증빙)·진단서가 없고 C1 유지."""
+    case_id = new_case(database_url)
+    card, result = judged(database_url, case_id)
+    run(api.submit_judgment(ACTOR, card, result))
+    store()
+    run(api.add_documents(ACTOR, case_id, [fx.contract(), fx.estimate(), *fx.evidence()], NO_FLAGS))
+    store()
+    c1 = run(api.confirm_report(ACTOR, case_id, 2, counterparty=fx.counterparty()))["package"]
+    cp_estimate = fx.estimate(3_456_789, doc_id="synthetic-cp-est", party_id="P2")
+    cp_auto = {  # upload_estimate가 자동 등록하는 모양: 당사자 칸 없음
+        "kind": "evidence", "document_id": "ev-synthetic-cp-est", "doc_type": "repair_estimate",
+        "storage_path": "synthetic/synthetic-cp-est.pdf",
+    }
+    dx = {
+        "kind": "evidence", "document_id": "synthetic-dx", "doc_type": "medical_certificate",
+        "storage_path": f"case-files/{case_id}/medical/synthetic-dx.pdf",
+    }
+    store()
+    v3 = run(api.add_documents(ACTOR, case_id, [cp_estimate, cp_auto, dx]))
+    assert v3["versions"]["report_version"] == 3  # 상대 견적 → 대물 판정이 붙어 새 버전
+    assert v3["liability"]["property"]["repair_cost"] == 3_456_789
+    store()
+    out = run(api.confirm_report(ACTOR, case_id, 3, counterparty=fx.counterparty()))
+    assert out["package"] == c1 and out["claim_reused"] is True
+    store()
+    claim = run(api.get_claim(ACTOR, case_id, 3))["package"]
+    files = [e["파일"] for e in claim["evidence"]]
+    assert "ev-synthetic-cp-est" not in files and "synthetic-dx" not in files
+    assert claim["rows"][0]["evidence_count"] == len(fx.evidence())
+    stored = {d["document_id"] for d in run(store().get(ACTOR, case_id)).documents}
+    assert {"synthetic-cp-est", "ev-synthetic-cp-est", "synthetic-dx"} <= stored  # 사건 서류엔 남음
+
+
 def test_liability_inputs_persist(database_url, store):
     """C: 대물·대인 입력(injured_person·property_damage_input)이 kind 제약을 지나 저장·복원된다."""
     case_id = new_case(database_url)
