@@ -97,7 +97,8 @@ CRITERIA_VERSION = "fault_standards:2023.6"
 # 11/16.4: 교차로 밖 같은 방향 직진·정차 두 차의 검색어에 '추돌'(candidates._REAR_END_MOVES)
 # 11/16.5: 진로 변경 순서 칸(lane_change_timing, 차43-3·43-5)
 # 11/16.6: 고를 도표가 없으면 도표 A/B를 맞바꿔 대조한 결과를 보류 사유 끝에 붙인다(swap_hints)
-RULE_VERSION = "judgment-rules-2026.11.16.6"
+# 11/16.7: 도표 A/B 당사자를 판단이 정한다(choose_orientation, 판단 시작 때 더 맞는 방향으로 맞바꿈)
+RULE_VERSION = "judgment-rules-2026.11.16.7"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
@@ -449,6 +450,40 @@ def _flipped_card(card: FactCard) -> FactCard | None:
         "chart_party_B_id": mapping["chart_party_A_id"],
     }}
     return flipped if is_swapped(flipped) != is_swapped(card) else None
+
+
+def _orientation_score(card: FactCard, candidates: list[ChartCandidate]) -> tuple[int, int]:
+    """그 방향(도표 A/B 매핑)으로 카드를 읽었을 때 도표가 얼마나 맞는가. 클수록 낫다.
+
+    고를 수 있는 도표가 남으면 (2, 1순위 도표의 일치 칸 수), 없으면 (1, -가장 가까운 도표의 다른
+    칸 수), 견줄 도표가 없으면 (0, 0). 가까운 도표는 장소가 다른 도표를 빼고 센다(`swap_hints`와
+    같다).
+    """
+    state: JudgmentState = initial_state(card, "", "")
+    state["candidates"] = candidates
+    values = confirmed_values(card)
+    ranked, _ = _rank(state)
+    if ranked:
+        return 2, len(_matched_fields(ranked[0], values))
+    near = [len(left) for c in _eligible(state)
+            if "location_type" not in (left := _differs(c, values))]
+    return (1, -min(near)) if near else (0, 0)
+
+
+async def choose_orientation(card: FactCard, retrieve: Retriever) -> FactCard:
+    """도표 A/B 당사자를 판단이 정한다. 맞바꾼 쪽이 더 맞으면 맞바꾼 카드 사본, 아니면 그대로 준다.
+
+    도표마다 A의 역할이 달라(예: 진로변경 도표는 뒤에서 직진한 차가 A) 도표를 모르는 담당자가 맞히기
+    어렵다. 그래서 두 방향 모두 후보를 검색해 대조하고 더 맞는 쪽을 쓴다(`_orientation_score`).
+    점수가 같으면 지금 방향을 둔다. 맞바꿔 읽을 수 없는 카드(v1이 아니거나 촬영 차를 모름)와 범위
+    밖 카드는 검색하지 않고 그대로 돌려준다. 저장은 호출한 쪽(판단 서비스)이 한다.
+    """
+    flipped = _flipped_card(card)
+    if flipped is None or scope_gate(card["fields"], card)[0]:  # type: ignore[arg-type]
+        return card
+    now = _orientation_score(card, await retrieve(card))
+    then = _orientation_score(flipped, await retrieve(flipped))
+    return flipped if then > now else card
 
 
 def _titled(candidate: ChartCandidate) -> str:

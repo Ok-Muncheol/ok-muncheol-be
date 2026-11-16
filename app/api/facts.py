@@ -333,6 +333,25 @@ async def confirm_fact_card(actor_id: str, case_id: str, expected_version: int) 
         return out
 
 
+ORIENTATION_REASON = "판단이 도표 A/B 당사자를 정함"
+
+
+async def store_orientation(repo: FactRepo, card: FactCard, actor_id: str) -> FactCard:
+    """판단이 도표 A/B를 맞바꾼 카드(graph.choose_orientation)를 다음 버전의 확정 카드로 저장한다.
+
+    칸 값과 확인 상태는 그대로다. 판단·보고서·산정이 모두 카드 매핑을 읽으므로 매핑을 카드에 남긴다.
+    그사이 다른 수정이 먼저 저장됐으면 버전 충돌이다.
+    """
+    new: FactCard = copy.deepcopy(card)
+    new["version"] = card["version"] + 1
+    new["status"] = "confirmed"
+    new["confirmed_by"] = actor_id
+    new["confirmed_at"] = services.now()
+    if not await repo.insert(new, "edit", ORIENTATION_REASON, actor_id):
+        raise version_conflict("사실 카드가 그 사이 바뀌었습니다. 최신 카드를 다시 불러오세요.")
+    return new
+
+
 def _card_exists() -> ApiException:
     message = "이미 사실 카드가 있습니다. 판단 화면에서 이어서 진행하세요."
     return ApiException(409, "fact_card_exists", message, False)

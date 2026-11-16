@@ -17,7 +17,14 @@ from app.schemas.chart_scope import (
     REQUIRED_CONFIRMED_FIELDS,
     LocationType,
 )
-from app.workflow.graph import FIELD_LABELS, Dependencies, build_graph, initial_state, thread_config
+from app.workflow.graph import (
+    FIELD_LABELS,
+    Dependencies,
+    build_graph,
+    choose_orientation,
+    initial_state,
+    thread_config,
+)
 from tests.workflow.synthetic import candidate, en_v1_card, field, verdict
 
 # 일반 도로, A 후행 직진 대 B 선행 진로변경(도표 A 기준)
@@ -263,3 +270,52 @@ def test_swap_hint_is_left_out_when_swapping_does_not_help():
         REASON_NO_REVIEWED_CHART,
         "H-1: 카드와 불일치 ['location_type', 'movement_A', 'movement_B', 'relative_position']",
     ]
+
+
+# ── 도표 A/B를 판단이 정함(choose_orientation, 11/16.7) ─────────────────────
+
+
+def orient(card_, cands):
+    retrieve = AsyncMock(return_value=cands)
+    return asyncio.run(choose_orientation(card_, retrieve)), retrieve
+
+
+def test_orientation_flips_when_only_the_other_side_has_a_chart():
+    c = road_card(**CUT_IN, relative_position=field("same_direction_front"))
+    chosen, retrieve = orient(c, [candidate("R-1", ROAD, 30)])
+    # 도표 A = 블랙박스 차(P1)로 맞바꾼 사본. 원본 카드와 칸 값은 그대로다
+    assert chosen["party_mapping"]["chart_party_A_id"] == "P1"
+    assert chosen["party_mapping"]["chart_party_B_id"] == "P2"
+    assert c["party_mapping"]["chart_party_A_id"] == "P2" and chosen["fields"] == c["fields"]
+    assert retrieve.await_count == 2  # 두 방향 모두 검색한다
+    out, _ = start({**chosen, "status": "confirmed"}, [candidate("R-1", ROAD, 30)],
+                   thread="run-oriented")
+    assert (out["result"]["status"], out["result"]["chart_id"]) == ("draft_ready", "R-1")
+
+
+def test_orientation_stays_when_the_current_side_fits_or_ties():
+    cands = [candidate("R-1", ROAD, 30)]
+    fits = road_card()
+    assert orient(fits, cands)[0] is fits
+    # 어느 쪽도 못 고르고 가까운 정도가 같으면 그대로 둔다
+    tie = road_card(relative_position=field("opposite"))
+    assert orient(tie, [candidate("X-1", {**ROAD, "movement_A": "u_turn",
+                                           "movement_B": "u_turn"}, 50)])[0] is tie
+
+
+def test_orientation_prefers_the_nearer_side_when_nothing_is_selectable():
+    # 운영 보류 사례 모양(상대 위치 right): 맞바꾸면 R-1이 한 칸만 다르다 → 맞바꾼다
+    c = road_card(**CUT_IN, relative_position=field("right"))
+    chosen, _ = orient(c, [candidate("R-1", ROAD, 30)])
+    assert chosen["party_mapping"]["chart_party_A_id"] == "P1"
+
+
+def test_orientation_skips_search_for_cards_it_cannot_flip_or_out_of_scope():
+    from tests.workflow.synthetic import card as legacy_card
+
+    legacy = legacy_card()
+    chosen, retrieve = orient(legacy, [])
+    assert chosen is legacy and retrieve.await_count == 0
+    out_of_scope = en_v1_card(location_type=field("other"))
+    chosen, retrieve = orient(out_of_scope, [])
+    assert chosen is out_of_scope and retrieve.await_count == 0

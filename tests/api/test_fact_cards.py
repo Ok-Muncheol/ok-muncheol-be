@@ -415,3 +415,20 @@ def test_video_after_blank_card_comes_as_next_version(repo):
     out = saved(repo)
     assert (out["version"], out["status"]) == (2, "draft")
     assert out["evidence_frames"] and [r["origin"] for r in repo.rows] == ["manual", "vision"]
+
+
+def test_store_orientation_saves_the_swapped_mapping_as_the_next_confirmed_version(repo):
+    saved(repo)
+    run(facts.patch_fact_card(ACTOR, CASE, patch(1, REVIEW_FIX)))
+    card = run(facts.confirm_fact_card(ACTOR, CASE, 2))
+    swapped = {**card, "party_mapping": {**card["party_mapping"], "chart_party_A_id": "P1",
+                                         "chart_party_B_id": "P2"}}
+    out = run(facts.store_orientation(repo, swapped, ACTOR))
+    assert (out["version"], out["status"], out["confirmed_by"]) == (3, "confirmed", ACTOR)
+    assert out["fields"] == card["fields"]
+    assert repo.rows[-1]["origin"] == "edit" and repo.rows[-1]["reason"] == facts.ORIENTATION_REASON
+    assert run(facts.get_fact_card(ACTOR, CASE))["party_mapping"]["chart_party_A_id"] == "P1"
+    # 그사이 다른 수정이 먼저 저장됐으면 버전 충돌이다
+    with pytest.raises(ApiException) as e:
+        run(facts.store_orientation(repo, swapped, ACTOR))
+    assert error(e) == (409, "version_conflict")

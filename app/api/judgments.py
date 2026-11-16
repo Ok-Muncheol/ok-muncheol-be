@@ -35,7 +35,7 @@ from psycopg.errors import UniqueViolation
 
 from app import db
 from app.agents import qa as qa_agent
-from app.api import reports
+from app.api import facts, reports
 from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.schemas.common import ApiError
 from app.schemas.facts import BOOL_FIELDS, FactCard, FactField
@@ -57,6 +57,7 @@ from app.workflow.graph import (
     Dependencies,
     build_graph,
     check_attempts,
+    choose_orientation,
     initial_state,
     run_outcome,
     thread_config,
@@ -261,7 +262,9 @@ async def start_judgment(
         if stored is not None:
             return _replay(stored, request_hash)
         try:
+            stored_date = card.get("accident_date")
             card = await _with_case_accident_date(conn, case_id, card)
+            card = await _oriented(conn, actor_id, card, stored_date)
             response = await _start(conn, actor_id, case_id, card)
         except BaseException:
             with contextlib.suppress(Exception):
@@ -271,6 +274,23 @@ async def start_judgment(
             conn, actor_id, START_SCOPE, idempotency_key, 202, response, str(response["task_id"])
         )
         return response
+
+
+async def _oriented(
+    conn: AsyncConnection, actor_id: str, card: FactCard, stored_date: object
+) -> FactCard:
+    """도표 A/B 당사자를 판단이 정한다(graph.choose_orientation).
+
+    맞바꾼 쪽이 더 맞으면 그 매핑을 다음 버전의 확정 카드로 저장하고 그 카드로 판단한다.
+    저장하는 카드의 사고 일자는 원래 카드 값(`stored_date`)을 둔다. 판단에는 채운 일자를 쓴다.
+    """
+    chosen = await choose_orientation(card, services.deps.retrieve)
+    if chosen is card:
+        return card
+    saved = await facts.store_orientation(
+        facts.PostgresFactRepo(conn), {**chosen, "accident_date": stored_date}, actor_id  # type: ignore[typeddict-item]
+    )
+    return {**saved, "accident_date": card["accident_date"]}
 
 
 def _replay(stored: runs.Row, request_hash: str) -> dict[str, object]:
