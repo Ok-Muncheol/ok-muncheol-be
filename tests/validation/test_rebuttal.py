@@ -115,7 +115,14 @@ def test_payload_facts_follow_the_chart_for_swapped_cards():
     cands = candidates()
     plain = json.loads(review_payload(en_v1_card(), chosen(cands), cands))
     swapped = json.loads(review_payload(en_v1_card(swapped=True), chosen(cands), cands))
-    assert swapped["confirmed_facts"] == plain["confirmed_facts"]
+    # 표시하지 않은 촬영 차 이륜차·긴급자동차('아니오')는 촬영 차가 있는 도표 쪽 칸이다(11/16)
+    ego = {"two_wheeler", "emergency_vehicle"}
+    plain_ego = {k for k in plain["confirmed_facts"] if k[:-2] in ego}
+    swapped_ego = {k for k in swapped["confirmed_facts"] if k[:-2] in ego}
+    assert plain_ego == {"two_wheeler_B", "emergency_vehicle_B"}
+    assert swapped_ego == {"two_wheeler_A", "emergency_vehicle_A"}
+    assert {k: v for k, v in swapped["confirmed_facts"].items() if k not in swapped_ego} == \
+        {k: v for k, v in plain["confirmed_facts"].items() if k not in plain_ego}
     attributes = cands[0]["attributes"]
     assert {k: swapped["confirmed_facts"][k] for k in ("signal_A", "movement_B")} == \
         {k: attributes[k] for k in ("signal_A", "movement_B")}

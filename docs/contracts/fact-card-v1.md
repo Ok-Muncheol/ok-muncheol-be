@@ -60,8 +60,8 @@
 | `entry_order` | `first` · `second` · `simultaneous` · `none` | ✅ 신호 없는 교차로 | 14/30 |
 | `night` | `true` · `false` | 참고(수정요소 자동 적용 안 함) | — |
 | `unprotected_left_sign` | `true` · `false` | 비보호 좌회전 표지(차2-2 `false`, 차2-6·4-2 `true`) | 담당자 입력 |
-| `two_wheeler_A`, `two_wheeler_B` | `true` · `false` | 이륜차 특수유형(차45-2, 61-x)과 짝 도표 | A: 영상 AI(VLM 사고 대상 답·YOLO 상대 차 종류, 늘 확인). B: 담당자 입력 |
-| `emergency_vehicle_A`, `emergency_vehicle_B` | `true` · `false` | 긴급자동차 사고(차55-x)와 짝 도표 | A: 영상 AI(따로 묻는 짧은 VLM 질문 `e0.1`, 늘 확인). B: 담당자 입력 |
+| `two_wheeler_A`, `two_wheeler_B` | `true` · `false` | 이륜차 특수유형(차45-2, 61-x)과 짝 도표 | A: 영상 AI(VLM 사고 대상 답·YOLO 상대 차 종류, 늘 확인). B: 담당자 입력(표시하지 않으면 판단은 '아니오'로 읽음) |
+| `emergency_vehicle_A`, `emergency_vehicle_B` | `true` · `false` | 긴급자동차 사고(차55-x)와 짝 도표 | A: 영상 AI(따로 묻는 짧은 VLM 질문 `e0.1`, 늘 확인). B: 담당자 입력(표시하지 않으면 판단은 '아니오'로 읽음) |
 | `center_line_crossing_A`, `center_line_crossing_B` | `true` · `false` | 중앙선 침범(차31-x, 45-4) | 영상 AI가 일반 도로·고속도로에서 침범을 봤을 때만 `true`(확인 필요). 아니면 담당자 입력 |
 | `door_open_A`, `door_open_B` | `true` · `false` | 문 열림(차52-1, 61-3) | 담당자 입력 |
 | `overtake_line` | `yellow_solid` · `yellow_dashed` · `white_solid` · `no_passing_zone` · `none` | 추월(차45-x) | 담당자 입력 |

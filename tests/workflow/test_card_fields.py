@@ -164,12 +164,16 @@ def test_card_formats():
 
 def test_en_v1_card_reads_as_the_same_chart_values_as_the_old_card():
     # 상대 위치는 v1에서 생긴 도표 선택 칸이다(11/6 카드에는 없다)
+    # 표시하지 않은 촬영 차 이륜차·긴급자동차는 '아니오'로 읽는다(v1만, 11/16). 촬영 차는 카드 B라
+    # 도표 B 칸이고, 도표 A가 촬영 차면 도표 A 칸이다
     values = confirmed_values(en_v1_card())
     assert values.pop("relative_position") == "opposite"
+    assert (values.pop("two_wheeler_B"), values.pop("emergency_vehicle_B")) == ("false", "false")
     assert values == confirmed_values(card())
     # 도표 A = 카드 B(촬영 차량)여도 같은 사고면 같은 도표 선택 값이다(v1 2절). 맞은편은 그대로다
     swapped = confirmed_values(en_v1_card(swapped=True))
     assert swapped.pop("relative_position") == "opposite"
+    assert (swapped.pop("two_wheeler_A"), swapped.pop("emergency_vehicle_A")) == ("false", "false")
     assert swapped == confirmed_values(card())
 
 
@@ -250,7 +254,7 @@ def test_example_card_from_the_vision_pipeline():
         "accident_type": "car_to_car", "location_type": "unsignalized_intersection",
         "road_priority": "same_width", "signal_A": "no_signal", "signal_B": "no_signal",
         "movement_A": "straight", "movement_B": "straight", "relative_position": "right",
-        "night": "true",
+        "night": "true", "two_wheeler_B": "false", "emergency_vehicle_B": "false",
     }
     # 진입 순서는 모델이 몰랐고(null) 담당자가 그대로 확정했다 → '모름'
     assert confirmed_unknown_fields(c) == ["entry_order"]
@@ -373,3 +377,29 @@ def test_search_query_falls_back_without_the_intersection_word():
                    relative_position=field(None))
     assert build_search_query(c)["text"] == "차대차 사고"
     assert build_search_query(card(fields={}))["text"] == "차대차 교차로 사고"
+
+
+def test_unmarked_ego_two_wheeler_and_emergency_read_as_no():
+    """촬영 차(카드 B, 가입자 차)의 이륜차·긴급자동차는 표시하지 않으면 '아니오'(11/16 C 제안).
+
+    값을 넣었거나 모름으로 확인했으면 그 답이다. 상대 차(A) 칸과 이전 형식 카드는 그대로다.
+    """
+    from app.workflow.card_fields import assumed_fields
+
+    unfilled = {"value": None, "model_value": None, "source": "manual", "model_confidence": None,
+                "verification_status": "unverified", "evidence_frame_ids": [],
+                "source_document_ids": []}
+    c = en_v1_card(emergency_vehicle_B=unfilled, two_wheeler_A=unfilled)
+    values = confirmed_values(c)
+    assert values["emergency_vehicle_B"] == "false" and values["two_wheeler_B"] == "false"
+    assert "two_wheeler_A" not in values  # 상대 차 칸은 '아니오'로 보지 않는다
+    assert assumed_fields(c) == ["two_wheeler_B", "emergency_vehicle_B"]
+    marked = en_v1_card(emergency_vehicle_B=field(True), two_wheeler_B=field(None))
+    assert confirmed_values(marked)["emergency_vehicle_B"] == "true"
+    assert "two_wheeler_B" not in confirmed_values(marked)  # 모름으로 확인했다
+    assert confirmed_unknown_fields(marked) == ["two_wheeler_B"]
+    assert assumed_fields(marked) == []
+    swapped = en_v1_card(swapped=True)
+    assert assumed_fields(swapped) == ["two_wheeler_A", "emergency_vehicle_A"]
+    assert "emergency_vehicle_B" not in confirmed_values(card())  # 이전 형식은 촬영 차가 없다
+    assert assumed_fields(card()) == []
