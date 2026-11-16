@@ -5,6 +5,8 @@
 영상이 필요한 테스트는 OpenCV가 없으면 건너뛴다(팀 CI는 비전 패키지를 설치하지 않음).
 """
 
+import threading
+
 import pytest
 
 from workers.vision import contract
@@ -222,7 +224,9 @@ def test_pipeline_stages_and_auto_cut_flag(tmp_path, monkeypatch):
         collision_frame = 450
 
     monkeypatch.setattr(ego_motion, "analyze_video", lambda path: FakeEgo())
-    monkeypatch.setattr(pl, "build_detections", lambda clip, work, use_j3=True: {"use_j3": use_j3})
+    monkeypatch.setattr(
+        pl, "build_detections", lambda clip, work, use_j3=True, ego=None: {"use_j3": use_j3}
+    )
     seen = {}
 
     def fake_extract(case_id, clip, detections, **kw):
@@ -243,9 +247,10 @@ def test_pipeline_stages_and_auto_cut_flag(tmp_path, monkeypatch):
 
 
 def test_vlm_failure_is_retryable(tmp_path, monkeypatch):
-    from workers.vision import fact_card
+    from workers.vision import ego_motion, fact_card
 
-    monkeypatch.setattr(pl, "build_detections", lambda clip, work, use_j3=True: {})
+    monkeypatch.setattr(ego_motion, "analyze_video", lambda path: HintEgo())
+    monkeypatch.setattr(pl, "build_detections", lambda clip, work, use_j3=True, ego=None: {})
 
     def boom(*a, **k):
         raise TimeoutError("vlm down")
@@ -255,6 +260,151 @@ def test_vlm_failure_is_retryable(tmp_path, monkeypatch):
     with pytest.raises(pl.VisionPipelineError) as e:
         pl.analyze_video_sync("case-1", video, options=pl.PipelineOptions(vlm=object()))
     assert (e.value.stage, e.value.code, e.value.retryable) == ("vlm", "vlm_failed", True)
+
+
+# ---------------------------------------------------------------- VLM 질문 먼저 보내기(11/16)
+# 영상·광학 흐름·영상 모델·사진 그리기는 가짜라 OpenCV 없이 돈다(팀 CI에서도 돈다).
+
+
+class HintEgo:
+    collision_frame = None
+
+    def summary(self):
+        return "카메라: 직진 중 충돌"
+
+
+class RecordingVLM:
+    """받은 질문과 부른 스레드를 남긴다. 질문이 들어오면 started가 켜진다."""
+
+    name = "fake:vlm"
+
+    def __init__(self, fail: Exception | None = None):
+        self.calls: list[tuple[str, str]] = []
+        self.started = threading.Event()
+        self.fail = fail
+
+    def generate(self, prompt, images, schema):
+        self.calls.append((threading.current_thread().name, prompt))
+        self.started.set()
+        if self.fail:
+            raise self.fail
+        meta = {"seconds": 0.0, "prompt_tokens": 1, "output_tokens": 1}
+        return {"scene_notes": f"답 {len(self.calls)}"}, meta
+
+
+def fake_stages(monkeypatch, *, wait_for=None, extra=None, build_error=None):
+    """카드 조립은 진짜처럼 fact_card.vlm_request로 질문을 만들어 VLM을 한 번 부른다.
+
+    wait_for가 있으면 영상 모델 단계가 그 신호(VLM 질문이 나갔다)를 기다린다. 차례로 돌면
+    VLM이 영상 모델 뒤에 불려 5초 뒤 실패한다.
+    """
+    from workers.vision import ego_motion, fact_card
+
+    monkeypatch.setattr(
+        pl, "probe", lambda path: {"fps": 15.0, "frames": 150, "seconds": 10.0,
+                                   "width": 320, "height": 180}
+    )
+    monkeypatch.setattr(
+        pl, "normalize",
+        lambda path, info, work: (path, {"mode": "as_is", "offset_ms": 0, "auto_cut": False}),
+    )
+    monkeypatch.setattr(ego_motion, "analyze_video", lambda path: HintEgo())
+
+    def fake_request(video_path, detections=None, *, viewpoint=1, collision_hint=75,
+                     context=None, prompt_version="v0.5"):
+        d = detections or {}
+        keys = ("tracks", "mark_tracks", "hint", "facts")
+        prompt = "\n".join(str(d[k]) for k in keys if d.get(k))
+        return {"prompt": f"질문 {prompt_version}\n{prompt}", "images": ["사진"],
+                "schema": {"version": prompt_version}}
+
+    seen: dict = {}
+
+    def fake_build(clip, work, use_j3=True, ego=None):
+        seen["ego"] = ego
+        if build_error:
+            raise build_error
+        if wait_for is not None:
+            assert wait_for.wait(5), "VLM 질문이 영상 모델보다 먼저 나가야 한다"
+        return {"hint": ego.summary(), "ego": ego, **(extra or {})}
+
+    def fake_extract(case_id, clip, detections, *, vlm, prompt_version, **kw):
+        req = fact_card.vlm_request(clip, detections, viewpoint=1, prompt_version=prompt_version)
+        seen["raw"], _ = vlm.generate(req["prompt"], req["images"], req["schema"])
+        seen["vlm_name"] = vlm.name
+        return internal_card()
+
+    monkeypatch.setattr(fact_card, "vlm_request", fake_request)
+    monkeypatch.setattr(pl, "build_detections", fake_build)
+    monkeypatch.setattr(fact_card, "extract_fact_card_sync", fake_extract)
+    return seen
+
+
+def test_vlm_question_goes_out_before_the_video_models_and_its_answer_is_used(monkeypatch):
+    vlm = RecordingVLM()
+    seen = fake_stages(monkeypatch, wait_for=vlm.started)
+    out = pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
+    # 한 번만 물었고(먼저 받은 답을 썼다), 카드 조립 스레드가 아닌 곳에서 물었다
+    assert len(vlm.calls) == 1 and vlm.calls[0][0] != threading.current_thread().name
+    assert "카메라: 직진 중 충돌" in vlm.calls[0][1]  # 광학 흐름 요약이 질문에 들어간다
+    assert seen["raw"] == {"scene_notes": "답 1"} and seen["vlm_name"] == "fake:vlm"
+    assert isinstance(seen["ego"], HintEgo)  # 광학 흐름은 한 번만 계산해 넘긴다
+    info = out["model_info"]["pipeline"]
+    assert info["parallel_vlm"] is True and "vlm_wait" in info["seconds"]
+    assert info["version"] == pl.PIPELINE_VERSION
+
+
+def test_parallel_vlm_off_asks_after_the_video_models(monkeypatch):
+    vlm = RecordingVLM()
+    fake_stages(monkeypatch)
+    out = pl.analyze_video_sync(
+        "case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm, parallel_vlm=False)
+    )
+    assert [thread for thread, _ in vlm.calls] == [threading.current_thread().name]
+    info = out["model_info"]["pipeline"]
+    assert info["parallel_vlm"] is False and set(info["seconds"]) == {"normalize", "detect", "card"}
+
+
+def test_question_changed_by_later_detections_is_asked_again(monkeypatch):
+    """질문에 쓰는 탐지 결과(예: 신호등 사실)가 영상 모델 단계에서 늘면 먼저 받은 답을 버린다."""
+    vlm = RecordingVLM()
+    seen = fake_stages(monkeypatch, wait_for=vlm.started, extra={"facts": "신호등: 적색"})
+    out = pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
+    assert len(vlm.calls) == 2
+    assert "신호등: 적색" not in vlm.calls[0][1] and "신호등: 적색" in vlm.calls[1][1]
+    assert seen["raw"] == {"scene_notes": "답 2"}  # 다시 물은 답으로 카드를 만든다
+    assert out["model_info"]["pipeline"]["parallel_vlm"] is False
+
+
+def test_failed_early_answer_is_a_retryable_vlm_error_without_asking_twice(monkeypatch):
+    vlm = RecordingVLM(fail=TimeoutError("vlm down"))
+    fake_stages(monkeypatch, wait_for=vlm.started)
+    with pytest.raises(pl.VisionPipelineError) as e:
+        pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
+    assert (e.value.stage, e.value.code, e.value.retryable) == ("vlm", "vlm_failed", True)
+    assert len(vlm.calls) == 1
+
+
+def test_detection_failure_stays_a_detect_error_while_the_question_is_out(monkeypatch):
+    vlm = RecordingVLM()
+    fake_stages(monkeypatch, build_error=RuntimeError("GPU 오류"))
+    with pytest.raises(pl.VisionPipelineError) as e:
+        pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
+    assert (e.value.stage, e.value.code, e.value.retryable) == ("detect", "vision_failed", False)
+
+
+def test_question_that_cannot_be_sent_early_is_asked_in_order(monkeypatch):
+    """미리 못 보내면(예: VLM에 generate가 없음) 카드 조립이 원래대로 묻고, 오류도 원래 단계다."""
+    from workers.vision import fact_card
+
+    fake_stages(monkeypatch)
+    monkeypatch.setattr(
+        fact_card, "extract_fact_card_sync",
+        lambda case_id, clip, detections, *, vlm, **kw: vlm.generate("q", [], {}),
+    )
+    with pytest.raises(pl.VisionPipelineError) as e:
+        pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=object()))
+    assert (e.value.stage, e.value.code) == ("vlm", "vlm_failed")
 
 
 def test_v1_tables_only_produce_allowed_values():

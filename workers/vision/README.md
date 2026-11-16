@@ -15,10 +15,15 @@ analyze_video(case_id, 로컬 영상 경로)                          pipeline.p
  │    ├ 움직임 분류기 (궤적 + 흐름)                              motion_model.py
  │    ├ 영상 모델 v2·v3 (VideoMAE), j3 (V-JEPA 2)                video_model.py
  │    └ 사고 유형 × 방향 자신감                                  type_model.py, accident_types.py
- ├ 3. VLM 질문 (gpt-4o, 영상 1건 약 37원)                        prompts.py → vlm.py
+ ├ 3. VLM 질문 (gpt-4o, 영상 1건 약 37원)                        prompts.py → vlm.py (질문: fact_card.vlm_request)
  ├ 4. 의견 모으기·값 고르기·확인 표시 → 내부 카드(한국어)        fact_card.py (칸·값: fields.py)
  └ 5. 내부 카드 → v1 카드(영어 17칸, 담당자 입력 5칸 포함) + 칸별 평가 정확도          contract.py
 ```
+
+VLM 질문에 쓰는 탐지 결과는 광학 흐름 요약뿐이다. 그래서 파이프라인은 광학 흐름이 끝나면 3단계 질문을 먼저 보내고,
+답을 기다리는 동안 2단계의 나머지(YOLO·영상 모델 등)를 돌린다(`PipelineOptions.parallel_vlm`, 기본 켬, 2026-11-16).
+4단계가 만든 질문이 먼저 보낸 것과 다르면 VLM을 다시 부르므로 카드는 차례로 부를 때와 같다. 카드
+`model_info.pipeline`의 `parallel_vlm`(먼저 받은 답을 썼는가)과 `seconds.vlm_wait`(그 답을 기다린 시간)로 확인한다.
 
 ## 한국어 값과 영어 값
 
