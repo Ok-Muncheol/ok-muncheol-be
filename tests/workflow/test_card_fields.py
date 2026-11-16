@@ -403,3 +403,21 @@ def test_unmarked_ego_two_wheeler_and_emergency_read_as_no():
     assert assumed_fields(swapped) == ["two_wheeler_A", "emergency_vehicle_A"]
     assert "emergency_vehicle_B" not in confirmed_values(card())  # 이전 형식은 촬영 차가 없다
     assert assumed_fields(card()) == []
+
+
+def test_road_rear_end_search_query_adds_the_collision_word():
+    """교차로 밖 같은 방향 앞뒤 두 차가 직진·정차면 원문 제목처럼 '추돌'을 붙인다(차41-1·42-x)."""
+    def text(**fields):
+        base = {"location_type": field("straight_road"), "movement_A": field("straight"),
+                "movement_B": field("stopped"), "relative_position": field("same_direction_rear"),
+                "signal_A": field(None), "signal_B": field(None)}
+        return build_search_query(en_v1_card(**{**base, **fields}))["text"]
+
+    assert text() == "A 후행 직진 B 선행 주정차 추돌"
+    assert text(movement_B=field("straight"), location_type=field("highway")).endswith("추돌")
+    # 진로변경은 추돌 도표가 아니다
+    assert not text(movement_B=field("lane_change")).endswith("추돌")
+    assert not text(relative_position=field("opposite")).endswith("추돌")  # 맞은편은 교행
+    # 교차로 검색 문장은 그대로다(검수한 교차로 도표 결과 유지)
+    assert not text(location_type=field("unsignalized_intersection")).endswith("추돌")
+
