@@ -199,7 +199,10 @@ def test_unassigned_when_no_adjuster_can_be_found(api, location, region, reason)
         == (reason, None, None)
     assert api.rows("select count(*) as n from public.cases")[0]["n"] == 0
     assert api.rows("select count(*) as n from public.case_assignments")[0]["n"] == 0
-    assert api.overview()["summary"]["unassigned"] == 1
+    summary = api.overview()["summary"]
+    assert (summary["unassigned"], summary["received_today"]) == (1, 1)
+    # 지역을 판별하지 못한 접수는 지역별 수에 들지 않는다
+    assert summary["received_today_by_region"] == ({region: 1} if region else {})
 
 
 def test_accident_time_cannot_be_in_the_future(api):
@@ -231,6 +234,7 @@ def test_future_simulated_intakes_are_invisible_until_their_time(api):
     assert api.intakes() == []
     summary = api.overview()["summary"]
     assert (summary["open"], summary["received_today"], summary["by_stage"]) == (0, 0, {})
+    assert summary["received_today_by_region"] == {}
     assert api.staff()[str(ahead["property_assignee_id"])]["cases"] == {"open": 0, "closed": 0}
 
     api.now += timedelta(hours=4)
@@ -262,6 +266,8 @@ def test_overview_counts_load_and_stages(api):
     assert out["generated_at"] == "2026-11-13T15:00:00+09:00"
     assert out["summary"] == {
         "open": 2, "unassigned": 1, "received_today": 2, "closed_today": 1,
+        # 어제 이전 접수와 아직 오지 않은 접수는 세지 않는다
+        "received_today_by_region": {"서울": 1, "제주": 1},
         "by_stage": {"intake": 1, "judgment": 1},
     }
     staff = {m["user_id"]: m for m in out["staff"]}
