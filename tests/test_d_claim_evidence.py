@@ -208,6 +208,8 @@ class ClaimEvidenceFlowTest(unittest.TestCase):
         → C1 그대로, 청구서 증빙에 그 파일이 없다.
 
         doc_type으로만 거르던 때는 청구서에 들어가 C2가 됐다. 일반 영수증은 그대로 들어간다.
+        이제 입력 쪽(#207)은 이런 증빙을 422로 막으므로, #207 이전에 이미 저장된 데이터로
+        기록에 직접 넣어 청구서 쪽 방어만 확인한다.
         """
         v = self.ready()
         c1 = self.confirm(v)["package"]
@@ -217,7 +219,10 @@ class ClaimEvidenceFlowTest(unittest.TestCase):
             "doc_type": "receipt",
             "storage_path": f"case-files/{CASE}/medical/dx.pdf",
         }
-        run(api.add_documents(ACTOR, CASE, [disguised]))
+        rec = self.record()  # #207 이전에 저장된 데이터(add_documents 검사를 거치지 않음)
+        rec.documents.append(disguised)
+        run(api.services.repo.save(rec, ACTOR))
+        self.assertIn("rcpt-dx", [d["document_id"] for d in self.record().documents])
         out = self.confirm(self.record().latest)
         self.assertIs(out["package"], c1)
         self.assertNotIn("rcpt-dx", files(out["package"]))
