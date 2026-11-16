@@ -382,6 +382,87 @@
         }
       }
     },
+    "overtake_line": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "u_turn_zone": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "u_turn_timing": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "safety_zone": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "roundabout_lanes": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "roundabout_move_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "roundabout_move_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "roundabout_lane_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "roundabout_lane_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
     "night": {
       "value": true,
       "model_value": true,
@@ -414,6 +495,123 @@
       }
     },
     "unprotected_left_sign": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "two_wheeler_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "two_wheeler_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "emergency_vehicle_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "emergency_vehicle_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "center_line_crossing_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "center_line_crossing_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "door_open_A": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "door_open_B": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "lane_reduction": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "shoulder": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "traffic_jam": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "secondary_collision": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
+    "bus_stop": {
       "value": null,
       "model_value": null,
       "source": "manual",

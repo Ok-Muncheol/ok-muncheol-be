@@ -81,6 +81,11 @@ _KOREAN_VALUES = {
     "opposite": "맞은편", "left": "측면", "right": "측면", "first": "선진입",
     "second": "후진입", "simultaneous": "동시 진입",
     "flashing_yellow": "황색점멸", "flashing_red": "적색점멸",
+    # 11/16 교차로 밖 장소·진행(원문 제목 표현). 일반 도로는 제목에 따로 쓰는 낱말이 없다
+    "highway": "고속도로", "parking_lot": "주차장", "stopped": "주정차",
+    "starting": "정차 후 출발", "reversing": "후진", "overtaking": "추월",
+    "entering_road": "도로가 아닌 장소에서 도로로 진입", "leaving_road": "도로가 아닌 장소로 진입",
+    "parking_out": "주차구획 출차", "parking_in": "주차구획 진입",
 }
 # 차로 노면표시(차11-x 제목 표현). 값이 다른 칸과 겹치지 않게 따로 둔다
 _LANE_WORDS = {
@@ -88,6 +93,34 @@ _LANE_WORDS = {
     "straight_only": "직진 노면표시차로", "straight_right": "직진우회전 노면표시차로",
     "right_only": "우회전 노면표시차로",
 }
+# 11/16 쪽이 붙은 칸(칸 이름에서 _A·_B를 뺀 이름) → 값별 낱말. 참거짓 칸은 참일 때만 넣는다
+_SIDE_WORDS: dict[str, dict[str, str]] = {
+    "two_wheeler": {"true": "이륜차"}, "emergency_vehicle": {"true": "긴급자동차"},
+    "center_line_crossing": {"true": "중앙선 침범"}, "door_open": {"true": "문 열림"},
+    "roundabout_move": {"circulating": "회전", "entering": "진입", "exiting": "회전진출"},
+    "roundabout_lane": {"inner": "회전1차로", "outer": "회전2차로"},
+}
+# 쪽이 없는 칸 → 값별 낱말. 값이 다른 칸과 겹쳐(동시 진입·동시 유턴 등) 칸마다 따로 둔다
+_FIELD_WORDS: dict[str, dict[str, str]] = {
+    "unprotected_left_sign": {"true": "비보호 좌회전"},
+    "overtake_line": {
+        "yellow_solid": "황색실선", "yellow_dashed": "황색점선 중앙선", "white_solid": "흰색 실선",
+        "no_passing_zone": "앞지르기 금지 장소",
+    },
+    "u_turn_zone": {"always": "상시유턴구역", "signal": "신호유턴"},
+    "u_turn_timing": {"sudden": "급 유턴", "simultaneous": "동시 유턴"},
+    "safety_zone": {
+        "before_leaving": "안전지대 벗어나기 전", "after_leaving": "안전지대 벗어난 후",
+    },
+    "roundabout_lanes": {"one": "회전 1차로", "two_plus": "회전 2차로 이상"},
+    "lane_reduction": {"true": "차로 감소 합류"}, "shoulder": {"true": "갓길"},
+    "traffic_jam": {"true": "정체"}, "secondary_collision": {"true": "재추돌"},
+    "bus_stop": {"true": "버스정류장"},
+}
+# 교차로 밖에서 같은 방향 앞뒤는 원문 제목처럼 당사자마다 선행·후행으로 쓴다
+# (예: 후행 직진 대 선행 진로변경). 교차로 검색 문장(검수한 50개 도표)은 그대로 둔다
+_INTERSECTIONS = frozenset({"signalized_intersection", "unsignalized_intersection"})
+_ORDER_WORDS = {"same_direction_front": ("선행", "후행"), "same_direction_rear": ("후행", "선행")}
 
 
 def confirmed_values(card: FactCard) -> dict[str, str]:
@@ -118,21 +151,26 @@ def build_search_query(card: FactCard, top_k: int = CHART_SEARCH_TOP_K) -> Searc
     def word(key: str) -> str | None:
         return _KOREAN_VALUES.get(values.get(key, ""))
 
+    location = values.get("location_type")
+    intersection = location is None or location in _INTERSECTIONS
+    order_words = None if intersection else _ORDER_WORDS.get(values.get("relative_position", ""))
     words = [w for k in ("location_type", "road_priority") if (w := word(k))]
-    for side in ("A", "B"):
-        parts = [w for k in (f"signal_{side}", f"movement_{side}") if (w := word(k))]
+    for i, side in enumerate(("A", "B")):
+        parts = [order_words[i]] if order_words else []
+        parts += [w for k in (f"signal_{side}", f"movement_{side}") if (w := word(k))]
         if lane := _LANE_WORDS.get(values.get(f"lane_marking_{side}", "")):
             parts.append(lane)
+        parts += [w for name, table in _SIDE_WORDS.items()
+                  if (w := table.get(values.get(f"{name}_{side}", "")))]
         if parts:
             words.append(f"{side} {' '.join(parts)}")
     if position := word("relative_position"):
         words.append(position)
     if order := word("entry_order"):
         words.append(order)
-    if values.get("unprotected_left_sign") == "true":
-        words.append("비보호 좌회전")
+    words += [w for key, table in _FIELD_WORDS.items() if (w := table.get(values.get(key, "")))]
     return {
-        "text": " ".join(words) or "차대차 교차로 사고",
+        "text": " ".join(words) or ("차대차 교차로 사고" if intersection else "차대차 사고"),
         # 사고 일자를 모르면 빈 값(검색 도구는 YYYY-MM-DD나 빈 값만 받는다)
         "accident_date": card.get("accident_date") or "", "filters": {}, "top_k": top_k,
     }

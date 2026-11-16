@@ -73,9 +73,13 @@ def internal_card(**overrides):
 # ---------------------------------------------------------------- v1 변환
 
 
-def test_v1_has_exactly_seventeen_fields_in_english():
+def test_v1_has_every_contract_field_in_english():
+    from app.schemas.facts import FACT_FIELDS
+
     out = contract.to_contract_card(internal_card())
-    assert set(out["fields"]) == {
+    # 11/16 교차로 밖 도표 칸 22개가 더해져 39칸이다(담당자 입력 18 + 이륜차·긴급자동차 4)
+    assert tuple(out["fields"]) == FACT_FIELDS and len(FACT_FIELDS) == 39
+    assert set(out["fields"]) >= {
         "accident_type",
         "location_type",
         "road_priority",
@@ -115,6 +119,19 @@ def test_manual_fields_are_null_unverified_and_do_not_block_confirm():
             None, None, "manual", "unverified"), name
     problems = facts.confirm_problems(out)
     assert not any(name in p for p in problems for name in contract.MANUAL_FIELDS)
+
+
+def test_vision_review_fields_stay_empty_until_the_vision_step():
+    """11/16 이륜차·긴급자동차 칸은 영상 AI 연결(2단계) 전까지 담당자 입력 칸처럼 빈다."""
+    from app.schemas.facts import VISION_REVIEW_FIELDS
+
+    out = contract.to_contract_card(internal_card())
+    for name in VISION_REVIEW_FIELDS:
+        f = out["fields"][name]
+        assert (f["value"], f["source"], f["verification_status"]) == (
+            None, "manual", "unverified"), name
+    assert not contract.to_contract_card(internal_card())["fields"]["two_wheeler_A"].get(
+        "vision_detail")
 
 
 def test_unknown_becomes_null_and_needs_review():

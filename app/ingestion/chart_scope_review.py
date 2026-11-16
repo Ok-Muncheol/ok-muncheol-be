@@ -10,6 +10,9 @@
   (값이 여럿인 칸, 예: 측면 도표의 `relative_position` left·right).
 - `scope_modifiers`: 표의 수정요소 행 그대로. 자동 적용 코드가 없으므로 `code`·`conditions`는 null.
 - `"*"`: 도표가 그 칸으로 가르지 않는다(무관). 빈 값·미정의와 구분하려고 명시한다.
+- 장소(`location_type`)는 `scope_attributes`에 하나를 적는다. 여러 장소에 쓰는 도표(예: 일반 도로·
+  고속도로 공통, 2026-11-16)는 속성에서 빼고 변형마다 범위 안 장소를 적는다(장소마다 같은 비율).
+  필수 칸은 그 변형의 장소 기준이다. `*`는 장소에 쓸 수 없다(교차로 도표와 섞인다).
 """
 
 from app.schemas.chart_scope import (
@@ -41,9 +44,14 @@ def _variant_label(value: object) -> str | None:
     return None if value in (None, "") else str(value)
 
 
+def _required(attributes: dict[str, str], conditions: dict[str, str]) -> set[str]:
+    """변형 하나가 정의해야 하는 필수 칸. 장소는 속성에, 없으면 그 변형 조건에 있다."""
+    location = attributes.get("location_type") or conditions.get("location_type")
+    return set(REQUIRED_CONFIRMED_FIELDS.get(location, ()))  # type: ignore[call-overload]
+
+
 def _check_variants(
-    record: dict, variants: object, attributes: dict[str, str], required: set[str],
-    errors: list[str],
+    record: dict, variants: object, attributes: dict[str, str], errors: list[str],
 ) -> None:
     chart_id = record["chart_id"]
     if not isinstance(variants, list) or not variants:
@@ -82,7 +90,7 @@ def _check_variants(
         overlap = sorted(set(conditions) & set(attributes))
         if overlap:
             errors.append(f"{chart_id}: 변형 {label} 조건 {overlap}이 scope_attributes와 겹친다")
-        missing = sorted(required - set(attributes) - set(conditions))
+        missing = sorted(_required(attributes, conditions) - set(attributes) - set(conditions))
         if missing:
             errors.append(f"{chart_id}: 변형 {label}이 필수 칸 {missing}을 정의하지 않는다")
         if len(variants) > 1 and not conditions:
@@ -112,13 +120,27 @@ def check_scope_review(record: dict, modifier_rows: list[dict], review: dict) ->
     attributes = _check_values(chart_id, where, review.get(where), errors)
     if attributes.get("accident_type") != "car_to_car":
         errors.append(f"{chart_id}: scope_attributes.accident_type은 car_to_car여야 한다")
-    location = attributes.get("location_type")
-    if location not in IN_SCOPE_LOCATION_TYPES:
-        errors.append(
-            f"{chart_id}: scope_attributes.location_type {location!r}는 MVP 범위가 아니다"
-        )
-    required = set(REQUIRED_CONFIRMED_FIELDS.get(location, ()))  # type: ignore[call-overload]
-    _check_variants(record, review.get("scope_variants"), attributes, required, errors)
+    variants = review.get("scope_variants")
+    if "location_type" in attributes:
+        location = attributes["location_type"]
+        if location not in IN_SCOPE_LOCATION_TYPES:
+            errors.append(
+                f"{chart_id}: scope_attributes.location_type {location!r}는 MVP 범위가 아니다"
+            )
+    elif isinstance(variants, list) and variants:
+        # 여러 장소에 쓰는 도표: 변형마다 범위 안 장소를 적는다
+        for variant in variants:
+            conditions = variant.get("conditions") if isinstance(variant, dict) else None
+            location = (conditions or {}).get("location_type") if isinstance(conditions, dict) \
+                else None
+            if location not in IN_SCOPE_LOCATION_TYPES:
+                label = _variant_label(variant.get("variant")) if isinstance(variant, dict) \
+                    else None
+                errors.append(
+                    f"{chart_id}: 변형 {label}의 location_type {location!r}는 MVP 범위가 아니다"
+                    " (장소는 scope_attributes나 모든 변형에 적는다)"
+                )
+    _check_variants(record, variants, attributes, errors)
     return errors
 
 

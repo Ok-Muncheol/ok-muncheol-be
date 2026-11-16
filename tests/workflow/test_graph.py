@@ -11,7 +11,6 @@ from app.schemas.chart_scope import (
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
     REASON_OUT_OF_SCOPE,
-    REASON_PENDING_DECISION,
 )
 from app.validation.evidence import PERIOD_UNKNOWN_WARNING
 from app.validation.rebuttal import UNCONFIRMED_CLAIM_NOTE
@@ -113,9 +112,8 @@ def test_resume_without_unknown_asks_again_instead_of_guessing():
     assert out["__interrupt__"][0].value["questions"][0]["question_id"] == qid
 
 
-@pytest.mark.parametrize(("location", "reason"), [
-    ("other", REASON_OUT_OF_SCOPE), ("roundabout", REASON_PENDING_DECISION),
-])
+# 회전교차로는 11/16부터 범위 안이다(test_graph_non_intersection.py)
+@pytest.mark.parametrize(("location", "reason"), [("other", REASON_OUT_OF_SCOPE)])
 def test_out_of_scope_defers_before_retrieval(location, reason):
     c = card()
     c["fields"]["location_type"] = field(location)

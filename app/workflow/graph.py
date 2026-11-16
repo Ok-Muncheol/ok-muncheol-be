@@ -29,11 +29,9 @@ from app.schemas.chart_scope import (
     IN_SCOPE_ACCIDENT_TYPES,
     IN_SCOPE_LOCATION_TYPES,
     MANUAL_ONLY_MODIFIERS,
-    PENDING_DECISION_LOCATION_TYPES,
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
     REASON_OUT_OF_SCOPE,
-    REASON_PENDING_DECISION,
     REQUIRED_CONFIRMED_FIELDS,
     unconfirmed_fields,
 )
@@ -86,12 +84,13 @@ MAX_LISTED_UNREVIEWED = 3
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
 CRITERIA_VERSION = "fault_standards:2023.6"
-RULE_VERSION = "judgment-rules-2026.11.13.3"
+# 11/16.1: 교차로 밖 장소(일반 도로·고속도로·주차장·회전교차로)와 그 도표 칸을 범위에 넣었다
+RULE_VERSION = "judgment-rules-2026.11.16.1"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
 FIELD_LABELS = {
-    "accident_type": "사고 당사자 유형", "location_type": "교차로 종류",
+    "accident_type": "사고 당사자 유형", "location_type": "사고 장소",
     "road_priority": "도로 관계(동일폭·대로·일시정지가 어느 차 쪽인지)",
     "movement_A": "A 차량의 진행 방향", "movement_B": "B 차량의 진행 방향",
     # 진입 시 신호(signal_*)와 충돌 순간 신호(collision_signal_*)를 담당자가 헷갈리지 않게 적는다
@@ -103,6 +102,24 @@ FIELD_LABELS = {
     "unprotected_left_sign": "비보호 좌회전 표지 여부",
     "relative_position": "상대 위치(B가 가는 방향에서 볼 때 A가 있던 쪽)",
     "entry_order": "교차로 진입 순서(A 기준)", "night": "야간 여부",
+    # 11/16 교차로 밖 도표(차31~61) 칸
+    "two_wheeler_A": "A 차량의 이륜차 여부", "two_wheeler_B": "B 차량의 이륜차 여부",
+    "emergency_vehicle_A": "A 차량의 긴급자동차(긴급 운행 중) 여부",
+    "emergency_vehicle_B": "B 차량의 긴급자동차(긴급 운행 중) 여부",
+    "center_line_crossing_A": "A 차량의 중앙선 침범 여부",
+    "center_line_crossing_B": "B 차량의 중앙선 침범 여부",
+    "door_open_A": "A 차량의 문 열림 여부", "door_open_B": "B 차량의 문 열림 여부",
+    "overtake_line": "추월한 곳의 차선(황색 실선·점선, 흰색 실선, 앞지르기 금지 장소)",
+    "u_turn_zone": "유턴 구역(상시 유턴·신호 유턴)",
+    "u_turn_timing": "뒤차의 유턴 시점(급 유턴·동시 유턴)",
+    "lane_reduction": "차로 감소(합류) 여부", "shoulder": "갓길·도로 가장자리 여부",
+    "traffic_jam": "정체 여부", "secondary_collision": "2차 사고(앞차가 사고로 정차 중) 여부",
+    "bus_stop": "버스정류장 여부", "safety_zone": "안전지대 통과(벗어나기 전·후)",
+    "roundabout_lanes": "회전교차로의 회전 차로 수",
+    "roundabout_move_A": "A 차량의 회전교차로 진행(회전 중·진입·진출)",
+    "roundabout_move_B": "B 차량의 회전교차로 진행(회전 중·진입·진출)",
+    "roundabout_lane_A": "A 차량이 충돌 때 있던 회전 차로",
+    "roundabout_lane_B": "B 차량이 충돌 때 있던 회전 차로",
 }
 
 Retriever = Callable[[FactCard], Awaitable[list[ChartCandidate]]]
@@ -142,8 +159,6 @@ def scope_gate(
     location_type = confirmed(chart, "location_type")
     if accident_type is None or location_type is None:
         return None, unconfirmed_fields(chart, "other")  # type: ignore[arg-type]
-    if location_type in PENDING_DECISION_LOCATION_TYPES:
-        return REASON_PENDING_DECISION, []
     scope = ((accident_type, IN_SCOPE_ACCIDENT_TYPES), (location_type, IN_SCOPE_LOCATION_TYPES))
     if any(value != UNKNOWN and value not in allowed for value, allowed in scope):
         return REASON_OUT_OF_SCOPE, []
@@ -304,6 +319,8 @@ def _ruled_out(
     # "미정의"가 아니라 "불일치"로 보고하는 편이 정확하다
     attributes = _concrete(candidate["attributes"])
     mismatch = [k for k, v in attributes.items() if k in values and values[k] != v]
+    if "location_type" not in attributes and _other_places(candidate, values):
+        mismatch.append("location_type")
     if mismatch:
         return f"카드와 불일치 {mismatch}"
     keys = set(candidate["attributes"])
@@ -325,6 +342,18 @@ def _ruled_out(
     if all(blocked):
         return f"확인 불가 칸 {sorted(set().union(*blocked))}"
     return None
+
+
+def _other_places(candidate: ChartCandidate, values: dict[str, str]) -> bool:
+    """장소를 변형마다 적은 도표(일반 도로·고속도로 공통 등)가 카드 장소와 맞는 변형이 없는가.
+
+    11/16 검수 규칙: 장소가 여럿인 도표는 장소마다 같은 비율 변형으로 나눈다. 장소를 적지 않은
+    변형이나 `*`가 있으면 장소로는 가르지 않는다.
+    """
+    place = values.get("location_type")
+    places = {v["conditions"].get("location_type") for v in candidate["base_variants"]}
+    return (place is not None and bool(places) and not places & {None, ANY_VALUE}
+            and place not in places)
 
 
 def open_fields(state: JudgmentState) -> list[str]:

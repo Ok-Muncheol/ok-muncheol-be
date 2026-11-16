@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.schemas.chart_scope import FIELD_OPTIONS
-from app.schemas.facts import FACT_FIELD_OPTIONS
+from app.schemas.facts import BOOL_FIELDS, FACT_FIELD_OPTIONS, MOVEMENT_VALUES
 from app.workflow.candidates import build_search_query, confirmed_values
 from app.workflow.card_fields import (
     card_field_key,
@@ -181,7 +181,9 @@ def test_en_v1_questions_use_chart_field_names_and_v1_values():
     assert question_options("road_priority", v1) == [
         "same_width", "major_A", "major_B", "stop_A", "stop_B", "other", "none"]
     assert question_options("entry_order", v1) == ["first", "second", "simultaneous", "none"]
-    assert question_options("movement_B", v1)[-2:] == ["lane_change", "other"]
+    assert question_options("movement_B", v1) == list(MOVEMENT_VALUES)
+    assert question_options("roundabout_lanes", v1) == ["one", "two_plus"]
+    assert question_options("two_wheeler_A", v1) == ["true", "false"]
 
 
 def test_en_v1_confirmed_null_is_unknown_and_unconfirmed_null_is_not():
@@ -193,11 +195,12 @@ def test_en_v1_confirmed_null_is_unknown_and_unconfirmed_null_is_not():
 
 
 @pytest.mark.parametrize(("value", "expected"), [
-    ("straight_road", "other"), ("highway", "other"), ("other", "other"),
-    ("roundabout", "roundabout"), ("unsignalized_intersection", "unsignalized_intersection"),
+    ("straight_road", "straight_road"), ("highway", "highway"), ("parking_lot", "parking_lot"),
+    ("other", "other"), ("roundabout", "roundabout"),
+    ("unsignalized_intersection", "unsignalized_intersection"),
 ])
 def test_en_v1_locations(value, expected):
-    # 직선도로·고속도로는 v1에서 따로 내지만 MVP 범위 밖 보류는 그대로다(v1 8절)
+    # 11/16: 일반 도로·고속도로·주차장도 도표 선택 값 그대로다(범위 안)
     assert confirmed_values(en_v1_card(location_type=field(value)))["location_type"] == expected
 
 
@@ -256,12 +259,14 @@ def test_example_card_from_the_vision_pipeline():
 
 def test_chart_values_follow_the_v1_card():
     """도표 선택 값(C 레코드 값)은 카드 v1 확정본 값과 같다. 범위 판정 칸(사고 유형)만 좁다."""
-    for key in ("road_priority", "signal_A", "signal_B", "movement_A", "movement_B",
-                "relative_position", "entry_order", "collision_signal_A", "collision_signal_B",
-                "lane_marking_A", "lane_marking_B"):
-        assert FIELD_OPTIONS[key] == FACT_FIELD_OPTIONS[key], key
+    # 충돌 시각·사고 설명 말고 카드 칸은 모두 도표 선택 칸이다(11/16 교차로 밖 칸 포함)
+    assert set(FIELD_OPTIONS) == set(FACT_FIELD_OPTIONS) | set(BOOL_FIELDS)
+    for key in FACT_FIELD_OPTIONS:
+        if key != "accident_type":
+            assert FIELD_OPTIONS[key] == FACT_FIELD_OPTIONS[key], key
+    for key in BOOL_FIELDS:
+        assert FIELD_OPTIONS[key] == ("true", "false"), key
     assert set(FIELD_OPTIONS["accident_type"]) < set(FACT_FIELD_OPTIONS["accident_type"])
-    assert FIELD_OPTIONS["unprotected_left_sign"] == ("true", "false")
 
 
 def test_swapped_v1_card_flips_position_and_priority_side():
@@ -310,3 +315,61 @@ def test_search_query_uses_lane_marking_and_unprotected_sign_words():
     c = en_v1_card(lane_marking_A=field("left_only"), unprotected_left_sign=field(True))
     text = build_search_query(c)["text"]
     assert "좌회전 노면표시차로" in text and "비보호 좌회전" in text
+
+
+# ── 교차로 밖 도표 칸(11/16) ────────────────────────────────────────────
+
+
+def test_swapped_card_swaps_every_side_field():
+    """도표 A가 촬영 차량이면 11/16 칸의 _A·_B도 맞바꿔 읽는다(값에는 쪽이 없다)."""
+    c = en_v1_card(swapped=True, two_wheeler_B=field(True), emergency_vehicle_A=field(False),
+                   center_line_crossing_B=field(True), door_open_A=field(True),
+                   roundabout_move_B=field("exiting"), roundabout_lane_A=field("outer"),
+                   overtake_line=field("yellow_solid"))
+    values = confirmed_values(c)
+    assert (values["two_wheeler_A"], values["emergency_vehicle_B"]) == ("true", "false")
+    assert (values["center_line_crossing_A"], values["door_open_B"]) == ("true", "true")
+    assert (values["roundabout_move_A"], values["roundabout_lane_B"]) == ("exiting", "outer")
+    assert values["overtake_line"] == "yellow_solid"  # 쪽이 없는 칸은 그대로
+    assert card_field_key("two_wheeler_A", c) == "two_wheeler_B"
+    assert card_field_key("roundabout_lanes", c) == "roundabout_lanes"
+    assert to_card_terms("door_open_B", "true", c) == ("door_open_A", "true")
+
+
+def test_new_fields_mark_a_v1_card():
+    old = card()
+    old["fields"]["traffic_jam"] = field(True)
+    assert card_format(old) == "v1"
+    old = card()
+    old["fields"]["location_type"] = field("parking_lot")
+    assert card_format(old) == "v1"
+
+
+def test_road_search_query_uses_leader_follower_words_from_chart_titles():
+    # 교차로 밖에서 같은 방향 앞뒤는 원문 제목처럼 선행·후행으로 쓴다
+    # (예: 후행 직진 대 선행 진로변경)
+    c = en_v1_card(location_type=field("straight_road"), movement_A=field("straight"),
+                   movement_B=field("lane_change"), relative_position=field("same_direction_rear"),
+                   signal_A=field("no_signal"), signal_B=field("no_signal"))
+    assert build_search_query(c)["text"] == "A 후행 신호 없음 직진 B 선행 신호 없음 진로변경"
+
+
+def test_search_query_words_for_non_intersection_fields():
+    c = en_v1_card(location_type=field("highway"), movement_A=field("overtaking"),
+                   movement_B=field("stopped"), relative_position=field("opposite"),
+                   signal_A=field(None), signal_B=field(None),
+                   emergency_vehicle_A=field(True), two_wheeler_B=field(False),
+                   overtake_line=field("no_passing_zone"), shoulder=field(True),
+                   u_turn_timing=field("simultaneous"), traffic_jam=field(False))
+    text = build_search_query(c)["text"]
+    assert text == ("고속도로 A 추월 긴급자동차 B 주정차 맞은편 앞지르기 금지 장소 동시 유턴 갓길")
+    # 참이 아닌 참거짓 칸은 낱말을 넣지 않는다
+    assert "이륜차" not in text and "정체" not in text
+
+
+def test_search_query_falls_back_without_the_intersection_word():
+    c = en_v1_card(location_type=field("straight_road"), movement_A=field(None),
+                   movement_B=field(None), signal_A=field(None), signal_B=field(None),
+                   relative_position=field(None))
+    assert build_search_query(c)["text"] == "차대차 사고"
+    assert build_search_query(card(fields={}))["text"] == "차대차 교차로 사고"
