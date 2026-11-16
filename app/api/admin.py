@@ -47,6 +47,8 @@ STAFF_ROLES: tuple[str, ...] = typing.get_args(StaffRole)
 COVERAGES: tuple[str, ...] = typing.get_args(Coverage)
 SPECIALTIES: tuple[str, ...] = typing.get_args(Specialty)
 INTAKE_STATES = ("open", "unassigned", "closed")  # 목록 거르기(GET /admin/intakes?state=)
+# 진행 중 건의 단계(GET /admin/intakes?stage=). 관제 화면이 담당자 화면의 단계 묶음으로 쓴다
+OPEN_STAGES = ("intake", "analysis", "facts", "judgment", "report")
 MAX_LIMIT = 200
 KST = timezone(timedelta(hours=9))
 
@@ -211,13 +213,24 @@ async def get_overview(admin_id: str) -> AdminOverview:
 
 
 async def list_intakes(
-    admin_id: str, *, state: str | None = None, assignee_id: str | None = None,
-    region: str | None = None, before: datetime | None = None, limit: int = 50,
+    admin_id: str, *, state: str | None = None, stage: str | None = None,
+    assignee_id: str | None = None, region: str | None = None, before: datetime | None = None,
+    limit: int = 50,
 ) -> list[IntakeView]:
-    """접수 건 목록(최근 접수 순). state는 open·unassigned·closed, before는 그 시각보다 앞선 건."""
+    """접수 건 목록(최근 접수 순). state는 open·unassigned·closed, before는 그 시각보다 앞선 건.
+
+    stage는 진행 중 건의 단계를 쉼표로 이은 값이다(예: facts,judgment). 실제 접수의 단계는
+    사건 요약에서 나와 여기서 거르고, 그래서 한 쪽이 덜 차면 다음 건을 이어서 읽는다.
+    """
     if state is not None and state not in INTAKE_STATES:
         raise unprocessable(
             "invalid_intake_filter", "state는 open·unassigned·closed 중 하나입니다."
+        )
+    stages = [s for s in (stage or "").split(",") if s] or None
+    if stages is not None and not set(stages) <= set(OPEN_STAGES):
+        raise unprocessable(
+            "invalid_intake_filter",
+            "stage는 intake·analysis·facts·judgment·report를 쉼표로 이은 값입니다.",
         )
     if region is not None and region not in REGIONS:
         raise unprocessable("invalid_intake_filter", "region은 17개 시·도 이름 중 하나입니다.")
@@ -230,11 +243,18 @@ async def list_intakes(
     now = services.now()
     async with _connection() as conn:
         await repository.sync_real_cases(conn)
-        rows = await repository.list_intakes(
-            conn, now=now, limit=limit, state=state, assignee_id=assignee_id, region=region,
-            before=before,
-        )
-        return await _views(conn, rows)
+        views: list[IntakeView] = []
+        cursor = before
+        while True:
+            rows = await repository.list_intakes(
+                conn, now=now, limit=limit, state=state, assignee_id=assignee_id, region=region,
+                before=cursor, stages=stages,
+            )
+            batch = await _views(conn, rows)
+            views += [v for v in batch if stages is None or v["stage"] in stages]
+            if stages is None or len(views) >= limit or len(rows) < limit:
+                return views[:limit]
+            cursor = rows[-1]["received_at"]
 
 
 async def register_intake(

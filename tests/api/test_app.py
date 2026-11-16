@@ -194,11 +194,12 @@ def test_admin_intake_routes_pass_the_request_and_stay_admin_only(client, monkey
         assert res.status_code == 422
     assert len(calls) == 1
 
-    res = client.get("/admin/intakes?state=open&region=서울&limit=10",
+    res = client.get("/admin/intakes?state=open&stage=facts,judgment&region=서울&limit=10",
                      headers=token("admin-1", **ADMIN))
     assert res.status_code == 200 and res.json() == [INTAKE_VIEW]
-    assert calls[1] == ("list", "admin-1", {"state": "open", "assignee_id": None,
-                                           "region": "서울", "before": None, "limit": 10})
+    assert calls[1] == ("list", "admin-1", {"state": "open", "stage": "facts,judgment",
+                                           "assignee_id": None, "region": "서울",
+                                           "before": None, "limit": 10})
 
 
 def test_admin_assignment_routes_pass_the_request_and_stay_admin_only(client, monkeypatch):
