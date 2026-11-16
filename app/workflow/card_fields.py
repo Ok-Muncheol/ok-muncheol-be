@@ -202,6 +202,14 @@ def chart_key(card_key: str, card: FactCard | None = None) -> str:
     return key
 
 
+def other_side(key: str) -> str:
+    """쪽이 붙은 도표 선택 칸의 반대쪽 칸(`movement_A` ↔ `movement_B`). 쪽이 없는 칸은 그대로다.
+
+    도표 A/B 당사자를 맞바꾸면 같은 카드 칸이 반대쪽 도표 칸이 된다(graph.swap_hints).
+    """
+    return _SWAP_KEYS.get(key, key)
+
+
 def card_field_key(key: str, card: FactCard) -> str:
     """도표 선택 칸 → 질문에 쓸 카드 칸 이름. 답은 이 이름으로 카드 수정에 간다."""
     fmt = card_format(card)
