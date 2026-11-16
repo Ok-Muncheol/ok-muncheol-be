@@ -400,22 +400,34 @@ class HintEgo:
 
 
 class RecordingVLM:
-    """받은 질문과 부른 스레드를 남긴다. 질문이 들어오면 started가 켜진다."""
+    """받은 질문과 부른 스레드를 남긴다. 본 질문이 들어오면 started가 켜진다.
+
+    본 질문과 같이 먼저 보내는 긴급자동차 질문(11/16)은 다른 스레드에서 거의 동시에 들어와
+    순서가 정해지지 않는다. 그래서 답 번호는 본 질문만 세고, 긴급자동차 질문이 들어오면
+    emergency가 켜진다(테스트가 그 질문을 기다릴 수 있게).
+    """
 
     name = "fake:vlm"
 
     def __init__(self, fail: Exception | None = None):
         self.calls: list[tuple[str, str]] = []
         self.started = threading.Event()
+        self.emergency = threading.Event()
         self.fail = fail
+        self._lock = threading.Lock()
 
     def generate(self, prompt, images, schema):
-        self.calls.append((threading.current_thread().name, prompt))
-        self.started.set()
+        with self._lock:
+            self.calls.append((threading.current_thread().name, prompt))
+            n = len(main_calls(self))
+        if "긴급자동차" in prompt:
+            self.emergency.set()
+        else:  # 영상 모델 단계가 기다리는 신호는 본 질문이다(기록한 뒤에 켠다)
+            self.started.set()
         if self.fail:
             raise self.fail
         meta = {"seconds": 0.0, "prompt_tokens": 1, "output_tokens": 1}
-        return {"scene_notes": f"답 {len(self.calls)}"}, meta
+        return {"scene_notes": f"답 {n}"}, meta
 
 
 def main_calls(vlm):
@@ -480,6 +492,8 @@ def test_vlm_question_goes_out_before_the_video_models_and_its_answer_is_used(mo
     [(thread, prompt)] = main_calls(vlm)
     assert thread != threading.current_thread().name
     assert "카메라: 직진 중 충돌" in prompt  # 광학 흐름 요약이 질문에 들어간다
+    # 카드 조립(가짜)은 긴급자동차 답을 기다리지 않으니 그 질문이 들어올 때까지 기다린다
+    assert vlm.emergency.wait(5), "긴급자동차 질문도 먼저 나가야 한다"
     early = [t for t, p in vlm.calls if "긴급자동차" in p]
     assert len(vlm.calls) == 2 and early and early[0] != threading.current_thread().name
     assert seen["raw"] == {"scene_notes": "답 1"} and seen["vlm_name"] == "fake:vlm"
@@ -507,8 +521,7 @@ def test_question_changed_by_later_detections_is_asked_again(monkeypatch):
     out = pl.analyze_video_sync("case-1", "v.mp4", options=pl.PipelineOptions(vlm=vlm))
     first, again = main_calls(vlm)
     assert "신호등: 적색" not in first[1] and "신호등: 적색" in again[1]
-    asked_again = 1 + [p for _, p in vlm.calls].index(again[1])
-    assert seen["raw"] == {"scene_notes": f"답 {asked_again}"}  # 다시 물은 답으로 카드를 만든다
+    assert seen["raw"] == {"scene_notes": "답 2"}  # 다시 물은 답(두 번째 본 질문)으로 카드를 만든다
     assert out["model_info"]["pipeline"]["parallel_vlm"] is False
 
 
