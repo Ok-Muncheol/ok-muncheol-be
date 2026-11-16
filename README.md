@@ -273,6 +273,7 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 | `GET /cases/{id}/reports/{version}/claim` | 그 보고서 버전으로 만든 구상 청구서 조회 |
 | `POST /cases/{id}/documents` | 계약·견적·증빙 서류와 면책 체크 추가 → 자동 재산정 |
 | `POST /cases/{id}/estimates` | Storage에 올린 견적서 PDF 경로 전달 → 자동 추출·재산정 |
+| `GET /cases/{id}/partner-medical` | 시연용 가데이터: 제휴 병원이 보내온 것으로 보이는 진료 정보(다친 사람마다 급수·치료관계비). 사건 ID로 정해지고 저장하지 않음 — 화면에서 반영하면 대인 입력으로 저장 |
 | `PATCH /cases/{id}/agreed-fault` | 협의 과실 입력·해제 → 구상 금액 재계산 |
 | `GET /admin/overview` | 관리자(관제): 담당자 목록(역할·분야·지역·업무량)과 전체 현황 숫자(진행 중·미배정·오늘 접수/종결·단계별·오늘 접수의 시·도별). 토큰 `app_metadata.staff_role`이 `admin`일 때만 |
 | `GET /admin/intakes` | 관리자(관제): 접수 건 목록(최근 접수 순, 상태·진행 단계·담당자·지역으로 거르기) |
