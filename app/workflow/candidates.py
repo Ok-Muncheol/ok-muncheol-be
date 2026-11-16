@@ -112,6 +112,11 @@ _FIELD_WORDS: dict[str, dict[str, str]] = {
     },
     "u_turn_zone": {"always": "상시유턴구역", "signal": "신호유턴"},
     "u_turn_timing": {"sudden": "급 유턴", "simultaneous": "동시 유턴"},
+    # 원문 제목(차43-3 「좌우 동시 차로 변경」, 43-5 「동일차로 후행차 선 진로변경」).
+    # 앞차 먼저는 도표가 없다
+    "lane_change_timing": {
+        "simultaneous": "좌우 동시 차로 변경", "follower_first": "동일차로 후행차 선 진로변경",
+    },
     "safety_zone": {
         "before_leaving": "안전지대 벗어나기 전", "after_leaving": "안전지대 벗어난 후",
     },

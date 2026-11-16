@@ -2,7 +2,7 @@
 
 작성: 2026-11-11 · 상태: **확정** (영어 값 17칸). v0(11/5 초안)과 11/11 오전 한국어 22칸안을 대체한다.
 11/13: 남은 도표(차11-x, 1-2·2-3·2-5·3-5, 1-5·3-7·3-8, 2-2)를 가르려고 **담당자 입력 칸 5개**(`collision_signal_A/B`, `lane_marking_A/B`, `unprotected_left_sign`)와 **점멸 신호 값**(`flashing_yellow`, `flashing_red`)을 더했다(B 요청).
-11/16: 교차로 밖 도표(차31~61, 49개 중 47개)를 가르려고 **칸 22개**(담당자 입력 18, 영상 AI 4)와 장소 `parking_lot`, 진행 값 8개를 더했다(C 김지은 안, B 반영). 지금 **39칸**이다.
+11/16: 교차로 밖 도표(차31~61, 49개 중 47개)를 가르려고 **칸 23개**(담당자 입력 19, 영상 AI 4)와 장소 `parking_lot`, 진행 값 8개를 더했다(C 김지은 안, B 반영). 지금 **40칸**이다. 진로 변경 순서(`lane_change_timing`)는 차43-3·43-5를 가르려고 같은 날 더했다.
 11/16 2단계(영상 AI, 기존 VLM 질문 v0.5는 그대로): 상대 차 이륜차·긴급자동차(`two_wheeler_A`·`emergency_vehicle_A`)를 채워 **늘 확인**으로 내고, 중앙선 침범은 일반 도로·고속도로에서 침범을 봤을 때만 채운다. 새 진행 값(정차·출발·후진·추월·출차)과 주차장도 낸다. 촬영 차(B)의 이륜차·긴급자동차는 가입자 차라 계약 정보로 알 수 있어 담당자 입력이다(C 결정).
 예시: [fact-card-v1.example.json](fact-card-v1.example.json) — 코드로 만든 실제 카드 1장(AI Hub 신호 없는 사거리 영상). 11/16 2단계 전에 만든 카드라 `two_wheeler_A`·`emergency_vehicle_A`가 빈 담당자 칸이다(지금 코드는 확인 필요 칸으로 낸다)
 
@@ -16,7 +16,7 @@
 | 키 | 내용 |
 | --- | --- |
 | `case_id`, `version`, `accident_date`, `status`, `confirmed_by`, `confirmed_at` | 기존 계약 그대로 |
-| `fields` | 칸 이름 → `FactField` (3절 39칸) |
+| `fields` | 칸 이름 → `FactField` (3절 40칸) |
 | `party_mapping` | 기존 그대로. 1인칭 영상이면 `video_ego_party_id = "P1"`, 기본값 `chart_party_A_id = "P2"`, `chart_party_B_id = "P1"` |
 | `evidence_frames` | 기존 그대로. `timestamp_ms`는 **올린 원본 영상** 기준(긴 영상을 잘라 분석해도 되돌려 준다) |
 | **`parties`** (추가) | `[{"party_id": "P1", "role": "촬영 차량", "track_id": null}, {"party_id": "P2", "role": "상대 차량", "track_id": null}]` |
@@ -67,6 +67,7 @@
 | `overtake_line` | `yellow_solid` · `yellow_dashed` · `white_solid` · `no_passing_zone` · `none` | 추월(차45-x) | 담당자 입력 |
 | `u_turn_zone` | `always` · `signal` · `none` | 직진(우회전) 대 유턴(차33-x) | 담당자 입력 |
 | `u_turn_timing` | `sudden` · `simultaneous` | 양 차량 유턴(차46-1) | 담당자 입력 |
+| `lane_change_timing` | `simultaneous` · `follower_first` · `leader_first` | 두 차 모두 진로변경(차43-3 동시, 43-5 뒤차 먼저) | 담당자 입력 |
 | `lane_reduction`, `shoulder`, `traffic_jam`, `secondary_collision`, `bus_stop` | `true` · `false` | 합류(차43-1), 갓길·가장자리(차42-2·42-3·43-6), 정체(차43-4·45-4·61-1), 2차 사고(차42-1), 버스정류장(차47-3) | 담당자 입력 |
 | `safety_zone` | `before_leaving` · `after_leaving` · `none` | 안전지대 통과(차43-7) | 담당자 입력 |
 | `roundabout_lanes` | `one` · `two_plus` | ✅ 회전교차로(차54-1~5) | 담당자 입력 |
@@ -94,6 +95,7 @@
 - `center_line_crossing_*`: 그 차가 중앙선을 넘었으면 `true`. `door_open_*`: 그 차의 문이 열려 부딪혔으면 `true`.
 - `overtake_line`: 추월한 곳의 차선. `yellow_solid` 황색 실선, `yellow_dashed` 황색 점선, `white_solid` 흰색 실선, `no_passing_zone` 앞지르기 금지 장소, `none` 차선 없음.
 - `u_turn_zone`: 유턴한 곳이 `always` 상시 유턴 구역, `signal` 신호 유턴, `none` 유턴 구역 아님. `u_turn_timing`(차46-1): 뒤차가 `sudden` 급 유턴, `simultaneous` 동시 유턴.
+- `lane_change_timing`(두 차 모두 진로변경): `simultaneous` 양옆 차로에서 같은 차로로 동시에(차43-3), `follower_first` 같은 차로 앞뒤 차 중 뒤차가 먼저·앞차가 나중에(43-5), `leader_first` 앞차가 먼저·뒤차가 나중에(43-5 원문이 적용하지 않는 경우라 도표가 없다. 고르면 보류).
 - `safety_zone`(차43-7): 직진 차가 안전지대를 `before_leaving` 벗어나기 전, `after_leaving` 벗어난 뒤 충돌, `none` 안전지대 없음.
 - `lane_reduction` 차로가 줄어드는 곳(합류), `shoulder` 갓길·도로 가장자리, `traffic_jam` 정체 중, `secondary_collision` 앞차가 사고로 서 있던 2차 사고, `bus_stop` 버스정류장.
 - `roundabout_lanes`: 회전 차로 수(`one` 1차로, `two_plus` 2차로 이상). `roundabout_move_*`: `circulating` 회전 중, `entering` 진입, `exiting` 진출하려고 진로변경. `roundabout_lane_*`: 충돌 때 있던 회전 차로(`inner` 1차로, `outer` 2차로 이상).
@@ -115,7 +117,7 @@
 | `two_wheeler_A`, `emergency_vehicle_A` (`VISION_REVIEW_FIELDS`) | **항상**(정답이 없어서, 11/16) |
 | `center_line_crossing_*` (`VISION_POSITIVE_FIELDS`) | 일반 도로·고속도로에서 침범을 봤을 때(`true`)만. 아니면 담당자 입력 칸처럼 빈다(교차로 카드의 확인할 칸을 늘리지 않는다) |
 | `movement_*`가 11/16 새 값(정차·출발·후진·추월·출차) | 항상 |
-| 담당자 입력 칸(`collision_signal_*`, `lane_marking_*`, `unprotected_left_sign`, 11/16 칸 18개 = `MANUAL_FIELDS` 23개) | **표시하지 않음.** 영상 카드에서는 `null` + `unverified`(출처 `manual`)로 나가 확정을 막지 않는다. 도표를 가르는 데 필요할 때 판단이 빈 칸 질문으로 묻는다(9절) |
+| 담당자 입력 칸(`collision_signal_*`, `lane_marking_*`, `unprotected_left_sign`, 11/16 칸 19개 = `MANUAL_FIELDS` 24개) | **표시하지 않음.** 영상 카드에서는 `null` + `unverified`(출처 `manual`)로 나가 확정을 막지 않는다. 도표를 가르는 데 필요할 때 판단이 빈 칸 질문으로 묻는다(9절) |
 
 B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참고값이다(VLM 자신감은 0.8~0.9로 거의 일정).
 
@@ -164,7 +166,7 @@ B는 `human_confirmed` 칸만 도표 선택에 쓴다. `model_confidence`는 참
 | `emergency_vehicle_A` | `emergency_vehicle_A`(카드 조립이 만듦) | 따로 묻는 짧은 VLM 질문(`fact_card.check_emergency`, 충돌 구간 사진 3장) 있음/없음 → `true`/`false`. 답 근거는 `vision_detail.reason` |
 | `center_line_crossing_*` | `centerline_cross_*` | 있음 → `true`(일반 도로·고속도로만), 그 밖은 빈 담당자 칸 |
 
-담당자 입력 23개(`MANUAL_FIELDS`)는 `V1_FIELDS`의 내부 칸이 `None`이라 `null` + `unverified`(출처 `manual`)로 나간다.
+담당자 입력 24개(`MANUAL_FIELDS`)는 `V1_FIELDS`의 내부 칸이 `None`이라 `null` + `unverified`(출처 `manual`)로 나간다.
 `불명`은 모두 `null` + `needs_review`. 내부에만 있고 v1에 내지 않는 칸: `party_count`, `lane_change_*`,
 `collision_part_*`, `motion_trend_*`, `weather`.
 

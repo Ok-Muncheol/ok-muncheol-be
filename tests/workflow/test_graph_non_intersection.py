@@ -167,3 +167,30 @@ def test_special_ego_chart_drops_out_unless_marked_and_the_reason_says_so():
     # 후보가 그 칸을 가르지 않으면 이유에 적지 않는다
     out, _ = start(c, [general], thread="run-ego-irrelevant")
     assert not any("담당자 표시 없음" in r for r in out["result"]["reasons"])
+
+
+def test_lane_change_timing_splits_both_lane_change_charts_and_leader_first_defers():
+    """두 차 모두 진로변경이면 순서를 묻는다. 동시는 43-3 모양, 뒤차 먼저는 43-5 모양을 고른다.
+
+    앞차 먼저(leader_first)는 43-5 원문이 적용하지 않는 경우라 둘 다 빠져 보류된다(C 요청).
+    """
+    both = {"location_type": "straight_road", "movement_A": "lane_change",
+            "movement_B": "lane_change"}
+    sides = [{"variant": None, "base_A": 50, "base_B": 50,
+              "conditions": {"relative_position": p, "lane_change_timing": "simultaneous"}}
+             for p in ("same_direction_front", "same_direction_rear")]
+    simultaneous = candidate("L-3", both, 50, base_variants=sides)
+    follower = candidate("L-5", {**both, "relative_position": "same_direction_rear",
+                                 "lane_change_timing": "follower_first"}, 40)
+    moves = {"movement_A": field("lane_change"), "movement_B": field("lane_change")}
+    out, _ = start(road_card(**moves), [simultaneous, follower], thread="run-lane-ask")
+    [question] = out["__interrupt__"][0].value["questions"]
+    assert question["field_key"] == "lane_change_timing"
+    assert question["options"] == ["simultaneous", "follower_first", "leader_first"]
+    for answer, chart_id in (("simultaneous", "L-3"), ("follower_first", "L-5")):
+        c = road_card(**moves, lane_change_timing=field(answer))
+        out, _ = start(c, [simultaneous, follower], thread=f"run-lane-{answer}")
+        assert (out["result"]["status"], out["result"]["chart_id"]) == ("draft_ready", chart_id)
+    c = road_card(**moves, lane_change_timing=field("leader_first"))
+    out, _ = start(c, [simultaneous, follower], thread="run-lane-leader")
+    assert out["result"]["status"] == "deferred"

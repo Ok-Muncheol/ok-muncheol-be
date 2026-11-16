@@ -77,8 +77,8 @@ def test_v1_has_every_contract_field_in_english():
     from app.schemas.facts import FACT_FIELDS
 
     out = contract.to_contract_card(internal_card())
-    # 11/16 교차로 밖 도표 칸 22개가 더해져 39칸이다(담당자 입력 18 + 영상 AI 4)
-    assert tuple(out["fields"]) == FACT_FIELDS and len(FACT_FIELDS) == 39
+    # 11/16 교차로 밖 도표 칸 23개가 더해져 40칸이다(진로 변경 순서 포함)
+    assert tuple(out["fields"]) == FACT_FIELDS and len(FACT_FIELDS) == 40
     assert set(out["fields"]) >= {
         "accident_type",
         "location_type",

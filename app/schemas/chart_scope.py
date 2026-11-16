@@ -52,6 +52,7 @@ LaneMarking = Literal[
 OvertakeLine = Literal["yellow_solid", "yellow_dashed", "white_solid", "no_passing_zone", "none"]
 UTurnZone = Literal["always", "signal", "none"]
 UTurnTiming = Literal["sudden", "simultaneous"]
+LaneChangeTiming = Literal["simultaneous", "follower_first", "leader_first"]
 SafetyZone = Literal["before_leaving", "after_leaving", "none"]
 RoundaboutLanes = Literal["one", "two_plus"]
 RoundaboutMove = Literal["circulating", "entering", "exiting"]
@@ -65,9 +66,10 @@ ChartFieldKey = Literal[
     "relative_position", "entry_order", "unprotected_left_sign", "night",
     "two_wheeler_A", "two_wheeler_B", "emergency_vehicle_A", "emergency_vehicle_B",
     "center_line_crossing_A", "center_line_crossing_B", "door_open_A", "door_open_B",
-    "overtake_line", "u_turn_zone", "u_turn_timing", "lane_reduction", "shoulder",
-    "traffic_jam", "secondary_collision", "bus_stop", "safety_zone", "roundabout_lanes",
-    "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A", "roundabout_lane_B",
+    "overtake_line", "u_turn_zone", "u_turn_timing", "lane_change_timing", "lane_reduction",
+    "shoulder", "traffic_jam", "secondary_collision", "bus_stop", "safety_zone",
+    "roundabout_lanes", "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A",
+    "roundabout_lane_B",
 ]
 # 11/13 카드 v1에 담당자 입력 칸 5개가 더해졌다(정지원 #160, 11/16 칸은 아래).
 # 영상 카드는 null + unverified로 내보내므로 판단은 그 칸으로 갈리는 도표가 후보에 남을 때만
@@ -81,6 +83,8 @@ ChartFieldKey = Literal[
 # - center_line_crossing_*·door_open_*: 중앙선 침범(차31-x)·문 열림(차52-1·61-3)
 # - overtake_line: 추월한 곳의 차선. `no_passing_zone` = 앞지르기 금지 장소(차45-x)
 # - u_turn_zone(상시·신호 유턴, 차33-x)·u_turn_timing(급·동시 유턴, 차46-1)
+# - lane_change_timing: 두 차 모두 진로변경일 때 순서. simultaneous 양옆 차로에서 동시에(차43-3),
+#   follower_first 같은 차로 뒤차가 먼저(43-5), leader_first 앞차가 먼저(도표 없음, 보류)
 # - lane_reduction(합류 차43-1)·shoulder(갓길·가장자리 차42-2·42-3·43-6)·traffic_jam(정체
 #   차43-4·45-4·61-1)·secondary_collision(앞차가 사고로 서 있음 차42-1)·bus_stop(차47-3)
 # - safety_zone: 안전지대 통과 직진(차43-7 벗어나기 전·후)
@@ -113,6 +117,7 @@ FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     "overtake_line": OvertakeLine.__args__,
     "u_turn_zone": UTurnZone.__args__,
     "u_turn_timing": UTurnTiming.__args__,
+    "lane_change_timing": LaneChangeTiming.__args__,
     "lane_reduction": _BOOL,
     "shoulder": _BOOL,
     "traffic_jam": _BOOL,

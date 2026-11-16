@@ -111,6 +111,10 @@ FACT_FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     "overtake_line": ("yellow_solid", "yellow_dashed", "white_solid", "no_passing_zone", "none"),
     "u_turn_zone": ("always", "signal", "none"),
     "u_turn_timing": ("sudden", "simultaneous"),
+    # 11/16 두 차 모두 진로변경일 때 순서(차43-3 좌우 동시, 43-5 같은 차로 뒤차 먼저).
+    # leader_first(앞차 먼저)는 43-5 원문이 적용하지 않는 경우라 도표에 쓰지 않는다
+    # (고르면 둘 다 빠져 보류, C 요청)
+    "lane_change_timing": ("simultaneous", "follower_first", "leader_first"),
     "safety_zone": ("before_leaving", "after_leaving", "none"),
     "roundabout_lanes": ("one", "two_plus"),
     "roundabout_move_A": ROUNDABOUT_MOVE_VALUES,
@@ -135,9 +139,10 @@ MANUAL_FIELDS = (
     "collision_signal_A", "collision_signal_B", "lane_marking_A", "lane_marking_B",
     "unprotected_left_sign",
     "two_wheeler_B", "emergency_vehicle_B", "door_open_A", "door_open_B",
-    "overtake_line", "u_turn_zone", "u_turn_timing", "lane_reduction", "shoulder",
-    "traffic_jam", "secondary_collision", "bus_stop", "safety_zone", "roundabout_lanes",
-    "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A", "roundabout_lane_B",
+    "overtake_line", "u_turn_zone", "u_turn_timing", "lane_change_timing", "lane_reduction",
+    "shoulder", "traffic_jam", "secondary_collision", "bus_stop", "safety_zone",
+    "roundabout_lanes", "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A",
+    "roundabout_lane_B",
 )
 # 영상 AI가 채우고 늘 needs_review로 내는 칸(11/16 2단계). 정답이 없어 늘 담당자가 확인한다.
 # 이륜차는 VLM 사고 대상 답·YOLO 상대 차 종류, 긴급자동차는 따로 묻는 짧은 VLM 질문으로 채운다
