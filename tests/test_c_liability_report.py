@@ -188,6 +188,36 @@ class LiabilityReportTest(unittest.TestCase):
         self.assertLessEqual({"ok-0", "ok-1"}, saved)
         self.assertFalse(any(x.startswith("bad-") for x in saved))
 
+    def test_medical_folder_file_cannot_be_attached_as_other_evidence(self):
+        """medical/ 파일을 영수증·사진 같은 일반 증빙으로 붙이면 거절(청구서로 새지 않게, #198)."""
+        self.ready()
+        bucket = storage.STORAGE_BUCKET
+        paths = [
+            f"{bucket}/synthetic-case/medical/a.jpg",
+            f"/{bucket}/synthetic-case/medical/a.jpg",
+            f"{bucket}/synthetic-case/MEDICAL/a.pdf",
+            f"{bucket}\\synthetic-case\\medical\\a.pdf",
+            f"{bucket}/other-case/medical/a.pdf",
+        ]
+        for i, path in enumerate(paths):
+            for doc_type in ("receipt", "photo", "other", "repair_invoice"):
+                doc = {"kind": "evidence", "document_id": f"m-{i}-{doc_type}", "doc_type": doc_type}
+                with (
+                    self.subTest(path=path, doc_type=doc_type),
+                    fx.raises_api(self, 422, "invalid_documents"),
+                ):
+                    self.add([{**doc, "storage_path": path}])
+        saved = {d["document_id"] for d in fx.record(self.actor, self.case).documents}
+        self.assertFalse(any(x.startswith("m-") for x in saved))
+        # medical이라는 파일 이름이나 다른 폴더의 일반 증빙은 그대로 받는다
+        ok = {
+            "kind": "evidence",
+            "document_id": "ok-receipt",
+            "doc_type": "receipt",
+            "storage_path": f"{bucket}/synthetic-case/receipts/medical.pdf",
+        }
+        self.add([ok])
+
     def test_invalid_injured_input_is_rejected_before_saving(self):
         self.ready()
         bad = [

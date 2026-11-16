@@ -41,6 +41,7 @@
 
 - 업로드: `POST /cases/{id}/uploads`의 `kind: "medical_document"`(PDF·JPEG, 정지원 추가) → `case-files/{case_id}/medical/{uuid}.pdf|jpg`
 - 첨부 검사: 이 두 `doc_type`의 `storage_path`는 **이 사건 `medical/` 아래 `.pdf`·`.jpg`·`.jpeg` 파일만** 받는다. 다른 사건·다른 폴더·PNG·`..`·인코딩 우회는 저장 전에 422 `invalid_storage_path`(견적서 경로 검사와 같은 규칙, 서버 키가 RLS 밖이라 이 검사가 방어선)
+- 반대로 `medical/` 폴더 파일은 이 두 `doc_type`으로만 붙일 수 있다. `receipt`·`photo` 같은 일반 증빙으로 붙이면 422 `invalid_documents`(일반 증빙은 구상 청구서로 나가므로, #198). 청구서 쪽도 진단서·영수증과 `medical/` 경로 증빙을 뺀다(D `claim_evidence`, #203)
 
 잘못된 값(급수 15, 음수 금액, 날짜 형식 등)은 저장 전에 422 `invalid_documents`로 거절한다.
 

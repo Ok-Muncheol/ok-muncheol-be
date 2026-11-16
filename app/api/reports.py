@@ -485,8 +485,16 @@ async def add_documents(
     rec = await services.repo.get(actor_id, case_id)
     validate_documents(documents)  # 저장 전에 검사(잘못된 입력이면 아무것도 바꾸지 않음)
     for doc in documents:  # 진단서·영수증 증빙은 이 사건 medical/ 아래 파일만(서버 키는 RLS 밖)
-        if doc.get("kind") == "evidence" and doc.get("doc_type") in MEDICAL_DOC_TYPES:
-            medical_object_key(case_id, str(doc.get("storage_path") or ""))
+        if doc.get("kind") != "evidence":
+            continue
+        path = str(doc.get("storage_path") or "")
+        if doc.get("doc_type") in MEDICAL_DOC_TYPES:
+            medical_object_key(case_id, path)
+        elif _in_medical_folder(path):  # 반대로 medical/ 파일은 진단서·영수증 종류로만(#198)
+            raise DocumentsInvalid(
+                "medical/ 아래 파일은 doc_type medical_certificate·medical_bill로만 붙일 수 "
+                "있습니다(진단서·영수증은 구상 청구서에 넣지 않음)"
+            )
     if case_facts:
         validate_case_facts(case_facts)
     known = {str(d["document_id"]) for d in rec.documents}
@@ -552,6 +560,12 @@ def medical_object_key(case_id: str, storage_path: str) -> str:
     if not storage_path.lower().endswith(MEDICAL_EXTENSIONS):
         raise StoragePathInvalid("진단서·진료비 영수증은 PDF·JPEG 파일이어야 합니다")
     return key
+
+
+def _in_medical_folder(storage_path: str) -> bool:
+    """경로 중간에 medical 폴더가 있는지(사건·앞 '/'·대소문자·역슬래시 무관, 파일 이름은 안 봄)."""
+    parts = [x for x in storage_path.replace("\\", "/").lower().split("/") if x]
+    return "medical" in parts[:-1]
 
 
 def _case_object_key(case_id: str, storage_path: str, folder: str, label: str) -> str:
