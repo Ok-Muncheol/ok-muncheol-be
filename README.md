@@ -92,7 +92,7 @@ flowchart TD
         M["근거 체크<br/>check_evidence"]
         N["반박 검토<br/>OpenAI LLM<br/>review_rebuttal"]
         O["과실 코드 계산·검증<br/>calculate_and_validate_fault"]
-        H -->|차대차·교차로| I --> J
+        H -->|차대차·범위 안 장소| I --> J
         J -->|미확인 칸 있음| K
         J -->|모두 담당자 확인| L --> M
         M -->|통과| N
@@ -107,7 +107,7 @@ flowchart TD
     R2(["추가 확인 필요<br/>needs_confirmation"])
     R3(["판단 보류<br/>deferred"])
 
-    H -->|"범위 밖·회전교차로 미결정"| R3
+    H -->|"범위 밖"| R3
     M -->|"검수한 도표 근거 없음"| R3
     N -->|"사실 부족·모순, 또는<br/>두 번째 도표 오선택"| R2
     O --> R1

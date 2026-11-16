@@ -11,7 +11,6 @@ from app.schemas.chart_scope import (
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
     REASON_OUT_OF_SCOPE,
-    REASON_PENDING_DECISION,
 )
 from app.workflow.graph import (
     Dependencies,
@@ -101,8 +100,8 @@ def test_confirmed_unknown_still_allows_charts_that_ignore_the_field():
     ({"accident_object": field("차대이륜차")}, REASON_OUT_OF_SCOPE),
     ({"accident_object": field("차대이륜차"), "location_type": field("불명")}, REASON_OUT_OF_SCOPE),
     ({"party_count": field(3)}, REASON_OUT_OF_SCOPE),
+    # 한국어 안 카드는 교차로만 읽는다(직선도로는 other). 회전교차로는 11/16부터 범위 안이다
     ({"location_type": field("직선도로")}, REASON_OUT_OF_SCOPE),
-    ({"location_type": field("회전교차로")}, REASON_PENDING_DECISION),
 ])
 def test_scope_is_decided_before_retrieval(fields, reason):
     _, out, retrieve, _ = start(v1_card(**fields))
@@ -189,9 +188,8 @@ def test_swapped_en_v1_question_names_the_card_field():
     ({"accident_type": field(None)}, REASON_FIELD_NOT_CONFIRMED.format(field_key="accident_type")),
     ({"location_type": field(None)}, REASON_FIELD_NOT_CONFIRMED.format(field_key="location_type")),
     ({"accident_type": field("other")}, REASON_OUT_OF_SCOPE),
-    ({"location_type": field("straight_road")}, REASON_OUT_OF_SCOPE),
-    ({"location_type": field("highway")}, REASON_OUT_OF_SCOPE),
-    ({"location_type": field("roundabout")}, REASON_PENDING_DECISION),
+    # 일반 도로·고속도로·주차장·회전교차로는 11/16부터 범위 안이다(test_graph_non_intersection.py)
+    ({"location_type": field("other")}, REASON_OUT_OF_SCOPE),
 ])
 def test_en_v1_scope_is_decided_before_retrieval(fields, reason):
     # 확인한 null(모름)은 미확인처럼 지나가지 않고 보류된다

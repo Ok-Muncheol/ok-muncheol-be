@@ -1,6 +1,7 @@
 # MVP 도표 범위 결정
 
 결정일: 2026-11-06. 근거: 정지원(비전·사실 카드) 의견, 팀 합의.
+2026-11-16 확대: 교차로 밖 도표 49개(차31~61) 중 47개와 회전교차로를 범위에 넣었다(C 김지은 안, B 반영).
 대상 코퍼스: `fault_standards`(과실비율 인정기준). 적용판(`edition`)은 C가 원문 이용조건 확인 후 manifest에 기록한다.
 이 문서는 A 카드 옵션, B 질문 분기·도표 선택, C 레코드 스키마·평가셋, D 검색 필터가 공유하는 단일 기준이다.
 
@@ -8,22 +9,23 @@
 
 | 축 | 결정 | 조건 |
 | --- | --- | --- |
-| 사고 당사자 | 차대차만 | 차대보행자·차대이륜·차대자전거는 MVP 밖 |
+| 사고 당사자 | 차대차(이륜차 포함, 11/16) | 1번 자료 제2장 적용 범위가 「자동차와 자동차(이륜차 포함)」다. 이륜차 특수유형(차45-2·61-x)은 `two_wheeler_A/B`로 가른다. 차대보행자·차대자전거는 MVP 밖. 영상 카드는 영상 AI 2단계 전까지 차대이륜차를 `other`로 내므로 담당자가 `car_to_car`로 고친다 |
 | 장소·상황 | 교차로 전체: 신호 있음, 신호 없음(동일폭·대로·일시정지와 그 쪽) | 카드 칸 `location_type`, `road_priority`로 판별 |
+| ↳ 교차로 밖 | 일반 도로(`straight_road`)·고속도로(`highway`)·주차장(`parking_lot`), 11/16 | 차31~55, 61. 원문에 고속도로 장이 따로 없어 두 곳에 쓰는 도표는 변형마다 장소를 적는다(아래 값 규칙) |
 | ↳ 일방통행 | MVP 밖 | 카드에 칸 없음. 넣으려면 A가 칸을 추가한 뒤 재논의 |
-| ↳ 회전교차로 | **미정** | 카드 칸은 있음. 팀 결정 필요 |
+| ↳ 회전교차로 | 범위 안(11/16) | 차54-1~5. 회전 차로 수·회전 진행·회전 차로로 가른다 |
 | 진행 조합 | 직진·좌회전·우회전·유턴 전 조합 | `movement_A/B` 자동 판정 정확도 약 40%. **담당자 확인 질문 필수** |
 | 수정요소: 야간 | 자동 적용 안 함 (11/10 변경) | 2023.6 도표 표에 행이 없다. 공통 수정요소이고 조건이 "등화 미점등·감속 불이행"이라 야간 여부만으로 판정할 수 없다. 담당자 판단 |
 | 수정요소: 신호위반 | 자동 적용 안 함 (11/10 변경) | 신호는 기본 비율(도표 선택)에 이미 반영된다. 도표 표의 "신호불이행·지연"은 방향지시기 신호다 |
 | 수정요소: 과속 | 제외 | 카드에 속도 칸 없음. 영상으로 과속을 판정하지 않는다(README 원칙) |
 | 수정요소: 서행 불이행 | 제외 (담당자 수동 입력 시에만) | 속도 변화 판단 약함. 자동 판정하지 않는다 |
-| 그 외 (차로변경·추월·주차장·진로변경·후진·개문, 중과실·현저한 과실 목록) | MVP 밖 | 해당 카드는 보류 응답 |
+| 그 외 | 적재물 낙하(차48-1)·보행자 신호(차53-1)는 MVP 밖 | 가를 카드 칸이 없어 검수하지 않는다. 중과실·현저한 과실은 수정요소(담당자 판단)다 |
 
 ## 도표 선택에 쓰는 카드 칸
 
 | 판단 정보 | 카드 칸 | 자동 정확도 (gpt-4o, 개선용 10건) | 도표 선택 전 요구 상태 |
 | --- | --- | --- | --- |
-| 교차로 종류 | `location_type` | 60% | `human_confirmed` |
+| 사고 장소 | `location_type` | 60% | `human_confirmed` |
 | 도로 관계 (동일폭·대로·일시정지가 어느 쪽인지) | `road_priority` | 60% | `human_confirmed` (신호 없는 교차로일 때) |
 | 진행 방향 | `movement_A`, `movement_B` | 40% | `human_confirmed` (항상 질문) |
 | 신호 (진입 시점) | `signal_A`, `signal_B` | 70% / 30% | `human_confirmed` (신호 있는 교차로) |
@@ -33,6 +35,15 @@
 | 진입 순서 | `entry_order` | 60% | 신호 없는 교차로에서만 사용. 도표 당사자 A 기준(`first` = A 선진입) |
 | 비보호 좌회전 표지 | `unprotected_left_sign` (참거짓) | 담당자 입력 | 표지로 갈리는 도표(차2-2·2-6·4-2)가 후보에 남으면 질문(11/13 #160) |
 | 야간 | (A가 칸 이름 확정) | — | 도표 선택에 쓰지 않음 (수정요소 자동 적용 안 함) |
+| 진행 방향 새 값(11/16) | `movement_A/B` `stopped`·`starting`·`reversing`·`overtaking`·`entering_road`·`leaving_road`·`parking_out`·`parking_in` | 촬영 차량 정차·출발·후진·추월은 영상 AI 2단계, 나머지는 담당자 | 진행 방향과 같다 |
+| 이륜차·긴급자동차(11/16) | `two_wheeler_A/B`, `emergency_vehicle_A/B` (참거짓) | 영상 AI 2단계(늘 확인), 그 전까지 빈 칸 | 그 칸으로 갈리는 도표가 후보에 남으면 질문 |
+| 교차로 밖 상황(11/16) | `center_line_crossing_A/B`, `door_open_A/B`, `overtake_line`, `u_turn_zone`, `u_turn_timing`, `lane_reduction`, `shoulder`, `traffic_jam`, `secondary_collision`, `bus_stop`, `safety_zone` | 담당자 입력 | 그 칸으로 갈리는 도표가 후보에 남으면 질문 |
+| 회전교차로(11/16) | `roundabout_lanes`, `roundabout_move_A/B`, `roundabout_lane_A/B` | 담당자 입력 | 회전 차로 수·회전 진행은 회전교차로 필수 칸, 회전 차로는 갈리는 도표가 남으면 질문 |
+
+장소별 필수 칸(`REQUIRED_CONFIRMED_FIELDS`, 11/16 추가):
+- 일반 도로·고속도로: 진행 방향 + 상대 위치. 원문이 마주 보는 방향(나. 차31~33)과 같은 방향(다. 차41~48)으로 먼저 나뉜다.
+- 주차장: 진행 방향.
+- 회전교차로: 회전 차로 수 + 회전 진행(`roundabout_move_A/B`). 진행 방향은 필수가 아니다.
 
 정확도는 10건 기준 참고값이며 평가 결과가 아니다. AI Hub 영상 438건 기준 측정값(gpt-5.4-mini)은 `docs/vision-fact-card-eval-report.md`에, 지금 파이프라인의 칸별 정확도는 `docs/contracts/fact-card-v1.md` 3절에 있다. 모든 칸의 `model_confidence`는 참고용이고, 도표 선택은 `verification_status="human_confirmed"`인 값만 사용한다.
 칸 허용값(enum)·보류 사유·필수 확인 칸은 `app/schemas/chart_scope.py`에 코드로 둔다. A가 칸 이름을 확정하면 이 모듈과 문서를 함께 바꾸고 `make contracts`로 견본을 재생성한다. 11/11 카드 v1 확정본에 맞춰 도로 관계·진행 방향·상대 위치·진입 순서 값을 v1 값으로 바꿨다. 범위 게이트는 `app/workflow/graph.py`의 `scope_gate`가 담당한다. C의 도표 레코드는 같은 enum으로 속성을 기록해야 필터 검색이 맞물린다.
@@ -47,20 +58,21 @@
 | --- | --- |
 | `accident_type` `car_to_car` | `car_to_car` (`other`는 범위 밖) |
 | `party_count` 3 이상(확인, 한국어 안) | 범위 밖 |
-| `signalized_intersection` · `unsignalized_intersection` · `roundabout` | 같은 값 |
-| `straight_road` · `highway` · `other` | `other`(범위 밖) |
+| `signalized_intersection` · `unsignalized_intersection` · `roundabout` · `straight_road` · `highway` · `parking_lot` | 같은 값(11/16부터 범위 안) |
+| `other` | `other`(범위 밖) |
 | `same_width` · `major_A` · `major_B` · `stop_A` · `stop_B` · `other` · `none` | 같은 값(우선 도로 쪽까지 맞아야 한다) |
-| `straight` · `left_turn` · `right_turn` · `u_turn` · `lane_change` · `other` | 같은 값 |
+| `straight` · `left_turn` · `right_turn` · `u_turn` · `lane_change` · `other`, 11/16 새 진행 값 8개 | 같은 값 |
 | `same_direction_front` · `same_direction_rear` · `opposite` · `left` · `right` | 같은 값 |
 | `green` · `yellow` · `red` · `green_left_arrow` · `flashing_yellow` · `flashing_red` · `no_signal` (`signal_*`·`collision_signal_*`) | 같은 값 |
 | `left_only` · `straight_left` · `straight_only` · `straight_right` · `right_only` · `none` (`lane_marking_*`) | 같은 값 |
 | `first` · `second` · `simultaneous` · `none` | 같은 값 |
-| `night`·`unprotected_left_sign` 참거짓 | `"true"` · `"false"` |
+| `night`·`unprotected_left_sign`·11/16 참거짓 칸 | `"true"` · `"false"` |
+| 11/16 값 칸(`overtake_line`·`u_turn_*`·`safety_zone`·`roundabout_*`) | 같은 값 |
 
 - 담당자가 확인한 모름(`value: null` + `human_confirmed`, 한국어 안은 `불명`)은 '모른다' 응답과 같다. 다시 묻지 않고, 그 칸이 `*`인 도표만 남는다. 사고 유형·장소가 모름이면 검색 전에 보류한다. 모델이 몰라 `needs_review`인 `null`은 미확인 칸이라 질문한다.
 - `none`·`other`·`lane_change`와 쪽이 붙은 도로 관계(`major_A`·`stop_B` 등)도 도표 값이다. 도표 레코드가 같은 값이나 `*`를 적었을 때만 맞는다. 11/6 카드의 `major_minor`·`stop_sign`은 쪽이 없어 어떤 도표 값과도 맞지 않는다.
 - 영상 카드의 담당자 입력 칸(충돌 순간 신호·노면표시·비보호 표지)은 `null` + `unverified`라 사실도 '모름'도 아니다. 그 칸으로 갈리는 도표가 후보에 남을 때만 질문한다.
-- A/B(v1 2절): 카드 B = 촬영 차량이다. 도표 A가 카드 B면(`party_mapping.chart_party_A_id` = `video_ego_party_id`) B가 읽을 때 뒤집는다. `movement_*`·`signal_*`·`collision_signal_*`·`lane_marking_*` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`, `first`↔`second`, `left`↔`right`, `same_direction_front`↔`same_direction_rear`를 바꾼다(`opposite`는 그대로). 질문 문구도 카드 쪽 칸으로 쓴다. 11/6 카드·한국어 안은 카드 A/B를 도표 A/B로 본다.
+- A/B(v1 2절): 카드 B = 촬영 차량이다. 도표 A가 카드 B면(`party_mapping.chart_party_A_id` = `video_ego_party_id`) B가 읽을 때 뒤집는다. `_A`·`_B`로 끝나는 칸(`movement_*`·`signal_*`·`collision_signal_*`·`lane_marking_*`, 11/16 칸 포함)을 모두 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`, `first`↔`second`, `left`↔`right`, `same_direction_front`↔`same_direction_rear`를 바꾼다(`opposite`는 그대로). 질문 문구도 카드 쪽 칸으로 쓴다. 11/6 카드·한국어 안은 카드 A/B를 도표 A/B로 본다.
 - 구분 질문은 카드 형식으로 낸다(계약 문서 「구분 질문과 재개」). 가정 실행(질의응답)도 도표 선택 칸·값을 카드 쪽으로 되돌려 넣는다.
 
 ## 도표 레코드 값 규칙
@@ -73,6 +85,8 @@
 - 장소별 필수 칸(`REQUIRED_CONFIRMED_FIELDS`)은 도표가 속성이나 변형 조건으로 모두 정의해야 한다. `*`도 정의로 친다.
 - 「값이 여럿인 도표」(예: 직진 또는 좌회전)는 값마다 변형을 나눠 같은 비율을 넣는다. 카드와 맞는 변형이 하나도 없는 도표는 순위에 올리지 않는다.
 - 변형마다 가르는 칸이 달라도 된다(예: 차2-2는 녹색 좌회전 변형만 `unprotected_left_sign` `"false"`, 적색 좌회전 변형은 `*`). 판단은 카드와 아직 어긋나지 않는 변형의 칸만 묻는다. 적색 좌회전 카드에는 표지를 묻지 않는다(2026-11-13).
+- 여러 장소에 쓰는 도표(일반 도로·고속도로 공통 등, 11/16)는 `location_type`을 `scope_attributes`에서 빼고 변형마다 범위 안 장소를 적어 같은 비율로 나눈다. 장소에는 `*`를 쓸 수 없다(교차로 도표와 섞인다). 필수 칸은 변형의 장소 기준이다. 카드 장소와 맞는 변형이 없는 도표는 장소 불일치로 빠진다.
+- 적지 않은 칸은 그 도표와 무관(`*`와 같음)으로 본다. 그래서 같은 사고 모양에서 이륜차·긴급자동차·정체 같은 칸으로만 갈리는 짝 도표(예: 긴급자동차 차55-1과 신호 교차로 도표)는 `false`를 적어야 겹치지 않는다(11/16).
 - 수정요소는 `code`·`conditions`를 null로 둔다. 과속(`speeding`)·서행 불이행(`slow_down_failure`)만 담당자 입력 전용 코드로 표시할 수 있다.
 - 적용판·유효기간·발행월은 레코드 안 문서 사본이 아니라 검증된 검색 결과의 문서 값(`corpus_documents`)에서 읽는다. 시행일이 비어 있으면 근거 검증은 통과시키되 경고를 남긴다.
 - 발행월(`published_month`, 원문 판권면 `YYYY-MM`)이 있으면 그보다 앞선 달의 사고는 근거 검증 ①에서 막는다(보류). 발행되기 전의 사고에 그 판을 적용할 수 없기 때문이다. 같은 달 사고는 시행일을 몰라 경고만 남긴다.
@@ -89,6 +103,14 @@
 
 2023.6판(`fault-standards-2023-06`) 「가. 교차로 사고」 중 차대차 도표는 **차1~21, 59개**다(목차 절 기준, 2026-11-10 C 집계).
 도표 번호만 적는다. 비율·원문은 비공개 데이터(`charts.jsonl`)에 있다.
+2026-11-16: 「나.~마.」의 교차로 밖 차대차 도표 **차31~61, 49개**를 범위에 넣었다. 차48-1·53-1은 가를 칸이 없어 검수하지 않는다(47개 대상).
+
+| 원문 절(교차로 밖) | 도표 | 개수 |
+| --- | --- | --- |
+| 나. 마주보는 방향(중앙선 침범·교행·유턴) | 차31-1~31-4, 차32-1, 차33-1~33-2 | 7 |
+| 다. 같은 방향(추돌·주정차·진로변경·도로 진입·추월·유턴·정차 후 출발·낙하물) | 차41-1, 차42-1~42-3, 차43-1~43-7, 차44-1, 차45-1~45-6, 차46-1, 차47-1~47-3, 차48-1 | 23 |
+| 라. 기타(주차장·문 열림·횡단보도·회전교차로·긴급자동차) | 차51-1~51-2, 차52-1, 차53-1, 차54-1~54-5, 차55-1~55-7 | 16 |
+| 마. 자동차 대 이륜차 특수유형 | 차61-1~61-3 | 3 |
 
 | 원문 절 | 도표 | 개수 |
 | --- | --- | --- |
@@ -132,7 +154,8 @@
 | 차4-1, 4-2 (2차) | 2 |
 | 차2-1, 2-4, 3-1, 3-2, 3-6, 7-1, 8-1~8-3, 9-1, 9-2, 10-1, 12-2, 13-1, 13-3, 13-4, 14-1, 15-1, 16-1~16-5, 17-1, 17-2, 18-1, 18-2 (3차) | 27 |
 | 차1-2, 1-5, 2-2, 2-3, 2-5, 3-5, 3-7, 3-8, 11-1~11-6 (4차) | 14 |
-| 합계 | 50 / 59 |
+| 합계(교차로) | 50 / 59 |
+| 교차로 밖(5차 예정, 11/16) | 0 / 47 |
 
 2026-11-11: 검수한 9개에 `relative_position`을 채웠다. 측면 진입(차1-1, 1-3, 1-4, 3-3, 3-4)은 `left`·`right` 변형, 맞은편(차2-6, 4-1, 4-2)은 `opposite`, 차12-1은 `right`.
 
@@ -156,5 +179,7 @@
 
 - C: 남은 9개(범위 밖 차5-2·7-2·13-2·20-2, 한쪽 신호 차5-1·6-1, 동시 회전 차19-1·20-1·21-1)는 범위·칸 결정 뒤 검수한다.
 - A: `one_way`(일방통행)·야간 칸 추가 여부와 enum 확정.
-- 팀: 회전교차로 포함 여부 결정.
+- 팀: 회전교차로 포함 여부 결정 → 11/16 포함.
+- C: 교차로 밖 47개 검수(5차). 짝 도표의 `false`(이륜차·긴급자동차 등)는 이미 검수한 교차로 도표에도 더한다.
+- A 몫(B 대행): 영상 AI 2단계. 촬영 차량 정차·출발·후진·추월, 이륜차·긴급자동차(늘 확인), 차대이륜차 → `car_to_car`, 주차장 → `parking_lot`, 질문 버전 올리기, 정답 64건으로 기존 칸 재확인(v0.5 포함).
 - C·B: 범위 내 도표마다 정답 카드 1~2건으로 평가셋 작성.

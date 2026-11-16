@@ -1,4 +1,4 @@
-"""A: 비전 내부 카드(한국어 22칸) → 팀 계약 사실 카드 v1(영어 17칸, 2026-11-11 확정·11-13 5칸 추가).
+"""A: 비전 내부 카드(한국어 22칸) → 팀 계약 사실 카드 v1(영어 39칸, 11-11 확정·11-13·11-16 칸 추가).
 
 내부 카드는 학습·평가에 쓰는 세분 값 그대로 두고, 판단(B)·화면(FE)에 넘길 때만 이 변환을 거친다.
 채점(evals/vision/score_v1.py)도 같은 표를 쓴다. 표를 바꾸면 docs/contracts/fact-card-v1.md도 함께
@@ -8,8 +8,9 @@
   바꾸고,
   vision_detail에는 내부 값(internal_value)을 남긴다.
 - '불명'·빈값은 null + needs_review. A/B는 그대로(B = 블랙박스 차).
-- 담당자 입력 칸(MANUAL_FIELDS: 충돌 시점 신호·차로 노면표시·비보호 좌회전 표지)은 비전이 채우지
-  않는다. null + unverified(출처 manual)로 내고 확정을 막지 않는다.
+- 담당자 입력 칸(MANUAL_FIELDS: 충돌 시점 신호·차로 노면표시·비보호 좌회전 표지, 11/16 교차로 밖
+  도표 칸)은 비전이 채우지 않는다. null + unverified(출처 manual)로 내고 확정을 막지 않는다.
+  이륜차·긴급자동차(VISION_REVIEW_FIELDS)도 영상 AI를 붙이기(2단계) 전까지는 같은 빈 칸으로 낸다.
 - 충돌 시각·근거 프레임 시각에는 영상을 잘라 분석했을 때 자른 시작 시각(offset_ms)을 더해 원본 영상
   기준으로 돌려준다.
 """
@@ -82,8 +83,18 @@ V1_FIELDS: dict[str, tuple[str | None, dict | None]] = {
     "lane_marking_B": (None, None),
     "relative_position": ("relative_position", POSITION),
     "entry_order": ("entry_order", ENTRY),
+    # 11/16 교차로 밖 도표 칸(담당자 입력, 이륜차·긴급자동차는 영상 AI 2단계 전까지 빈 칸)
+    **{name: (None, None) for name in (
+        "overtake_line", "u_turn_zone", "u_turn_timing", "safety_zone", "roundabout_lanes",
+        "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A", "roundabout_lane_B",
+    )},
     "night": ("time_condition", None),
     "unprotected_left_sign": (None, None),
+    **{name: (None, None) for name in (
+        "two_wheeler_A", "two_wheeler_B", "emergency_vehicle_A", "emergency_vehicle_B",
+        "center_line_crossing_A", "center_line_crossing_B", "door_open_A", "door_open_B",
+        "lane_reduction", "shoulder", "traffic_jam", "secondary_collision", "bus_stop",
+    )},
     "collision_time_ms": ("collision_time_ms", None),
     "narrative": ("narrative", None),
 }
@@ -181,7 +192,7 @@ def to_contract_card(
     fields = card.get("fields", {})
     out_fields = {}
     for v1_name, (internal, _) in V1_FIELDS.items():
-        if v1_name in MANUAL_FIELDS:
+        if v1_name in MANUAL_FIELDS or internal is None:
             out_fields[v1_name] = manual_field()
         elif internal in fields:
             out_fields[v1_name] = _convert_field(v1_name, internal, fields[internal], offset_ms)

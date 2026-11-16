@@ -101,7 +101,7 @@ def test_variants_split_required_field_and_any_value_is_allowed():
         (lambda e: e["scope_attributes"].update(signal_A="blue"), "허용값이 아니다"),
         (lambda e: e["scope_attributes"].update(lane="left"), "FIELD_OPTIONS에 없다"),
         (lambda e: e["scope_attributes"].pop("signal_B"), r"필수 칸 \['signal_B'\]"),
-        (lambda e: e["scope_attributes"].update(location_type="roundabout"), "MVP 범위가 아니다"),
+        (lambda e: e["scope_attributes"].update(location_type="other"), "MVP 범위가 아니다"),
         (lambda e: e["source_check"].update(pdf_page=11), "도표 시작 쪽"),
         (lambda e: e["scope_variants"][0].update(variant="가"), "원문 표 변형"),
         (lambda e: e["scope_variants"][0].update(conditions={"signal_A": "green"}), "겹친다"),
@@ -173,3 +173,60 @@ def test_unresolved_modifier_cells_and_wrong_document_are_rejected():
         csr.apply_scope_review([record()], [modifier()], wrong)
     with pytest.raises(ValueError, match="schema"):
         csr.apply_scope_review([record()], [modifier()], {"charts": {}})
+
+
+# ── 여러 장소에 쓰는 도표(11/16, 일반 도로·고속도로 공통) ─────────────────
+
+ROAD = {"accident_type": "car_to_car", "movement_A": "straight", "movement_B": "lane_change",
+        "relative_position": "same_direction_rear"}
+
+
+def by_place(*places, **conditions):
+    return [{**ONE_VARIANT, "conditions": {"location_type": p, **conditions}} for p in places]
+
+
+def test_chart_for_two_places_puts_location_in_each_variant():
+    records = [record()]
+    csr.apply_scope_review(records, [modifier()],
+                           review({"S-1": entry(ROAD, by_place("straight_road", "highway"))}))
+    assert [v["conditions"] for v in records[0]["scope_variants"]] == [
+        {"location_type": "straight_road"}, {"location_type": "highway"}]
+    assert "location_type" not in records[0]["scope_attributes"]
+
+
+@pytest.mark.parametrize(
+    ("attributes", "variants", "message"),
+    [
+        # 장소가 속성에도 변형에도 없다
+        (ROAD, [ONE_VARIANT], "location_type None는 MVP 범위가 아니다"),
+        # 장소 `*`는 교차로 도표와 섞여서 쓸 수 없다
+        (ROAD, by_place("*"), "location_type '\\*'는 MVP 범위가 아니다"),
+        # 한 변형만 장소를 적었다
+        (ROAD, [*by_place("straight_road"),
+                {**ONE_VARIANT, "conditions": {"shoulder": "true"}}], "location_type None"),
+        # 필수 칸은 변형의 장소 기준이다: 고속도로 변형이 상대 위치를 정의하지 않는다
+        ({k: v for k, v in ROAD.items() if k != "relative_position"},
+         [*by_place("straight_road", relative_position="*"), *by_place("highway")],
+         r"필수 칸 \['relative_position'\]"),
+        # 회전교차로 필수 칸은 회전 차로 수·회전 진행이다(진행 방향이 아니다)
+        ({"accident_type": "car_to_car", "location_type": "roundabout",
+          "roundabout_move_A": "circulating", "roundabout_move_B": "entering"},
+         [ONE_VARIANT], r"필수 칸 \['roundabout_lanes'\]"),
+    ],
+)
+def test_place_and_required_fields_are_checked_per_variant(attributes, variants, message):
+    records = [record()]
+    before = deepcopy(records)
+    with pytest.raises(ValueError, match=message):
+        csr.apply_scope_review(records, [modifier()], review({"S-1": entry(attributes, variants)}))
+    assert records == before
+
+
+def test_new_field_values_are_checked():
+    bad = {**ROAD, "location_type": "straight_road", "overtake_line": "yellow"}
+    with pytest.raises(ValueError, match="overtake_line='yellow'는 허용값이 아니다"):
+        csr.apply_scope_review([record()], [modifier()], review({"S-1": entry(bad)}))
+    ok = {**ROAD, "location_type": "parking_lot", "movement_B": "parking_out", "door_open_A": "*"}
+    records = [record()]
+    csr.apply_scope_review(records, [modifier()], review({"S-1": entry(ok)}))
+    assert records[0]["scope_attributes"]["movement_B"] == "parking_out"

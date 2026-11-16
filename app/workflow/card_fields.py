@@ -18,9 +18,11 @@
 - 한국어 안의 `해당없음`과 대응하는 도표 값이 없는 한국어 값은 그대로 둬서 `*`과만 맞는다
   (fail-closed). 11/6 카드의 `major_minor`·`stop_sign`은 쪽이 없어 어떤 도표 값과도 맞지 않는다.
 - v1 2절: 카드의 B는 촬영 차량이다. 도표 A가 카드 B(`chart_party_A_id` = `video_ego_party_id`)면
-  A/B를 뒤집어 읽는다. `_A`·`_B` 칸을 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`,
+  A/B를 뒤집어 읽는다. `_A`·`_B` 칸을 모두 맞바꾸고 `major_A`↔`major_B`, `stop_A`↔`stop_B`,
   `first`↔`second`, `left`↔`right`, `same_direction_front`↔`same_direction_rear`를 바꾼다
   (`opposite`는 그대로). 질문의 칸 이름도 카드 쪽 이름으로 되돌린다(`card_field_key`).
+- 11/16 교차로 밖 장소(`straight_road`·`highway`·`parking_lot`·`roundabout`)는 v1 카드에서 그대로
+  범위 안 값이다. 한국어 안·11/6 카드는 교차로만 읽는다(한국어 안의 직선도로 등은 `other`).
 """
 
 from collections.abc import Mapping
@@ -83,10 +85,19 @@ _V1_ONLY_KEYS = frozenset({
     # 11/13 담당자 입력 칸(#160)
     "collision_signal_A", "collision_signal_B", "lane_marking_A", "lane_marking_B",
     "unprotected_left_sign",
+    # 11/16 교차로 밖 도표 칸
+    "two_wheeler_A", "two_wheeler_B", "emergency_vehicle_A", "emergency_vehicle_B",
+    "center_line_crossing_A", "center_line_crossing_B", "door_open_A", "door_open_B",
+    "overtake_line", "u_turn_zone", "u_turn_timing", "lane_reduction", "shoulder",
+    "traffic_jam", "secondary_collision", "bus_stop", "safety_zone", "roundabout_lanes",
+    "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A", "roundabout_lane_B",
 })
 # 11/6 도표 선택 값. 지금 `chart_scope`는 v1 값이라, 형식 판정은 이 값과 견준다
 # (여기 없는 v1 값이 있으면 확정본 카드다). 나머지 칸은 11/6과 지금 값이 같다
 _LEGACY_OPTIONS: dict[str, frozenset[str]] = {
+    "location_type": frozenset({
+        "signalized_intersection", "unsignalized_intersection", "roundabout", "other",
+    }),
     "road_priority": frozenset({"same_width", "major_minor", "stop_sign"}),
     "movement_A": frozenset({"straight", "left_turn", "right_turn", "u_turn"}),
     "movement_B": frozenset({"straight", "left_turn", "right_turn", "u_turn"}),
@@ -99,12 +110,11 @@ _V1_ONLY_VALUES: dict[str, frozenset[str]] = {
     for key, values in FACT_FIELD_OPTIONS.items() if key in FIELD_OPTIONS
 }
 
-# v1 2절: 도표 A가 카드 B면 맞바꾸는 칸·값
+# v1 2절: 도표 A가 카드 B면 맞바꾸는 칸(쪽이 붙은 도표 선택 칸 모두)·값.
+# 11/16 칸(이륜차·긴급자동차·중앙선 침범·문 열림·회전교차로 진행·회전 차로)도 여기서 같이 맞바뀐다
 _SWAP_KEYS: dict[str, str] = {
-    "movement_A": "movement_B", "movement_B": "movement_A",
-    "signal_A": "signal_B", "signal_B": "signal_A",
-    "collision_signal_A": "collision_signal_B", "collision_signal_B": "collision_signal_A",
-    "lane_marking_A": "lane_marking_B", "lane_marking_B": "lane_marking_A",
+    key: key[:-1] + ("B" if key.endswith("_A") else "A")
+    for key in FIELD_OPTIONS if key.endswith(("_A", "_B"))
 }
 _SWAP_VALUES: dict[str, dict[str, str]] = {
     "road_priority": {
@@ -131,8 +141,6 @@ V1_VALUES: dict[str, dict[str, str]] = {
         "T자형교차로": "unsignalized_intersection",
         "회전교차로": "roundabout",
         "직선도로": "other", "고속도로": "other", "주차장": "other", "차도와비차도": "other",
-        # v1 확정본: 직선도로·고속도로를 따로 내지만 범위 밖 보류는 그대로다(v1 8절)
-        "straight_road": "other", "highway": "other",
     },
     "road_priority": {"동일폭": "same_width"},
     "movement_A": _MOVES,
