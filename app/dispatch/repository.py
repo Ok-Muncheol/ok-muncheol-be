@@ -123,6 +123,14 @@ from public.case_intakes i
 where {visible}
 """
 
+# 오늘 접수의 지역별 수(관제 지도). 지역을 판별하지 못한 접수(region null)는 세지 않는다
+_TODAY_BY_REGION_SQL = """
+select i.region, count(*) as n
+from public.case_intakes i
+where {visible} and i.received_at >= %(day_start)s and i.region is not null
+group by i.region
+"""
+
 _SIMULATED_STAGES_SQL = """
 select {stage} as stage, count(*) as n
 from public.case_intakes i
@@ -288,6 +296,13 @@ async def get_intake(conn: AsyncConnection, intake_id: object, now: datetime) ->
 
 async def summary(conn: AsyncConnection, now: datetime, day_start: datetime) -> Row:
     return await _one(conn, _fill(_SUMMARY_SQL), {"now": now, "day_start": day_start})
+
+
+async def received_today_by_region(
+    conn: AsyncConnection, now: datetime, day_start: datetime
+) -> dict[str, int]:
+    rows = await _all(conn, _fill(_TODAY_BY_REGION_SQL), {"now": now, "day_start": day_start})
+    return {row["region"]: int(row["n"]) for row in rows}
 
 
 async def simulated_stage_counts(conn: AsyncConnection, now: datetime) -> dict[str, int]:
