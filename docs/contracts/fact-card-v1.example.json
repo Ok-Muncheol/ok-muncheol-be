@@ -409,6 +409,15 @@
       "evidence_frame_ids": [],
       "source_document_ids": []
     },
+    "lane_change_timing": {
+      "value": null,
+      "model_value": null,
+      "source": "manual",
+      "model_confidence": null,
+      "verification_status": "unverified",
+      "evidence_frame_ids": [],
+      "source_document_ids": []
+    },
     "safety_zone": {
       "value": null,
       "model_value": null,

@@ -421,3 +421,15 @@ def test_road_rear_end_search_query_adds_the_collision_word():
     # 교차로 검색 문장은 그대로다(검수한 교차로 도표 결과 유지)
     assert not text(location_type=field("unsignalized_intersection")).endswith("추돌")
 
+
+def test_lane_change_timing_search_words_follow_chart_titles():
+    def text(value):
+        return build_search_query(en_v1_card(
+            location_type=field("straight_road"), movement_A=field("lane_change"),
+            movement_B=field("lane_change"), relative_position=field("same_direction_rear"),
+            signal_A=field(None), signal_B=field(None), lane_change_timing=field(value)))["text"]
+
+    assert text("simultaneous").endswith("좌우 동시 차로 변경")
+    assert text("follower_first").endswith("동일차로 후행차 선 진로변경")
+    assert text("leader_first") == "A 후행 진로변경 B 선행 진로변경"  # 앞차 먼저는 도표가 없다
+

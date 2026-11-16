@@ -106,7 +106,8 @@ V1_FIELDS: dict[str, tuple[str | None, dict | None]] = {
     # 11/16 교차로 밖 도표 칸. 내부 칸이 None이면 담당자 입력 칸이다. 이륜차·긴급자동차(A)는 카드
     # 조립(fact_card.assemble_card)이 만드는 내부 칸, 중앙선 침범은 VLM이 이미 답하는 내부 칸이다
     **{name: (None, None) for name in (
-        "overtake_line", "u_turn_zone", "u_turn_timing", "safety_zone", "roundabout_lanes",
+        "overtake_line", "u_turn_zone", "u_turn_timing", "lane_change_timing", "safety_zone",
+        "roundabout_lanes",
         "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A", "roundabout_lane_B",
     )},
     "night": ("time_condition", None),

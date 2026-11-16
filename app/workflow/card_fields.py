@@ -90,9 +90,10 @@ _V1_ONLY_KEYS = frozenset({
     # 11/16 교차로 밖 도표 칸
     "two_wheeler_A", "two_wheeler_B", "emergency_vehicle_A", "emergency_vehicle_B",
     "center_line_crossing_A", "center_line_crossing_B", "door_open_A", "door_open_B",
-    "overtake_line", "u_turn_zone", "u_turn_timing", "lane_reduction", "shoulder",
-    "traffic_jam", "secondary_collision", "bus_stop", "safety_zone", "roundabout_lanes",
-    "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A", "roundabout_lane_B",
+    "overtake_line", "u_turn_zone", "u_turn_timing", "lane_change_timing", "lane_reduction",
+    "shoulder", "traffic_jam", "secondary_collision", "bus_stop", "safety_zone",
+    "roundabout_lanes", "roundabout_move_A", "roundabout_move_B", "roundabout_lane_A",
+    "roundabout_lane_B",
 })
 # 11/6 도표 선택 값. 지금 `chart_scope`는 v1 값이라, 형식 판정은 이 값과 견준다
 # (여기 없는 v1 값이 있으면 확정본 카드다). 나머지 칸은 11/6과 지금 값이 같다

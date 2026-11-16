@@ -90,7 +90,8 @@ CRITERIA_VERSION = "fault_standards:2023.6"
 # (card_fields.EGO_ASSUMED_FALSE)
 # 11/16.3: 도표 후보 검색 깊이 50 → 100(candidates.CHART_SEARCH_TOP_K, 5차 검수 시범 실행)
 # 11/16.4: 교차로 밖 같은 방향 직진·정차 두 차의 검색어에 '추돌'(candidates._REAR_END_MOVES)
-RULE_VERSION = "judgment-rules-2026.11.16.4"
+# 11/16.5: 진로 변경 순서 칸(lane_change_timing, 차43-3·43-5)
+RULE_VERSION = "judgment-rules-2026.11.16.5"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
@@ -117,6 +118,7 @@ FIELD_LABELS = {
     "overtake_line": "추월한 곳의 차선(황색 실선·점선, 흰색 실선, 앞지르기 금지 장소)",
     "u_turn_zone": "유턴 구역(상시 유턴·신호 유턴)",
     "u_turn_timing": "뒤차의 유턴 시점(급 유턴·동시 유턴)",
+    "lane_change_timing": "두 차의 진로 변경 순서(양옆 차로 동시·같은 차로 뒤차 먼저·앞차 먼저)",
     "lane_reduction": "차로 감소(합류) 여부", "shoulder": "갓길·도로 가장자리 여부",
     "traffic_jam": "정체 여부", "secondary_collision": "2차 사고(앞차가 사고로 정차 중) 여부",
     "bus_stop": "버스정류장 여부", "safety_zone": "안전지대 통과(벗어나기 전·후)",
