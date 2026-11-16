@@ -64,6 +64,8 @@
 
 `insured_fault`, `fault_source`(`judgment`·`agreed`), `accident_date`, `property`(`PropertyDamageResult` 또는 `null`), `injuries`(`InjuryResult` 목록), `notice`. 필드는 `app/schemas/liability.py`.
 
+`InjuryResult`에는 입력값 `label`·`grade`·`treatment_cost`·`is_driver`가 그 사람의 최신 입력 그대로 실린다. 고치기 화면은 이 값으로 시작한다. 운전자 여부를 빈칸(모름)으로 시작하면 다시 저장할 때 `null`로 덮여, 12~14급에 운전자 확인이 다시 붙는다. `is_driver`는 11/16에 더했고, 그 전에 만든 보고서에는 이 키가 없다.
+
 ### 8번 `body["대물·대인 1차 판정"]` (입력이 있을 때만)
 
 | 칸 | 내용 |

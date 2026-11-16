@@ -62,6 +62,9 @@ class InjuryResult(TypedDict):
     label: NotRequired[str | None]
     grade: int | None
     treatment_cost: int | None
+    # 입력한 차량운전자 여부(모름 None). 고치기 화면이 이 값으로 시작한다(빈칸이면 다시 저장할 때
+    # None으로 덮인다). 이 칸이 생기기 전 보고서에는 없다
+    is_driver: NotRequired[bool | None]
     consolation: int | None  # 급수별 부상 위자료(별표1 나 2)
     damage: int | None  # 치료관계비 + 위자료
     after_offset: int | None  # 과실상계 후 = 손해 × 우리 과실

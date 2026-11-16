@@ -130,6 +130,21 @@ class LiabilityReportTest(unittest.TestCase):
         self.assertEqual(section(report, 8)["body"][KEY]["대인"][0]["피해자"], "상대 운전자")
         self.assertIsNone(report["liability"]["property"])  # 대물 입력 없음
 
+    def test_injury_result_returns_latest_is_driver(self):
+        # 고치기 화면이 운전자 여부를 이전 값으로 시작하도록 최신 입력값을 싣는다(모름은 None)
+        self.ready()
+        first = self.add([injured(is_driver=False), injured("inj-2", person="P3-passenger")])
+        people = {p["person_id"]: p for p in first["liability"]["injuries"]}
+        self.assertIs(people["P2-driver"]["is_driver"], False)
+        self.assertIsNone(people["P3-passenger"]["is_driver"])
+        # 운전자 여부만 고쳐도 새 버전에 바뀐 값이 실린다
+        edited = self.add([injured("inj-3", at="11:00", is_driver=True)])
+        self.assertEqual(
+            edited["versions"]["report_version"], first["versions"]["report_version"] + 1
+        )
+        people = {p["person_id"]: p for p in edited["liability"]["injuries"]}
+        self.assertIs(people["P2-driver"]["is_driver"], True)
+
     def test_property_input_supplies_limit(self):
         self.ready()
         limit = {
@@ -284,7 +299,8 @@ class LiabilityRouteTest(unittest.TestCase):
 
     def test_documents_route_returns_liability_unchanged(self):
         asyncio.run(api.submit_judgment("handler-1", fx.card(), fx.judgment(fault_A=30)))
-        docs = [fx.contract(), fx.estimate(), *fx.evidence(), cp_estimate(), injured(label="A")]
+        person = injured(label="A", is_driver=False)
+        docs = [fx.contract(), fx.estimate(), *fx.evidence(), cp_estimate(), person]
         res = self.client.post(
             "/cases/synthetic-case/documents", json={"documents": docs, "case_facts": NO_FLAGS}
         )
@@ -293,6 +309,8 @@ class LiabilityRouteTest(unittest.TestCase):
         stored = asyncio.run(api.get_report("handler-1", "synthetic-case", version))
         self.assertEqual(res.json(), json.loads(json.dumps(stored, ensure_ascii=False)))
         self.assertEqual(res.json()["liability"]["injuries"][0]["label"], "A")
+        # 응답 모델이 운전자 여부를 떨어뜨리지 않는다(고치기 화면이 이 값으로 시작)
+        self.assertIs(res.json()["liability"]["injuries"][0]["is_driver"], False)
         bad = {"documents": [injured(grade=0)]}
         res = self.client.post("/cases/synthetic-case/documents", json=bad)
         self.assertEqual(res.status_code, 422)
