@@ -32,6 +32,7 @@ from app.schemas.chart_scope import (
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
     REASON_OUT_OF_SCOPE,
+    REASON_SWAP_HINT,
     REQUIRED_CONFIRMED_FIELDS,
     unconfirmed_fields,
 )
@@ -61,6 +62,8 @@ from app.workflow.card_fields import (
     chart_key,
     chart_view,
     confirmed_unknown_fields,
+    is_swapped,
+    other_side,
     question_options,
 )
 from app.workflow.state import ChartSelection, JudgmentState, Outcome
@@ -81,6 +84,8 @@ MAX_REBUTTAL_RETRIES = 1
 # 검수 전 도표가 20개 넘게 섞이므로 검색 점수가 높은 앞쪽만 보여 준다
 MAX_LISTED_EXCLUDED = 5
 MAX_LISTED_UNREVIEWED = 3
+# 보류 사유 끝의 도표 A/B 맞바꿈 대조(swap_hints)에 적는 도표 수(남는 도표·가까운 도표 각각)
+MAX_LISTED_SWAP = 3
 # 실행 입력 버전(judgment_runs). 같은 카드·인정기준·규칙 버전이면 다시 판단하지 않는다.
 # 인정기준은 data/corpora/fault_standards/manifest.json의 적용판이다.
 # 규칙 버전은 이 그래프·검증 규칙을 바꿀 때 올린다
@@ -91,7 +96,8 @@ CRITERIA_VERSION = "fault_standards:2023.6"
 # 11/16.3: 도표 후보 검색 깊이 50 → 100(candidates.CHART_SEARCH_TOP_K, 5차 검수 시범 실행)
 # 11/16.4: 교차로 밖 같은 방향 직진·정차 두 차의 검색어에 '추돌'(candidates._REAR_END_MOVES)
 # 11/16.5: 진로 변경 순서 칸(lane_change_timing, 차43-3·43-5)
-RULE_VERSION = "judgment-rules-2026.11.16.5"
+# 11/16.6: 고를 도표가 없으면 도표 A/B를 맞바꿔 대조한 결과를 보류 사유 끝에 붙인다(swap_hints)
+RULE_VERSION = "judgment-rules-2026.11.16.6"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
 # 질문 문구. 카드 쪽 칸 이름으로 찾는다(v1 맞바꿈이면 담당자가 고칠 카드 칸의 A/B로 묻는다)
@@ -314,6 +320,27 @@ def _matched_fields(candidate: ChartCandidate, values: dict[str, str]) -> list[s
     return matched + best
 
 
+def _mismatch(candidate: ChartCandidate, values: dict[str, str]) -> list[str]:
+    """확인한 값과 어긋난 도표 속성 칸(`*` 제외). 장소를 변형마다 적은 도표는 장소도 본다."""
+    attributes = _concrete(candidate["attributes"])
+    mismatch = [k for k, v in attributes.items() if k in values and values[k] != v]
+    if "location_type" not in attributes and _other_places(candidate, values):
+        mismatch.append("location_type")
+    return mismatch
+
+
+def _differs(candidate: ChartCandidate, values: dict[str, str]) -> list[str]:
+    """카드와 다른 도표 칸 전부: 속성 + 가장 덜 어긋나는 기본 과실 변형의 조건(`*` 제외).
+
+    이 칸들을 고치면 카드로 고를 수 있다(모름·미정의 칸은 `_ruled_out`이 따로 본다).
+    """
+    mismatch = _mismatch(candidate, values)
+    conflicts = [[k for k, x in _concrete(v["conditions"]).items()
+                  if k in values and values[k] != x and k not in mismatch]
+                 for v in candidate["base_variants"]]
+    return mismatch + min(conflicts, key=len, default=[])
+
+
 def _ruled_out(
     candidate: ChartCandidate, values: dict[str, str], unknown: set[str], required: set[str],
 ) -> str | None:
@@ -324,10 +351,7 @@ def _ruled_out(
     """
     # 장소처럼 카드와 이미 어긋난 칸을 먼저 본다. 다른 장소 도표는 그 장소의 필수 칸이 없어도
     # "미정의"가 아니라 "불일치"로 보고하는 편이 정확하다
-    attributes = _concrete(candidate["attributes"])
-    mismatch = [k for k, v in attributes.items() if k in values and values[k] != v]
-    if "location_type" not in attributes and _other_places(candidate, values):
-        mismatch.append("location_type")
+    mismatch = _mismatch(candidate, values)
     if mismatch:
         return f"카드와 불일치 {mismatch}"
     keys = set(candidate["attributes"])
@@ -335,6 +359,7 @@ def _ruled_out(
         keys |= set(variant["conditions"])
     if not required <= keys:
         return f"구분 칸 {sorted(required - keys)} 미정의"
+    attributes = _concrete(candidate["attributes"])
     unverifiable = [k for k in attributes if k not in values and k in unknown]
     if unverifiable:
         return f"확인 불가 칸 {unverifiable}"
@@ -411,6 +436,61 @@ def _rank(state: JudgmentState) -> tuple[list[ChartCandidate], list[tuple[str, s
     if preferred and any(c["chart_id"] == preferred for c in ordered):
         ordered.sort(key=lambda c: c["chart_id"] != preferred)
     return ordered, skipped
+
+
+def _flipped_card(card: FactCard) -> FactCard | None:
+    """도표 A/B 당사자를 맞바꾼 카드 사본. 맞바꿔도 읽는 방향이 같으면 None.
+
+    카드 v1이 아니거나 촬영 차를 모르면 `is_swapped`가 늘 거짓이라 맞바꿔 읽을 수 없다.
+    """
+    mapping = card["party_mapping"]
+    flipped: FactCard = {**card, "party_mapping": {
+        **mapping, "chart_party_A_id": mapping["chart_party_B_id"],
+        "chart_party_B_id": mapping["chart_party_A_id"],
+    }}
+    return flipped if is_swapped(flipped) != is_swapped(card) else None
+
+
+def _titled(candidate: ChartCandidate) -> str:
+    title = candidate.get("title")
+    return f"{candidate['chart_id']} 「{title}」" if title else candidate["chart_id"]
+
+
+def swap_hints(state: JudgmentState) -> list[str]:
+    """고를 도표가 없을 때 도표 A/B 당사자를 맞바꿔 다시 대조한 결과. 보류 사유 끝에 붙인다.
+
+    도표 A는 담당자가 정한다(카드 v1 2절). 그런데 도표가 정해지기 전에는 어느 차가 A인지 알기
+    어렵다(예: 진로변경 도표는 뒤에서 직진한 차가 A다). 그래서 맞바꾸면 남는 후보 도표와, 맞바꾸면
+    카드와 덜 어긋나는 도표 중 가장 가까운 것을 다른 칸과 함께 알린다. 판정은 바꾸지 않는다.
+    - 가까운 도표는 맞바꿔서 다른 칸이 줄어드는 도표다. 장소가 다른 도표는 뺀다(장소는 쪽이 없어
+      맞바꿔도 그대로다).
+    - 칸 이름은 다른 사유 줄처럼 지금 방향의 도표 선택 칸으로 적는다(FE가 매핑으로 카드 칸 이름을
+      붙인다).
+    """
+    card = state["card"]
+    flipped = _flipped_card(card)
+    if flipped is None:
+        return []
+    unknown = [other_side(k) for k in state.get("unknown_fields", [])]
+    remaining, _ = _rank({**state, "card": flipped, "unknown_fields": unknown})
+    lines: list[str] = []
+    if remaining:
+        charts = ", ".join(_titled(c) for c in remaining[:MAX_LISTED_SWAP])
+        lines.append(f"{REASON_SWAP_HINT} 남는 도표: {charts}")
+    values, flipped_values = confirmed_values(card), confirmed_values(flipped)
+    kept = {c["chart_id"] for c in remaining}
+    closer: list[tuple[int, float, ChartCandidate, list[str]]] = []
+    for candidate in _eligible(state):
+        left = _differs(candidate, flipped_values)
+        if (candidate["chart_id"] in kept or not left or "location_type" in left
+                or len(left) >= len(_differs(candidate, values))):
+            continue
+        closer.append((len(left), -candidate["score"], candidate, left))
+    fewest = min((item[0] for item in closer), default=0)
+    nearest = sorted((item for item in closer if item[0] == fewest), key=lambda item: item[1])
+    lines += [f"{REASON_SWAP_HINT} {_titled(c)}: 카드와 불일치 {[other_side(k) for k in left]}"
+              for _, _, c, left in nearest[:MAX_LISTED_SWAP]]
+    return lines
 
 
 def _pick_variant(candidate: ChartCandidate, values: dict[str, str]) -> tuple[object, list[str]]:
@@ -576,7 +656,7 @@ def build_graph(
                                MAX_LISTED_EXCLUDED, "제외한 도표")
             update["outcome"] = _outcome(
                 "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
-                or [REASON_NO_REVIEWED_CHART, *excluded]
+                or [REASON_NO_REVIEWED_CHART, *excluded, *swap_hints(state)]
             )
             return update
         best = ranked[0]

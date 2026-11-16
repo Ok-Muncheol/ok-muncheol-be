@@ -176,6 +176,9 @@ MANUAL_MODIFIER_SOURCE = "담당자 입력"
 REASON_OUT_OF_SCOPE = "MVP 범위 밖 사고 유형(도표 미적재)"
 REASON_NO_REVIEWED_CHART = "검수한 도표 근거 없음"
 REASON_FIELD_NOT_CONFIRMED = "도표 선택 칸 미확인: {field_key}"
+# 고를 도표가 없을 때 도표 A/B를 맞바꿔 대조한 줄의 머리말(graph.swap_hints). FE가 이 머리말로 줄을
+# 모아 보인다
+REASON_SWAP_HINT = "도표 A/B를 맞바꾸면"
 
 # C 도표 레코드·D 필터 검색이 공유하는 fault_standards 속성 키.
 CHART_FILTER_KEYS: tuple[str, ...] = (

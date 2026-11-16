@@ -9,9 +9,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.schemas.chart_scope import (
+    ANY_VALUE,
     FIELD_OPTIONS,
     IN_SCOPE_LOCATION_TYPES,
     REASON_NO_REVIEWED_CHART,
+    REASON_SWAP_HINT,
     REQUIRED_CONFIRMED_FIELDS,
     LocationType,
 )
@@ -194,3 +196,70 @@ def test_lane_change_timing_splits_both_lane_change_charts_and_leader_first_defe
     c = road_card(**moves, lane_change_timing=field("leader_first"))
     out, _ = start(c, [simultaneous, follower], thread="run-lane-leader")
     assert out["result"]["status"] == "deferred"
+
+
+# ── 도표 A/B 맞바꿈 대조(swap_hints, 11/16.6) ──────────────────────────────
+# 상대 차(카드 A)가 앞에서 진로변경, 블랙박스 차(카드 B)가 뒤에서 직진. 도표(ROAD)는 A가 후행
+# 직진이라 기본 매핑(도표 A = 상대 차)으로는 두 차의 진행 방향이 거꾸로 대조된다
+CUT_IN = {"movement_A": field("lane_change"), "movement_B": field("straight")}
+
+
+def test_no_chart_suggests_swapping_chart_parties():
+    """고를 도표가 없으면 도표 A/B를 맞바꿔 대조한 결과를 보류 사유 끝에 붙인다. 판정은 그대로다."""
+    c = road_card(**CUT_IN, relative_position=field("same_direction_front"))
+    out, _ = start(c, [candidate("R-1", ROAD, 30)], thread="run-swap-hint")
+    result = out["result"]
+    assert (result["status"], result["chart_id"]) == ("deferred", None)
+    assert result["reasons"] == [
+        REASON_NO_REVIEWED_CHART,
+        "R-1: 카드와 불일치 ['movement_A', 'movement_B', 'relative_position']",
+        f"{REASON_SWAP_HINT} 남는 도표: R-1 「synthetic R-1」",
+    ]
+    # 담당자가 맞바꾸면(도표 A = 블랙박스 차) 그 도표를 고른다
+    swapped = en_v1_card(swapped=True, location_type=field("straight_road"), **CUT_IN,
+                         relative_position=field("same_direction_front"), **NO_SIGNAL)
+    out, _ = start(swapped, [candidate("R-1", ROAD, 30)], thread="run-swap-hint-done")
+    assert (out["result"]["status"], out["result"]["chart_id"]) == ("draft_ready", "R-1")
+
+
+def test_swap_hint_names_the_nearest_chart_and_what_still_differs():
+    """상대 위치를 옆 도로(right)로 적고 도표 A도 거꾸로 둔 카드(운영 보류 사례 모양).
+
+    맞바꾸면 상대 위치를 따지지 않는 합류 도표(M-1)가 남고, 진로변경 도표(R-1)는 상대 위치만 다르다.
+    맞바꿔도 장소가 다른 도표(H-1)는 적지 않는다.
+    """
+    merge = candidate("M-1", {**ROAD, "relative_position": ANY_VALUE, "lane_reduction": "true"},
+                      40, score=0.5)
+    highway = candidate("H-1", {**ROAD, "location_type": "highway"}, 30, score=0.7)
+    c = road_card(**CUT_IN, relative_position=field("right"))
+    out, _ = start(c, [candidate("R-1", ROAD, 30, score=0.9), merge, highway],
+                   thread="run-swap-near")
+    assert out["result"]["status"] == "deferred"
+    assert [r for r in out["result"]["reasons"] if r.startswith(REASON_SWAP_HINT)] == [
+        f"{REASON_SWAP_HINT} 남는 도표: M-1 「synthetic M-1」",
+        f"{REASON_SWAP_HINT} R-1 「synthetic R-1」: 카드와 불일치 ['relative_position']",
+    ]
+
+
+def test_swap_hint_writes_side_fields_in_the_current_chart_terms():
+    """맞바꿔 대조한 칸도 지금 방향의 도표 칸 이름으로 적는다(FE가 매핑으로 카드 칸 이름을 붙인다).
+
+    도표 A가 이륜차인 도표는 맞바꾸면 도표 A가 블랙박스 차(카드 B)라 표시 없는 '이륜차 아님'과
+    어긋난다. 지금 방향에서 블랙박스 차는 도표 B라 two_wheeler_B로 적는다.
+    """
+    bike = candidate("B-1", {**ROAD, "two_wheeler_A": "true"}, 30)
+    c = road_card(**CUT_IN, relative_position=field("same_direction_front"))
+    out, _ = start(c, [bike], thread="run-swap-side")
+    assert out["result"]["reasons"][-1] == (
+        f"{REASON_SWAP_HINT} B-1 「synthetic B-1」: 카드와 불일치 ['two_wheeler_B']")
+
+
+def test_swap_hint_is_left_out_when_swapping_does_not_help():
+    # 장소가 다른 도표만 있으면 맞바꿔도 그대로라 붙이지 않는다
+    highway = candidate("H-1", {**ROAD, "location_type": "highway"}, 30)
+    out, _ = start(road_card(**CUT_IN, relative_position=field("same_direction_front")),
+                   [highway], thread="run-swap-none")
+    assert out["result"]["reasons"] == [
+        REASON_NO_REVIEWED_CHART,
+        "H-1: 카드와 불일치 ['location_type', 'movement_A', 'movement_B', 'relative_position']",
+    ]
