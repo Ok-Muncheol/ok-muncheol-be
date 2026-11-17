@@ -864,6 +864,67 @@ def scenario_outcome(scenarios: list[UnknownScenario], unknown: list[str]) -> di
     return update
 
 
+def ai_values(card: FactCard) -> dict[str, str]:
+    """카드 칸의 AI 원값(model_value)을 도표 선택 칸·값으로. 담당자 입력 칸처럼 원값이 없으면 뺀다.
+
+    '모른다'고 답한 칸도 영상 AI가 처음 채운 값은 남아 있다. 경우를 고를 때 그 값을 쓴다.
+    """
+    fake = {**card, "fields": {
+        k: {**f, "value": f.get("model_value"), "verification_status": "human_confirmed"}
+        for k, f in card["fields"].items() if f.get("model_value") is not None
+    }}
+    return confirmed_values(fake)  # type: ignore[arg-type]
+
+
+def scenario_choice(
+    scenarios: list[UnknownScenario], ai: dict[str, str]
+) -> tuple[UnknownScenario, str] | None:
+    """판단을 이어 갈 경우와 그 까닭("same"·"ai"). 고를 수 없으면 None(추가 확인 필요).
+
+    - 모든 경우의 기본 과실이 같으면 그 비율로 이어 간다. 경우가 여럿이면 AI 원값과 맞는 칸이
+      많은 경우, 같으면 앞(검색 점수 순)의 경우.
+    - 다르면 경우가 요구하는 값 중 AI 원값이 있는 칸은 모두 맞고, 맞는 칸이 하나 이상인 경우만
+      고른다(맞는 칸이 많은 경우, 같으면 앞의 경우). 없으면 None.
+    """
+    def fit(s: UnknownScenario) -> int | None:
+        known = [k for k in s["fields"] if k in ai]
+        if any(ai[k] != s["fields"][k] for k in known):
+            return None
+        return len(known)
+
+    if not scenarios:
+        return None
+    same = len({(s["base_A"], s["base_B"]) for s in scenarios}) == 1
+    scored = [(fit(s), i, s) for i, s in enumerate(scenarios)]
+    if same:
+        best = max(scored, key=lambda x: (x[0] or 0, -x[1]))
+        return best[2], "same"
+    matching = [(n, i, s) for n, i, s in scored if n]
+    if not matching:
+        return None
+    return max(matching, key=lambda x: (x[0], -x[1]))[2], "ai"
+
+
+def scenario_reasons(
+    choice: UnknownScenario, why: str, scenarios: list[UnknownScenario], unknown: list[str]
+) -> list[str]:
+    """이어 간 판단의 사유 첫 줄들 — 모르는 칸을 무엇으로 보았는지와 다른 경우."""
+    keys = sorted(choice["fields"].keys() & set(unknown), key=lambda k: _FIELD_ORDER.get(k, 99))
+    labels = ", ".join(FIELD_LABELS.get(k, k) for k in keys) or "모르는 칸"
+    guess = ", ".join(
+        f"{FIELD_LABELS.get(k, k)} {korean_value(v)}" for k, v in choice["fields"].items()
+    )
+    if why == "same":
+        head = (f"모른다고 답한 칸({labels})은 어느 값이어도 기본 과실이 "
+                f"A {choice['base_A']} : B {choice['base_B']}로 같아 "
+                f"{choice['chart_id']}로 판단했어요(검색된 검수 도표 기준)")
+        return [head]
+    others = [s for s in scenarios if s is not choice]
+    head = (f"모른다고 답한 칸({labels})은 AI 추정값({guess})으로 가정해 {choice['chart_id']}로 "
+            "판단했어요. 사실이 다르면 카드를 고쳐 다시 판단해 주세요")
+    return [head, *(["다른 경우:", *scenario_lines(others)] if others else [])]
+
+
 def _outcome(status: str, reasons: list[str]) -> Outcome:
     return {"status": status, "reasons": reasons}  # type: ignore[typeddict-item]
 
@@ -941,13 +1002,44 @@ def build_graph(
         unknown = [k for k in _required_fields(card) if k in state.get("unknown_fields", [])]
         update: dict = {"stage": "select_chart_and_modifiers", "selection": None}
         ranked, skipped = _rank(state)
+
+        def continue_with_scenario(scenarios: list[UnknownScenario]) -> dict:
+            """모르는 칸의 경우 하나로 판단을 이어 간다(scenario_choice). 못 고르면 확인 필요."""
+            picked = scenario_choice(scenarios, ai_values(card))
+            if picked is None:
+                return {**update, **scenario_outcome(scenarios, state["unknown_fields"])}
+            choice, why = picked
+            trial = {**values, **choice["fields"]}
+            best_ = next(c for c in _eligible(state) if c["chart_id"] == choice["chart_id"])
+            variant_ = _pick_variant(best_, trial)[0]
+            if variant_ is None:  # 경우를 만든 순위와 같아 생기지 않지만, 생기면 확인으로
+                return {**update, **scenario_outcome(scenarios, state["unknown_fields"])}
+            unresolved_ = _unresolved_modifiers(best_)
+            matched_ = _matched_fields(best_, values)
+            others = [c for c in ranked if c["chart_id"] != best_["chart_id"]]
+            selection_: ChartSelection = {
+                "chart_id": best_["chart_id"], "parent_id": best_["parent_id"],
+                "edition": best_["edition"], "variant": variant_,  # type: ignore[typeddict-item]
+                "applied_modifiers": [], "unresolved_modifiers": unresolved_,  # type: ignore[typeddict-item]
+                "alternatives": [c["chart_id"] for c in others],
+                "reasons": [
+                    *scenario_reasons(choice, why, scenarios, state["unknown_fields"]),
+                    f"{best_['chart_id']} 선택: 확인한 칸 {len(matched_)}개 일치"
+                    f" ({', '.join(matched_)})",
+                ],
+                "modifier_decisions": modifier_decisions(best_, unresolved_),
+                "alternative_reasons": alternative_reasons(state, best_, others, skipped, values),
+            }
+            return {**update, "selection": selection_, "selected_chart_id": best_["chart_id"],
+                    "scenarios": scenarios}
+
         if not ranked:
             excluded = _listed([f"{chart_id}: {why}" for chart_id, why in skipped],
                                MAX_LISTED_EXCLUDED, "제외한 도표")
-            # 모른다고 답한 칸 때문에 막혔으면 그 칸 값마다 결과를 보여 준다(추가 확인 필요)
+            # 모른다고 답한 칸 때문에 막혔으면 경우 중 하나로 이어 가거나(같은 비율·AI 추정값) 확인
             scenarios = unknown_scenarios(state)
             if scenarios:
-                return {**update, **scenario_outcome(scenarios, state["unknown_fields"])}
+                return continue_with_scenario(scenarios)
             update["outcome"] = _outcome(
                 "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
                 or [REASON_NO_REVIEWED_CHART, *no_shape_lines(state), *excluded,
@@ -957,7 +1049,7 @@ def build_graph(
         best = ranked[0]
         variant, missing = _pick_variant(best, values)
         if variant is None and (scenarios := unknown_scenarios(state)):
-            return {**update, **scenario_outcome(scenarios, state["unknown_fields"])}
+            return continue_with_scenario(scenarios)
         if variant is None:
             update["outcome"] = _outcome(
                 "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in missing]

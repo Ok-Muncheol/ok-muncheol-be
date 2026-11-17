@@ -19,7 +19,6 @@ from app.workflow.graph import (
     CRITERIA_VERSION,
     MAX_REBUTTAL_RETRIES,
     SCENARIO_DIFFERENT,
-    SCENARIO_SAME,
     STAGES,
     Dependencies,
     UnconfirmedCardError,
@@ -547,8 +546,8 @@ def test_no_scenarios_when_nothing_was_answered_unknown():
     assert result["status"] == "deferred"
 
 
-def test_unknown_with_the_same_ratio_in_every_case_gives_that_ratio():
-    """모르는 칸이 어느 값이어도 기본 과실이 같으면 그 비율을 결과로 낸다(추가 확인 필요)."""
+def test_unknown_with_the_same_ratio_in_every_case_continues_to_draft():
+    """모르는 칸이 어느 값이어도 기본 과실이 같으면 그 도표로 판단을 이어 가 초안이 된다."""
     same = candidate("N-1", UNSIGNALIZED, 30, score=0.9, base_variants=[
         {"variant": "가", "base_A": 30, "base_B": 70, "conditions": {"entry_order": "first"}},
         {"variant": "나", "base_A": 30, "base_B": 70, "conditions": {"entry_order": "second"}},
@@ -561,11 +560,36 @@ def test_unknown_with_the_same_ratio_in_every_case_gives_that_ratio():
     answer = {"question_id": question["question_id"], "expected_card_version": 3,
               "value": None, "unknown": True}
     result = asyncio.run(graph.ainvoke(Command(resume=[answer]), cfg))["result"]
-    assert result["status"] == "needs_confirmation"
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "N-1")
     assert (result["fault_A"], result["fault_B"], result["base_fault_A"]) == (30, 70, 30)
-    assert result["reasons"][0] == SCENARIO_SAME.format(
-        labels="교차로 진입 순서(A 기준)", a=30, b=70)
-    assert len(result["scenarios"]) == 2
+    assert result["reasons"][0].startswith(
+        "모른다고 답한 칸(교차로 진입 순서(A 기준))은 어느 값이어도")
+    assert len(result["scenarios"]) == 2  # 경우별 결과는 결과에 남는다
+
+
+def test_unknown_with_different_ratios_follows_the_ai_value():
+    """값마다 기본 과실이 다르면 모르는 칸의 AI 원값과 맞는 경우로 판단을 이어 간다."""
+    from tests.workflow.synthetic import candidates as two  # S-1 좌회전 20:80, S-2 직진 50:50
+    c = card()
+    c["fields"]["movement_B"] = {**field(None), "source": "vision", "model_value": "straight"}
+    _, out, reviewer = run(c, cands=two())
+    result = out["result"]
+    assert (result["status"], result["chart_id"]) == ("draft_ready", "S-2")
+    assert (result["fault_A"], result["fault_B"]) == (50, 50)
+    assert result["reasons"][0].startswith(
+        "모른다고 답한 칸(B 차량의 진행 방향)은 AI 추정값(B 차량의 진행 방향 직진)으로 가정해 S-2")
+    assert "다른 경우:" in result["reasons"]
+    assert reviewer.await_count == 1  # 정식 판단이라 반박 검토도 돈다
+
+
+def test_unknown_without_an_ai_value_still_needs_confirmation():
+    """AI 원값이 없는 칸(담당자 입력)을 모른다고 하면 고를 근거가 없어 추가 확인 필요다."""
+    from tests.workflow.synthetic import candidates as two
+    c = card()
+    c["fields"]["movement_B"] = field(None)  # source manual, model_value 없음
+    _, out, _ = run(c, cands=two())
+    assert out["result"]["status"] == "needs_confirmation"
+    assert out["result"]["fault_A"] is None
 
 
 def unknown(*keys):
