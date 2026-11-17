@@ -8,6 +8,7 @@ from langgraph.types import Command
 
 from app.schemas.chart_scope import (
     ANY_VALUE,
+    FIELD_OPTIONS,
     REASON_NO_REVIEWED_CHART,
     REASON_NO_SHAPE,
     REASON_OUT_OF_SCOPE,
@@ -28,6 +29,7 @@ from app.workflow.graph import (
     question_id,
     run_outcome,
     thread_config,
+    value_label,
 )
 from tests.workflow.synthetic import SIGNALIZED, candidate, candidates, card, field, verdict
 
@@ -98,14 +100,14 @@ def test_unconfirmed_field_asks_then_unknown_defers():
     assert result["status"] == "needs_confirmation"
     assert result["reasons"] == [
         SCENARIO_DIFFERENT.format(labels="B 차량의 진행 방향"),
-        "B 차량의 진행 방향 좌회전 → S-1 A 20 : B 80",
-        "B 차량의 진행 방향 직진 → S-2 A 50 : B 50",
+        "B 차량의 진행 방향 좌회전 → S-1 「synthetic S-1」 A 20 : B 80",
+        "B 차량의 진행 방향 직진 → S-2 「synthetic S-2」 A 50 : B 50",
     ]
     assert result["scenarios"] == [
-        {"fields": {"movement_B": "left_turn"}, "chart_id": "S-1", "variant": None,
-         "base_A": 20, "base_B": 80},
-        {"fields": {"movement_B": "straight"}, "chart_id": "S-2", "variant": None,
-         "base_A": 50, "base_B": 50},
+        {"fields": {"movement_B": "left_turn"}, "card_fields": {"movement_B": "left_turn"},
+         "chart_id": "S-1", "title": "synthetic S-1", "variant": None, "base_A": 20, "base_B": 80},
+        {"fields": {"movement_B": "straight"}, "card_fields": {"movement_B": "straight"},
+         "chart_id": "S-2", "title": "synthetic S-2", "variant": None, "base_A": 50, "base_B": 50},
     ]
     assert (result["chart_id"], result["fault_A"], result["questions"]) == (None, None, [])
     assert reviewer.await_count == 0
@@ -532,8 +534,8 @@ def test_unknown_scenarios_list_each_value_but_never_pick_one():
     ]
     assert result["reasons"] == [
         SCENARIO_DIFFERENT.format(labels="교차로 진입 순서(A 기준)"),
-        "교차로 진입 순서(A 기준) 선진입 → N-1 (가) A 20 : B 80",
-        "교차로 진입 순서(A 기준) 후진입 → N-1 (나) A 60 : B 40",
+        "교차로 진입 순서(A 기준) 선진입 → N-1 「synthetic N-1」 (가) A 20 : B 80",
+        "교차로 진입 순서(A 기준) 후진입 → N-1 「synthetic N-1」 (나) A 60 : B 40",
     ]
 
 
@@ -564,3 +566,160 @@ def test_unknown_with_the_same_ratio_in_every_case_gives_that_ratio():
     assert result["reasons"][0] == SCENARIO_SAME.format(
         labels="교차로 진입 순서(A 기준)", a=30, b=70)
     assert len(result["scenarios"]) == 2
+
+
+def unknown(*keys):
+    """card()에서 넘긴 칸을 담당자가 '모름'으로 확인한 카드(값 없음 + 확인함)."""
+    c = card()
+    for key in keys:
+        c["fields"][key] = field(None)
+    return c
+
+
+def scenarios_of(card_, cands):
+    """그 카드·후보로 끝까지 돌린 결과와 경우별 도표를 (도표, 변형, 칸→값)으로 줄인 것."""
+    result = run(card_, cands=cands)[1]["result"]
+    return result, [(s["chart_id"], s["variant"], s["fields"]) for s in result.get("scenarios", [])]
+
+
+def test_scenarios_list_only_the_fields_each_chart_needs():
+    """모르는 칸이 여럿이어도 경우에는 그 도표가 요구하는 칸만 적는다.
+
+    2026-11-17 운영: 모르는 칸 15개의 값 조합을 통째로 넣어 보니 앞 40개가 모두 같은 도표였고
+    도표가 쓰지 않는 칸까지 한 줄에 다 적혔다. 도표마다 그 도표의 조건만 적어야 서로 다른 도표가
+    보인다.
+    """
+    left = candidate("S-1", {**SIGNALIZED, "movement_B": "left_turn"}, 20, score=0.9)
+    straight = candidate("S-2", {**SIGNALIZED, "movement_B": "straight"}, 50, score=0.8,
+                         base_variants=[
+        {"variant": None, "base_A": 50, "base_B": 50, "conditions": {"night": "true"}},
+    ])
+    # 카드와 이미 어긋난 도표(A 좌회전)는 모르는 칸을 무엇으로 채워도 고를 수 없다
+    other = candidate("S-3", {**SIGNALIZED, "movement_A": "left_turn", "movement_B": "u_turn"},
+                      70, score=0.7)
+    c = unknown("movement_B", "night")
+    c["fields"]["relative_position"] = field(None)  # 어느 도표도 쓰지 않는 모르는 칸
+    result, listed = scenarios_of(c, [left, straight, other])
+    assert (result["status"], result["fault_A"]) == ("needs_confirmation", None)
+    assert listed == [
+        ("S-1", None, {"movement_B": "left_turn"}),
+        ("S-2", None, {"movement_B": "straight", "night": "true"}),
+    ]
+    assert result["reasons"] == [
+        # 안내 문장에는 '모른다'고 한 칸 중 경우에 걸린 칸만 적는다(상대 위치는 어느 도표도 안 쓴다)
+        SCENARIO_DIFFERENT.format(labels="B 차량의 진행 방향, 야간 여부"),
+        "B 차량의 진행 방향 좌회전 → S-1 「synthetic S-1」 A 20 : B 80",
+        "B 차량의 진행 방향 직진, 야간 여부 예 → S-2 「synthetic S-2」 A 50 : B 50",
+    ]
+
+
+def test_many_unknown_fields_do_not_fake_a_common_ratio():
+    """모르는 칸이 많아도 카드와 맞을 수 있는 도표를 모두 견주고, 비율이 다르면 공통 비율을 안 낸다.
+
+    값 조합 앞 40개만 넣어 보던 때는 모르는 칸이 많으면 그 40개가 모두 한 도표라 "어느 값이어도
+    같다"가 됐다(2026-11-17 운영 카드: 모르는 칸 15개 → 차44-1 20:80, 실제로는 비율이 다른 도표가
+    10개 더 있었다).
+    """
+    charts = [
+        candidate(f"S-{i}", {**SIGNALIZED, "movement_B": move,
+                             "collision_signal_A": "red", "collision_signal_B": "green",
+                             "lane_marking_A": "left_only", "lane_marking_B": "right_only",
+                             "unprotected_left_sign": "true"}, base, score=1 - i / 10)
+        for i, (move, base) in enumerate([("left_turn", 20), ("straight", 50), ("u_turn", 80)])
+    ]
+    c = unknown("movement_B", "collision_signal_A", "collision_signal_B", "lane_marking_A",
+                "lane_marking_B", "unprotected_left_sign")
+    result, listed = scenarios_of(c, charts)
+    assert [(chart, fields["movement_B"]) for chart, _, fields in listed] == [
+        ("S-0", "left_turn"), ("S-1", "straight"), ("S-2", "u_turn"),
+    ]
+    assert (result["status"], result["fault_A"], result["base_fault_A"]) == (
+        "needs_confirmation", None, None)
+    # 안내 문장은 모르는 칸 이름을 앞 4개까지만 적는다
+    assert result["reasons"][0] == SCENARIO_DIFFERENT.format(
+        labels="B 차량의 진행 방향, A 차량의 충돌 순간 신호, B 차량의 충돌 순간 신호, "
+               "A 차량이 있던 차로의 노면표시(방향 화살표) 외 2칸")
+
+
+def test_scenario_lines_merge_values_that_lead_to_the_same_variant():
+    """사유 줄은 도표·변형·비율이 같고 한 칸의 값만 다른 경우를 한 줄로 묶는다.
+
+    결과의 경우(scenarios)는 칸마다 값 하나씩 그대로 둔다.
+    """
+    split = candidate("S-1", {**SIGNALIZED, "movement_B": "straight"}, 30, score=0.9,
+                      base_variants=[
+        {"variant": None, "base_A": 30, "base_B": 70, "conditions": {"relative_position": "right"}},
+        {"variant": None, "base_A": 30, "base_B": 70, "conditions": {"relative_position": "left"}},
+    ])
+    # 두 칸이 2×2로 갈린 변형 넷도 한 줄이 된다
+    grid = candidate("S-2", {**SIGNALIZED, "movement_B": "left_turn"}, 50, score=0.8,
+                     base_variants=[
+        {"variant": None, "base_A": 50, "base_B": 50,
+         "conditions": {"collision_signal_A": a, "collision_signal_B": b}}
+        for a in ("yellow", "red") for b in ("yellow", "red")
+    ])
+    c = unknown("movement_B", "collision_signal_A", "collision_signal_B")
+    c["fields"]["relative_position"] = field(None)
+    result, listed = scenarios_of(c, [split, grid])
+    assert listed[:2] == [
+        ("S-1", None, {"movement_B": "straight", "relative_position": "right"}),
+        ("S-1", None, {"movement_B": "straight", "relative_position": "left"}),
+    ]
+    assert len(listed) == 6
+    assert result["reasons"][1:] == [
+        # 값은 칸의 보기 순서다(왼쪽이 오른쪽보다, 황색이 적색보다 앞)
+        "B 차량의 진행 방향 직진, 상대 위치(B가 가는 방향에서 볼 때 A가 있던 쪽) 왼쪽 또는 오른쪽"
+        " → S-1 「synthetic S-1」 A 30 : B 70",
+        "B 차량의 진행 방향 좌회전, A 차량의 충돌 순간 신호 황색 또는 적색, "
+        "B 차량의 충돌 순간 신호 황색 또는 적색 → S-2 「synthetic S-2」 A 50 : B 50",
+    ]
+
+
+def test_scenarios_keep_variants_with_different_ratios_apart():
+    """값만 다르고 비율이 다른 변형은 묶지 않는다. 같은 도표의 경우는 이어서 나온다."""
+    by_side = candidate("S-1", {**SIGNALIZED, "movement_B": "straight"}, 30, score=0.5,
+                        base_variants=[
+        {"variant": "가", "base_A": 30, "base_B": 70, "conditions": {"relative_position": "left"}},
+        {"variant": "나", "base_A": 80, "base_B": 20, "conditions": {"relative_position": "right"}},
+    ])
+    turn = candidate("S-2", {**SIGNALIZED, "movement_B": "left_turn"}, 20, score=0.9)
+    c = unknown("movement_B")
+    c["fields"]["relative_position"] = field(None)
+    result, listed = scenarios_of(c, [turn, by_side])
+    assert listed == [
+        ("S-2", None, {"movement_B": "left_turn"}),
+        ("S-1", "가", {"movement_B": "straight", "relative_position": "left"}),
+        ("S-1", "나", {"movement_B": "straight", "relative_position": "right"}),
+    ]
+    assert len(result["reasons"]) == 4
+
+
+def test_scenario_follows_the_chart_the_judgment_would_pick():
+    """경우의 도표는 그 값을 카드에 넣었을 때 판단이 고를 도표다(일치 칸 수가 많은 쪽)."""
+    loose = candidate("S-1", {**SIGNALIZED, "movement_B": "left_turn"}, 20, score=0.9)
+    # 같은 좌회전이지만 비보호 표지까지 맞아야 하는 도표. 그 값이면 일치 칸이 더 많아 이쪽을 고른다
+    tight = candidate("S-2", {**SIGNALIZED, "movement_B": "left_turn",
+                              "unprotected_left_sign": "true"}, 60, score=0.5)
+    c = unknown("movement_B", "unprotected_left_sign")
+    _, listed = scenarios_of(c, [loose, tight])
+    assert listed == [
+        ("S-1", None, {"movement_B": "left_turn"}),
+        ("S-2", None, {"movement_B": "left_turn", "unprotected_left_sign": "true"}),
+    ]
+
+
+def test_value_labels_cover_every_chart_field_value():
+    """사유에 적는 값 낱말은 영어 값 그대로 나가지 않는다(범위 칸인 사고 유형·장소 제외)."""
+    raw = [(key, value) for key, options in FIELD_OPTIONS.items()
+           if key not in ("accident_type", "location_type")
+           for value in options if value_label(key, value) == value]
+    assert raw == []
+    assert (value_label("relative_position", "left"), value_label("relative_position", "right")) \
+        == ("왼쪽", "오른쪽")
+    assert (value_label("road_priority", "major_A"), value_label("road_priority", "major_B")) \
+        == ("A 쪽이 대로", "B 쪽이 대로")
+    assert (value_label("night", "true"), value_label("door_open_B", "false")) == ("예", "아니오")
+    # 같은 값(동시)도 칸마다 뜻이 다르다
+    assert [value_label(key, "simultaneous")
+            for key in ("u_turn_timing", "lane_change_timing", "entry_order")] \
+        == ["동시 유턴", "양옆 차로 동시", "동시 진입"]
