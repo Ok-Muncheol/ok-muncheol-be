@@ -6,6 +6,8 @@
 보고서(최신 판단의 것, 판정이 초안 작성 가능일 때) → report, 판단(최신 카드 버전의 것) → judgment,
 끝나지 않았거나 실패한 최신 분석 → analysis, 카드 → facts, 없으면 intake.
 카드를 고쳐 새 버전이 생기면 이전 판단은 그 카드의 것이 아니므로 facts로 돌아간다.
+판단·보고서까지 간 사건에 영상을 다시 올리면 분석이 대기·진행 중인 동안은 analysis가 먼저다
+(접수부터 다시). 끝나면 분석 카드가 새 버전이라 facts, 실패하면 이전 단계 그대로다.
 추가 확인 필요·보류 판정도 보고서를 만들지만(judgments.py) 승인할 수 없어 판단 단계에 둔다.
 """
 
@@ -195,9 +197,9 @@ def summarize(row: dict) -> dict[str, object]:
         and row.get("report_judgment_version") == run_version
     )
     # 최신 분석이 끝나지 않았거나 실패했고, 그 뒤에 만든 카드가 없으면 분석 단계다.
-    # 판단까지 간 사건에 영상을 새로 올렸으면(영상 없이 진행한 사건) 분석이 대기·진행 중인
-    # 동안만 분석 단계다. 끝나면 분석 카드가 새 버전이라 사실 카드로 돌아가고,
-    # 실패하면 이전 판단이 그대로다
+    # 판단·보고서까지 간 사건에 영상을 새로 올렸으면(영상 다시 올리기·영상 없이 진행한 사건)
+    # 분석이 대기·진행 중인 동안만 분석 단계다. 끝나면 분석 카드가 새 버전이라 사실 카드로
+    # 돌아가고, 실패하면 이전 판단·보고서가 그대로다
     analysis = row.get("analysis_status")
     card_at, analysis_at = row.get("card_at"), row.get("analysis_at")
     analysis_now = (
@@ -205,10 +207,11 @@ def summarize(row: dict) -> dict[str, object]:
         and (not run_now or analysis in ("queued", "running"))
         and (not card_version or (card_at is not None and analysis_at > card_at))
     )
-    if report_now:
-        stage, task_status = "report", None
-    elif analysis_now:
+    # 새 분석을 보고서보다 먼저 본다 — 보고서(승인한 것 포함)가 있어도 분석 중이면 분석 단계다
+    if analysis_now:
         stage, task_status = "analysis", analysis
+    elif report_now:
+        stage, task_status = "report", None
     elif run_now:
         stage, task_status = "judgment", row.get("run_status")
     elif card_version:
