@@ -17,6 +17,7 @@ from app.validation.rebuttal import UNCONFIRMED_CLAIM_NOTE
 from app.workflow.graph import (
     CRITERIA_VERSION,
     MAX_REBUTTAL_RETRIES,
+    SCENARIO_HEADER,
     STAGES,
     Dependencies,
     UnconfirmedCardError,
@@ -93,7 +94,19 @@ def test_unconfirmed_field_asks_then_unknown_defers():
     out = asyncio.run(graph.ainvoke(Command(resume=[answer]), cfg))
     result = out["result"]
     assert result["status"] == "deferred"
-    assert result["reasons"] == [REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B")]
+    # 보류는 그대로이고, 모르는 칸 값마다 고를 수 있는 도표·기본 과실을 보여 준다(비율 확정 아님)
+    assert result["reasons"] == [
+        REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B"),
+        SCENARIO_HEADER,
+        "B 차량의 진행 방향 좌회전 → S-1 A 20 : B 80",
+        "B 차량의 진행 방향 직진 → S-2 A 50 : B 50",
+    ]
+    assert result["scenarios"] == [
+        {"fields": {"movement_B": "left_turn"}, "chart_id": "S-1", "variant": None,
+         "base_A": 20, "base_B": 80},
+        {"fields": {"movement_B": "straight"}, "chart_id": "S-2", "variant": None,
+         "base_A": 50, "base_B": 50},
+    ]
     assert (result["chart_id"], result["fault_A"], result["questions"]) == (None, None, [])
     assert reviewer.await_count == 0
 
@@ -494,3 +507,36 @@ def test_wrong_chart_pointing_at_the_selected_chart_needs_confirmation_without_r
     assert result["status"] == "needs_confirmation"
     assert result["reasons"][0] == "도표 오선택 반박인데 고를 차순위 후보가 없음: 담당자 확인 필요"
     assert reviewer.await_count == 1
+
+
+def test_unknown_scenarios_list_each_value_but_never_pick_one():
+    """모르는 칸 값마다 도표·변형·기본 과실을 보여 주되, 판정은 보류이고 비율은 비운다."""
+    by_order = candidate("N-1", UNSIGNALIZED, 20, score=0.9, base_variants=[
+        {"variant": "가", "base_A": 20, "base_B": 80, "conditions": {"entry_order": "first"}},
+        {"variant": "나", "base_A": 60, "base_B": 40, "conditions": {"entry_order": "second"}},
+    ])
+    graph = build_graph(Dependencies(retrieve=AsyncMock(return_value=[by_order]),
+                                     reviewer=AsyncMock(return_value=verdict())))
+    cfg = thread_config("run-scenarios")
+    out = asyncio.run(graph.ainvoke(initial_state(unsignalized_card(), "c", "r"), cfg))
+    [question] = out["__interrupt__"][0].value["questions"]
+    answer = {"question_id": question["question_id"], "expected_card_version": 3,
+              "value": None, "unknown": True}
+    result = asyncio.run(graph.ainvoke(Command(resume=[answer]), cfg))["result"]
+    assert (result["status"], result["chart_id"], result["fault_A"]) == ("deferred", None, None)
+    assert [(s["fields"], s["variant"], s["base_A"]) for s in result["scenarios"]] == [
+        ({"entry_order": "first"}, "가", 20), ({"entry_order": "second"}, "나", 60),
+    ]
+    assert result["reasons"][1:] == [
+        SCENARIO_HEADER,
+        "교차로 진입 순서(A 기준) 선진입 → N-1 (가) A 20 : B 80",
+        "교차로 진입 순서(A 기준) 후진입 → N-1 (나) A 60 : B 40",
+    ]
+
+
+def test_no_scenarios_when_nothing_was_answered_unknown():
+    """'모른다'고 한 칸이 없으면 경우별 결과를 만들지 않는다(기존 보류 사유 그대로)."""
+    _, out, _ = run(card(), cands=[])
+    result = out["result"]
+    assert "scenarios" not in result
+    assert SCENARIO_HEADER not in result["reasons"]

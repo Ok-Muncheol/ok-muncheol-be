@@ -79,7 +79,8 @@ def test_confirmed_unknown_is_not_asked_again():
     assert "__interrupt__" not in out
     result = out["result"]
     assert result["status"] == "deferred"
-    assert result["reasons"] == [REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B")]
+    assert result["reasons"][0] == REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B")
+    assert {s["chart_id"] for s in result["scenarios"]} >= {"S-1"}  # 경우별 결과(비율 확정 아님)
     assert (retrieve.await_count, reviewer.await_count) == (1, 0)
 
 
@@ -180,7 +181,7 @@ def test_swapped_en_v1_question_names_the_card_field():
     out = asyncio.run(graph.ainvoke(Command(resume=[answer]), thread_config("run-en-swap")))
     # '모름'은 도표 B 진행 방향으로 센다
     assert out["result"]["status"] == "deferred"
-    assert out["result"]["reasons"] == [REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B")]
+    assert out["result"]["reasons"][0] == REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B")
     assert reviewer.await_count == 0
 
 

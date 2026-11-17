@@ -10,6 +10,7 @@
   missing_fact·contradiction과 상한을 넘긴 wrong_chart는 재실행 없이 needs_confirmation으로 내린다.
 """
 
+import itertools
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ from app.schemas.judgment import (
     JudgmentResult,
     ModifierDecision,
     QuestionAnswer,
+    UnknownScenario,
     ValidationCheck,
 )
 from app.validation.evidence import check_evidence
@@ -52,6 +54,7 @@ from app.workflow.candidates import (
     ChartCandidate,
     ChartVariant,
     confirmed_values,
+    korean_value,
     retrieve_from_corpus,
 )
 from app.workflow.card_fields import (
@@ -609,6 +612,81 @@ def alternative_reasons(
     return out
 
 
+# 모르는 칸 경우별 결과: 값 조합을 이만큼까지만 넣어 보고, 사유에는 앞 몇 줄만 적는다
+MAX_SCENARIO_COMBOS = 40
+MAX_LISTED_SCENARIOS = 8
+SCENARIO_HEADER = "모르는 칸 값마다 고를 수 있는 도표(기본 과실, 수정요소 전 · 비율 확정 아님):"
+# 범위를 정하는 칸이라 경우별로 넣어 보지 않는다(차대차·장소는 범위 게이트가 본다)
+_NO_SCENARIO_KEYS = frozenset({"accident_type", "location_type"})
+
+
+def _chart_keys(candidate: ChartCandidate) -> dict[str, set[str]]:
+    """도표가 실제로 가르는 칸과 그 값(`*` 제외, 속성·변형 조건 모두)."""
+    out: dict[str, set[str]] = {}
+    for k, v in _concrete(candidate["attributes"]).items():
+        out.setdefault(k, set()).add(v)
+    for variant in candidate["base_variants"]:
+        for k, v in _concrete(variant["conditions"]).items():
+            out.setdefault(k, set()).add(v)
+    return out
+
+
+def unknown_scenarios(state: JudgmentState) -> list[UnknownScenario]:
+    """담당자가 '모른다'고 한 칸에 도표가 쓰는 값을 하나씩 넣어 고를 수 있는 도표와 변형.
+
+    보류할 때 담당자에게 경우별 기본 과실을 보여 주려는 것이다. 비율은 확정하지 않는다(어느 값인지
+    확인하면 그 값으로 다시 판단한다). 값은 남은 검수 후보가 실제로 쓰는 값만 넣는다 — 그 밖의 값은
+    고를 도표가 없다. 순위는 판단과 같다(일치 칸 수, 검색 점수).
+    """
+    card = state["card"]
+    values = confirmed_values(card)
+    unknown = set(state.get("unknown_fields", []))
+    required = set(_required_fields(card))
+    eligible = _eligible(state)
+    used: dict[str, set[str]] = {}
+    for candidate in eligible:
+        for k, vs in _chart_keys(candidate).items():
+            if k in unknown and k not in _NO_SCENARIO_KEYS:
+                used.setdefault(k, set()).update(vs)
+    keys = sorted(used)
+    if not keys:
+        return []
+    out: list[UnknownScenario] = []
+    combos = itertools.product(*[sorted(used[k]) for k in keys])
+    for combo in itertools.islice(combos, MAX_SCENARIO_COMBOS):
+        guess = dict(zip(keys, combo, strict=True))
+        trial = {**values, **guess}
+        still_unknown = unknown - set(keys)
+        ranked = sorted(
+            (c for c in eligible if _ruled_out(c, trial, still_unknown, required) is None),
+            key=lambda c: (-len(_matched_fields(c, trial)), -c["score"]),
+        )
+        if not ranked:
+            continue
+        variant, _ = _pick_variant(ranked[0], trial)
+        if variant is None:
+            continue
+        out.append({
+            "fields": guess, "chart_id": ranked[0]["chart_id"], "variant": variant["variant"],
+            "base_A": variant["base_A"], "base_B": variant["base_B"],
+        })
+    return out
+
+
+def scenario_lines(scenarios: list[UnknownScenario]) -> list[str]:
+    """보류 사유에 붙일 경우별 결과 줄(앞 MAX_LISTED_SCENARIOS개)."""
+    if not scenarios:
+        return []
+    lines = []
+    for s in scenarios:
+        guess = ", ".join(
+            f"{FIELD_LABELS.get(k, k)} {korean_value(v)}" for k, v in s["fields"].items()
+        )
+        variant = f" ({s['variant']})" if s["variant"] else ""
+        lines.append(f"{guess} → {s['chart_id']}{variant} A {s['base_A']} : B {s['base_B']}")
+    return [SCENARIO_HEADER, *_listed(lines, MAX_LISTED_SCENARIOS, "경우")]
+
+
 def _outcome(status: str, reasons: list[str]) -> Outcome:
     return {"status": status, "reasons": reasons}  # type: ignore[typeddict-item]
 
@@ -689,10 +767,17 @@ def build_graph(
         if not ranked:
             excluded = _listed([f"{chart_id}: {why}" for chart_id, why in skipped],
                                MAX_LISTED_EXCLUDED, "제외한 도표")
+            scenarios = unknown_scenarios(state)
+            reasons = [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
+            if scenarios and not reasons:  # 필수 칸이 아닌 칸을 모른다고 해 막혔다
+                reasons = [REASON_FIELD_NOT_CONFIRMED.format(
+                    field_key=", ".join(sorted({k for s in scenarios for k in s["fields"]})))]
             update["outcome"] = _outcome(
-                "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
+                "deferred", [*reasons, *scenario_lines(scenarios)]
                 or [REASON_NO_REVIEWED_CHART, *excluded, *swap_hints(state)]
             )
+            if scenarios:
+                update["scenarios"] = scenarios
             return update
         best = ranked[0]
         variant, missing = _pick_variant(best, values)
@@ -821,6 +906,8 @@ def build_graph(
             "alternatives": (
                 list(selection["alternative_reasons"]) if keep_chart and selection else []
             ),
+            **({"scenarios": list(state.get("scenarios") or [])}
+               if status == "deferred" and state.get("scenarios") else {}),
         }
 
     def _after(next_node: str):
