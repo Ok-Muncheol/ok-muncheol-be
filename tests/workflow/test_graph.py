@@ -8,7 +8,6 @@ from langgraph.types import Command
 
 from app.schemas.chart_scope import (
     ANY_VALUE,
-    REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
     REASON_NO_SHAPE,
     REASON_OUT_OF_SCOPE,
@@ -18,7 +17,8 @@ from app.validation.rebuttal import UNCONFIRMED_CLAIM_NOTE
 from app.workflow.graph import (
     CRITERIA_VERSION,
     MAX_REBUTTAL_RETRIES,
-    SCENARIO_HEADER,
+    SCENARIO_DIFFERENT,
+    SCENARIO_SAME,
     STAGES,
     Dependencies,
     UnconfirmedCardError,
@@ -94,11 +94,10 @@ def test_unconfirmed_field_asks_then_unknown_defers():
               "value": None, "unknown": True}
     out = asyncio.run(graph.ainvoke(Command(resume=[answer]), cfg))
     result = out["result"]
-    assert result["status"] == "deferred"
-    # 보류는 그대로이고, 모르는 칸 값마다 고를 수 있는 도표·기본 과실을 보여 준다(비율 확정 아님)
+    # '모름'도 답이다 — 다시 고르라고 하지 않고 값마다 결과를 보여 준다(추가 확인 필요)
+    assert result["status"] == "needs_confirmation"
     assert result["reasons"] == [
-        REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B"),
-        SCENARIO_HEADER,
+        SCENARIO_DIFFERENT.format(labels="B 차량의 진행 방향"),
         "B 차량의 진행 방향 좌회전 → S-1 A 20 : B 80",
         "B 차량의 진행 방향 직진 → S-2 A 50 : B 50",
     ]
@@ -513,7 +512,7 @@ def test_wrong_chart_pointing_at_the_selected_chart_needs_confirmation_without_r
 
 
 def test_unknown_scenarios_list_each_value_but_never_pick_one():
-    """모르는 칸 값마다 도표·변형·기본 과실을 보여 주되, 판정은 보류이고 비율은 비운다."""
+    """모르는 칸 값마다 기본 과실이 다르면 추가 확인 필요로 경우를 보여 주고 비율은 비운다."""
     by_order = candidate("N-1", UNSIGNALIZED, 20, score=0.9, base_variants=[
         {"variant": "가", "base_A": 20, "base_B": 80, "conditions": {"entry_order": "first"}},
         {"variant": "나", "base_A": 60, "base_B": 40, "conditions": {"entry_order": "second"}},
@@ -526,12 +525,13 @@ def test_unknown_scenarios_list_each_value_but_never_pick_one():
     answer = {"question_id": question["question_id"], "expected_card_version": 3,
               "value": None, "unknown": True}
     result = asyncio.run(graph.ainvoke(Command(resume=[answer]), cfg))["result"]
-    assert (result["status"], result["chart_id"], result["fault_A"]) == ("deferred", None, None)
+    assert (result["status"], result["chart_id"], result["fault_A"]) == (
+        "needs_confirmation", None, None)
     assert [(s["fields"], s["variant"], s["base_A"]) for s in result["scenarios"]] == [
         ({"entry_order": "first"}, "가", 20), ({"entry_order": "second"}, "나", 60),
     ]
-    assert result["reasons"][1:] == [
-        SCENARIO_HEADER,
+    assert result["reasons"] == [
+        SCENARIO_DIFFERENT.format(labels="교차로 진입 순서(A 기준)"),
         "교차로 진입 순서(A 기준) 선진입 → N-1 (가) A 20 : B 80",
         "교차로 진입 순서(A 기준) 후진입 → N-1 (나) A 60 : B 40",
     ]
@@ -542,4 +542,25 @@ def test_no_scenarios_when_nothing_was_answered_unknown():
     _, out, _ = run(card(), cands=[])
     result = out["result"]
     assert "scenarios" not in result
-    assert SCENARIO_HEADER not in result["reasons"]
+    assert result["status"] == "deferred"
+
+
+def test_unknown_with_the_same_ratio_in_every_case_gives_that_ratio():
+    """모르는 칸이 어느 값이어도 기본 과실이 같으면 그 비율을 결과로 낸다(추가 확인 필요)."""
+    same = candidate("N-1", UNSIGNALIZED, 30, score=0.9, base_variants=[
+        {"variant": "가", "base_A": 30, "base_B": 70, "conditions": {"entry_order": "first"}},
+        {"variant": "나", "base_A": 30, "base_B": 70, "conditions": {"entry_order": "second"}},
+    ])
+    graph = build_graph(Dependencies(retrieve=AsyncMock(return_value=[same]),
+                                     reviewer=AsyncMock(return_value=verdict())))
+    cfg = thread_config("run-same")
+    out = asyncio.run(graph.ainvoke(initial_state(unsignalized_card(), "c", "r"), cfg))
+    [question] = out["__interrupt__"][0].value["questions"]
+    answer = {"question_id": question["question_id"], "expected_card_version": 3,
+              "value": None, "unknown": True}
+    result = asyncio.run(graph.ainvoke(Command(resume=[answer]), cfg))["result"]
+    assert result["status"] == "needs_confirmation"
+    assert (result["fault_A"], result["fault_B"], result["base_fault_A"]) == (30, 70, 30)
+    assert result["reasons"][0] == SCENARIO_SAME.format(
+        labels="교차로 진입 순서(A 기준)", a=30, b=70)
+    assert len(result["scenarios"]) == 2

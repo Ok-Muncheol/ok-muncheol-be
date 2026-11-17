@@ -196,9 +196,8 @@ def test_unknown_answer_resumes_the_same_run_to_deferred(service):
     assert (out["report_version"], out["report_error"]) == (1, None)
     [run] = rows(service.url, "select status, judgment_status, result from public.judgment_runs"
                  " where id = %s", view["task_id"])
-    assert (run["status"], run["judgment_status"]) == ("completed", "deferred")
-    assert run["result"]["reasons"][0] == "도표 선택 칸 미확인: movement_B"
-    # 모르는 칸 값마다 고를 수 있는 도표가 저장된 결과에도 남는다(비율 확정 아님, #276)
+    # '모름'이면 값마다 결과를 보여 주는 추가 확인 필요다(#276, 비율이 다르면 null)
+    assert (run["status"], run["judgment_status"]) == ("completed", "needs_confirmation")
     assert run["result"]["scenarios"] and run["result"]["fault_A"] is None
     [saved] = rows(service.url, "select unknown, value, answered_by from public.judgment_answers")
     assert (saved["unknown"], saved["value"], str(saved["answered_by"])) == (True, None, ACTOR)
