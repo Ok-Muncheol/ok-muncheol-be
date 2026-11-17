@@ -24,7 +24,7 @@ import hashlib
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from psycopg import AsyncConnection
 
@@ -61,6 +61,8 @@ class NewIntake:
     registered_by: str | None = None
     simulated: bool = False
     details: dict = field(default_factory=dict)  # 배정 참고 정보(schemas.admin.IntakeDetails)
+    # 가상 접수가 접수 시각부터 사는 시간(시연 접수). 그동안 접수 단계이고, 끝이 종결 시각이다
+    lifetime: timedelta | None = None
 
 
 @dataclass(frozen=True)
@@ -226,7 +228,9 @@ async def register(
     plan: dict[str, datetime | None] = dict.fromkeys(
         ("facts_at", "judgment_at", "report_at", "closes_at")
     )
-    if new.simulated:
+    if new.simulated and new.lifetime is not None:
+        plan = dict.fromkeys(plan, received_at + new.lifetime)
+    elif new.simulated:
         plan = dict(simulation.plan(received_at, rng or random.Random()))
     async with conn.transaction():
         intake = await repository.insert_intake(conn, {

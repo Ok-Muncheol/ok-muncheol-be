@@ -12,6 +12,7 @@ from psycopg.types.json import Jsonb
 
 from app.dispatch.simulation import (
     CLOSED_SQL,
+    DEMO_SQL,
     OPEN_SQL,
     STAGE_SQL,
     VISIBLE_SQL,
@@ -262,6 +263,18 @@ async def sync_real_cases(conn: AsyncConnection) -> Row:
     여러 번 불러도 된다.
     """
     return await _one(conn, _SYNC_SQL, {})
+
+
+_DELETE_EXPIRED_DEMOS_SQL = f"""
+delete from public.case_intakes i
+where {DEMO_SQL} and i.closes_at <= %(now)s
+"""
+
+
+async def delete_expired_demos(conn: AsyncConnection, now: datetime) -> int:
+    """수명이 끝난 시연 접수를 지운다. 배정 이력은 외래키(on delete cascade)로 함께 지워진다."""
+    cur = await conn.execute(_DELETE_EXPIRED_DEMOS_SQL, {"now": now})
+    return cur.rowcount
 
 
 async def list_intakes(
