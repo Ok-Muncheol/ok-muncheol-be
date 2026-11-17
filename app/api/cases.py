@@ -124,6 +124,25 @@ class PostgresCaseRepo:
             "update public.cases set restarted_at = now() where id = %s", (case_id,)
         )
 
+    async def clear_inputs(self, case_id: str) -> None:
+        """산정·청구 입력(서류, 면책 체크·협의 과실)을 지운다. 사건을 되돌릴 때만 부른다.
+
+        보고서 버전이 아니라 사건에 하나뿐인 입력이다(D review_reports 마이그레이션). 보고서
+        테이블이 아직 없는 DB에서는 지울 것이 없다.
+        """
+        from psycopg import errors
+
+        try:
+            async with self.conn.transaction():
+                await self.conn.execute(
+                    "delete from public.case_documents where case_id = %s", (case_id,)
+                )
+                await self.conn.execute(
+                    "delete from public.report_case_inputs where case_id = %s", (case_id,)
+                )
+        except errors.UndefinedTable:
+            pass
+
     async def summaries(
         self, *, case_id: str | None = None, assignee_id: str | None = None
     ) -> list[dict]:
@@ -299,7 +318,9 @@ async def restart_case(actor_id: str, case_id: str, stage: str) -> dict[str, obj
     - judgment: 원본 카드(영상 분석 카드·빈 카드)를 확인 전 상태의 새 버전으로 다시 만든다
       (facts.pristine_card). 지금 카드가 이미 그 원본 그대로면 만들지 않는다. 사실 카드 단계가 된다.
     둘 다 그때까지의 판단 실행을 대체된 것으로 찍는다 — 판단 조회는 null이고 보고서도 지금 것이
-    아니다. 서류·면책·협의 과실 같은 사건 입력은 그대로 두어 다음 보고서가 이어 쓴다.
+    아니다. 서류(견적서·증빙·대물·대인 입력)와 면책 체크·협의 과실은 지운다(clear_inputs) — 버전이
+    아니라 사건에 하나뿐인 입력이라 남기면 다음 보고서가 그대로 이어 쓴다. 이미 만든 보고서와
+    청구서는 그때 내용을 담고 있어 그대로 읽힌다. Storage의 파일은 지우지 않는다.
     영상 분석이 대기·진행 중이면 409 analysis_in_progress, 판단이 실행 중이면 409
     judgment_in_progress, judgment인데 카드가 없으면 409 fact_card_required다.
     되돌리기 칼럼이 아직 없으면(마이그레이션 적용 전) intake는 503 restart_db_not_ready다.
@@ -329,6 +350,7 @@ async def restart_case(actor_id: str, case_id: str, stage: str) -> dict[str, obj
                 else:
                     await _restart_card(cards, case_id, actor_id)
                 await runs.supersede_runs(conn, case_id)
+                await repo.clear_inputs(case_id)
         except errors.UndefinedColumn as exc:
             raise ApiException(
                 503, "restart_db_not_ready",
