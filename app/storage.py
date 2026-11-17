@@ -193,3 +193,74 @@ async def create_signed_download_url(
     if not isinstance(signed, str) or not signed.startswith("/"):
         raise _unavailable(retryable=False)
     return f"{base}/storage/v1{signed}"
+
+
+LIST_LIMIT = 200
+
+
+async def list_objects(
+    prefix: str, *, transport: httpx.AsyncBaseTransport | None = None
+) -> list[dict[str, object]]:
+    """`STORAGE_BUCKET`의 `prefix` 폴더 바로 아래 파일 목록(이름순) — `{"name", "size"}`.
+
+    폴더(메타데이터 없는 항목)와 자리표시 파일은 뺀다. 폴더가 없으면 빈 목록이다.
+    호출하는 쪽이 보여도 되는 폴더인지 확인한다(서버 키는 RLS를 건너뛴다). `transport`는 테스트용.
+    """
+    settings = get_settings()
+    if not settings.supabase_url or not settings.supabase_secret_key:
+        raise _not_configured()
+    url = (
+        f"{settings.supabase_url.rstrip('/')}/storage/v1/object/list/"
+        f"{quote(STORAGE_BUCKET, safe='')}"
+    )
+    body = {"prefix": prefix.strip("/"), "limit": LIST_LIMIT,
+            "sortBy": {"column": "name", "order": "asc"}}
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT_SECONDS, transport=transport, follow_redirects=False
+        ) as client:
+            resp = await client.post(
+                url, headers={"apikey": settings.supabase_secret_key}, json=body
+            )
+    except httpx.HTTPError:
+        raise _unavailable(retryable=True) from None
+    if resp.status_code != 200:
+        raise _unavailable(retryable=resp.status_code >= 500)
+    try:
+        rows = resp.json()
+    except ValueError:
+        raise _unavailable(retryable=False) from None
+    out: list[dict[str, object]] = []
+    for row in rows if isinstance(rows, list) else []:
+        meta = row.get("metadata") if isinstance(row, dict) else None
+        name = row.get("name") if isinstance(row, dict) else None
+        if isinstance(meta, dict) and isinstance(name, str) and not name.startswith("."):
+            out.append({"name": name, "size": meta.get("size")})
+    return out
+
+
+async def copy_object(
+    source_key: str, dest_key: str, *, transport: httpx.AsyncBaseTransport | None = None
+) -> None:
+    """`STORAGE_BUCKET` 안에서 `source_key` 파일을 `dest_key`로 복사한다. 원본이 없으면 예외.
+
+    호출하는 쪽이 먼저 사건 권한과 두 경로를 확인한다. `transport`는 테스트용.
+    """
+    settings = get_settings()
+    if not settings.supabase_url or not settings.supabase_secret_key:
+        raise _not_configured()
+    url = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/copy"
+    body = {"bucketId": STORAGE_BUCKET, "sourceKey": source_key, "destinationKey": dest_key}
+    try:
+        async with httpx.AsyncClient(
+            timeout=TIMEOUT_SECONDS, transport=transport, follow_redirects=False
+        ) as client:
+            resp = await client.post(
+                url, headers={"apikey": settings.supabase_secret_key}, json=body
+            )
+    except httpx.HTTPError:
+        raise _unavailable(retryable=True) from None
+    if _is_not_found(resp.status_code, resp.content):
+        raise StorageObjectNotFound(f"Storage에 파일이 없습니다: {source_key}")
+    if resp.status_code != 200:
+        raise _unavailable(retryable=resp.status_code >= 500)

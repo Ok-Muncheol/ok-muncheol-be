@@ -258,6 +258,8 @@ automation/         ship 하네스 명세·게이트/폴링 스크립트·민감
 | `GET /cases` | 로그인한 담당자에게 배정된 사건 요약 목록(최근 바뀐 순) — 담당 사건 보드 |
 | `POST /cases` | 사건 생성·범위 검사 |
 | `POST /cases/{id}/uploads` | 견적서·영상 업로드 서명 URL 발급(`kind`·`content_type`) → FE가 받은 URL로 Storage에 직접 업로드 |
+| `GET /demo-files` | 시연용으로 Storage `demo/` 폴더에 미리 올려 둔 파일 목록(`kind`별, `{name, size}`) |
+| `POST /cases/{id}/uploads/demo` | 시연 파일을 담당 사건 폴더로 복사하고 `storage_path` 반환(직접 올린 파일과 같은 값) |
 | `POST /cases/{id}/analysis` | 영상 분석 작업 접수 |
 | `GET /cases/{id}` | 진행 상태·확인 질문·현재 버전 복원 |
 | `GET /cases/{id}/fact-card` | 모델 원값·현재 값·근거·확인 상태 조회 |

@@ -9,6 +9,7 @@
 추가 확인 필요·보류 판정도 보고서를 만들지만(judgments.py) 승인할 수 없어 판단 단계에 둔다.
 """
 
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -124,6 +125,8 @@ class CaseServices:
 
     connect: Callable = db.connect
     sign_upload: Callable[[str], Awaitable[str]] = storage.create_signed_upload_url
+    list_objects: Callable[[str], Awaitable[list[dict[str, object]]]] = storage.list_objects
+    copy_object: Callable[[str, str], Awaitable[None]] = storage.copy_object
     repo: Callable[[Any], PostgresCaseRepo] = PostgresCaseRepo
 
 
@@ -298,6 +301,65 @@ async def request_upload(
         "upload_url": upload_url,
         "expires_in": storage.UPLOAD_URL_EXPIRES_SECONDS,
     }
+
+
+# ── 시연 파일 ─────────────────────────────────────────────────────
+# 시연용으로 미리 올려 둔 파일 폴더: case-files/demo/{videos,estimates,medical}/.
+# 담당자가 업로드 칸에서 골라 쓰면 그 사건 폴더로 복사한다(파일 이름은 uuid로 새로 만든다).
+# 그 뒤 흐름은 직접 올린 파일과
+# 같아서 사건 폴더 밖 파일을 막는 경로 검사(분석 접수·견적서·증빙)가 그대로 지켜진다.
+# 폴더가 비어 있으면 목록이 비고 화면은 고르기를 보이지 않는다.
+DEMO_PREFIX = "demo"
+_DEMO_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
+
+
+def _upload_types(kind: object) -> dict[str, str]:
+    types = UPLOAD_TYPES.get(str(kind))
+    if types is None:
+        raise unprocessable(
+            "invalid_upload_type", "kind는 video, estimate, medical_document 중 하나여야 합니다."
+        )
+    return types
+
+
+async def list_demo_files(
+    actor_id: str, kind: UploadKind | None = None
+) -> list[dict[str, object]]:
+    """시연 폴더의 파일 목록(이름순). 그 kind로 올릴 수 있는 확장자만 준다.
+
+    로그인한 담당자면 본다."""
+    extensions = set(_upload_types(kind).values())
+    rows = await services.list_objects(f"{DEMO_PREFIX}/{UPLOAD_FOLDERS[str(kind)]}")
+    return [
+        r for r in rows
+        if _DEMO_NAME.fullmatch(str(r["name"])) and str(r["name"]).rsplit(".", 1)[-1] in extensions
+    ]
+
+
+async def use_demo_file(
+    actor_id: str, case_id: str, kind: UploadKind | None = None, name: str | None = None
+) -> dict[str, object]:
+    """시연 파일 하나를 담당 사건 폴더로 복사하고 그 `storage_path`를 준다.
+
+    직접 올린 파일과 같은 값이다.
+
+    순서: 사건 권한 확인 → kind·파일 이름 확인 → 복사. 이름은 영문·숫자·`._-`만 받는다
+    (경로 조각·인코딩 우회를 막는다).
+    """
+    case_id = _case_uuid(case_id)
+    await _require_assignee(actor_id, case_id)
+    extensions = set(_upload_types(kind).values())
+    name = str(name or "")
+    ext = name.rsplit(".", 1)[-1]
+    if not _DEMO_NAME.fullmatch(name) or "." not in name or ext not in extensions:
+        raise unprocessable("invalid_demo_file", "시연 파일 이름이 올바르지 않습니다.")
+    folder = UPLOAD_FOLDERS[str(kind)]
+    object_key = f"{case_id}/{folder}/{uuid.uuid4()}.{ext}"
+    try:
+        await services.copy_object(f"{DEMO_PREFIX}/{folder}/{name}", object_key)
+    except storage.StorageObjectNotFound as exc:
+        raise not_found("시연 파일을 찾을 수 없습니다.") from exc
+    return {"storage_path": storage.storage_path_of(object_key)}
 
 
 async def start_analysis(
