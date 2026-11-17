@@ -57,13 +57,21 @@ class ChartAlternative(TypedDict):
 
 
 class UnknownScenario(TypedDict):
-    """담당자가 '모른다'고 한 칸에 값을 하나씩 넣어 본 경우별 결과(보류 때만, 수정요소 전).
+    """확인하지 못한 칸이 이 값이면 고르는 도표와 기본 과실(수정요소 전).
 
-    판단은 이 값으로 비율을 확정하지 않는다. 어느 경우인지 확인하면 그 값으로 다시 판단한다.
+    담당자가 '모른다'고 한 칸 때문에 도표를 못 고를 때, 카드와 어긋나지 않는 후보 도표마다
+    그 도표가 요구하는 값을 한 경우로 적는다(graph.unknown_scenarios). 판단은 이 값으로 도표를
+    고르지 않는다. 어느 경우인지 확인해 카드에 넣으면 그 값으로 다시 판단한다.
+
+    2026-11-17 정오 전에 저장된 결과에는 `card_fields`·`title`이 없다(그때는 모르는 칸 전부의
+    값 조합이었다). 화면은 `card_fields`가 있는 결과만 표로 그린다.
     """
 
-    fields: dict[str, str]  # 넣어 본 칸과 값(도표 선택 칸 이름)
+    fields: dict[str, str]  # 넣어 본 칸과 값(도표 선택 칸 이름·값, 도표 A/B 기준)
+    # 같은 칸·값을 카드 칸 이름·값으로(카드 v1 2절 맞바꿈 반영). 화면은 이것으로 카드 칸을 가리킨다
+    card_fields: dict[str, str]
     chart_id: str
+    title: str
     variant: str | None
     base_A: int
     base_B: int
@@ -86,7 +94,9 @@ class JudgmentResult(TypedDict):
     base_fault_A: NotRequired[int | None]
     modifiers: NotRequired[list[ModifierDecision]]
     alternatives: NotRequired[list[ChartAlternative]]
-    # 모르는 칸 때문에 보류됐을 때 그 칸 값마다 고를 수 있는 도표와 기본 과실(없으면 키 없음)
+    # 모르는 칸 때문에 도표를 못 골랐을 때 그 칸이 어떤 값이면 어느 도표·기본 과실인지(없으면 키
+    # 없음). 판정은 추가 확인 필요이고, 같은 내용이 reasons에 안내 문장과 글 줄로도 붙는다
+    # (graph.scenario_outcome)
     scenarios: NotRequired[list[UnknownScenario]]
 
 

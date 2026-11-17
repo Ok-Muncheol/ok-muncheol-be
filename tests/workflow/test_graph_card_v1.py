@@ -181,7 +181,11 @@ def test_swapped_en_v1_question_names_the_card_field():
     out = asyncio.run(graph.ainvoke(Command(resume=[answer]), thread_config("run-en-swap")))
     # '모름'은 도표 B 진행 방향으로 센다
     assert out["result"]["status"] == "needs_confirmation"
-    assert out["result"]["scenarios"]
+    # 경우의 칸은 도표 선택 칸(fields)과 담당자가 고칠 카드 칸(card_fields) 둘 다 싣는다
+    assert [(s["fields"], s["card_fields"]) for s in out["result"]["scenarios"]] == [
+        ({"movement_B": "left_turn"}, {"movement_A": "left_turn"}),
+        ({"movement_B": "straight"}, {"movement_A": "straight"}),
+    ]
     assert reviewer.await_count == 0
 
 

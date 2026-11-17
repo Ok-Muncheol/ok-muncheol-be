@@ -10,7 +10,6 @@
   missing_fact·contradiction과 상한을 넘긴 wrong_chart는 재실행 없이 needs_confirmation으로 내린다.
 """
 
-import itertools
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -69,6 +68,7 @@ from app.workflow.card_fields import (
     is_swapped,
     other_side,
     question_options,
+    to_card_terms,
 )
 from app.workflow.state import ChartSelection, JudgmentState, Outcome
 
@@ -102,6 +102,9 @@ CRITERIA_VERSION = "fault_standards:2023.6"
 # 11/16.5: 진로 변경 순서 칸(lane_change_timing, 차43-3·43-5)
 # 11/16.6: 고를 도표가 없으면 도표 A/B를 맞바꿔 대조한 결과를 보류 사유 끝에 붙인다(swap_hints)
 # 11/16.7: 도표 A/B 당사자를 판단이 정한다(choose_orientation, 판단 시작 때 더 맞는 방향으로 맞바꿈)
+# 11/17 모르는 칸 경우별 결과(#277·#281·unknown_scenarios 고침)는 올리지 않았다. 올리면 이미 판단한
+# 카드를 그대로 다시 눌렀을 때 반박 검토(LLM)까지 새로 돌아 판정이 달라질 수 있다. 그래서 이미
+# 판정이 난 카드는 칸을 고쳐 새 카드 버전으로 판단해야 새 사유가 나온다
 RULE_VERSION = "judgment-rules-2026.11.16.7"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
@@ -642,12 +645,18 @@ def alternative_reasons(
     return out
 
 
-# 모르는 칸 경우별 결과: 값 조합을 이만큼까지만 넣어 보고, 사유에는 앞 몇 줄만 적는다
-MAX_SCENARIO_COMBOS = 40
+# 모르는 칸 경우별 결과: 결과에 이만큼까지 담고, 사유에는 앞 몇 줄만 적는다
+MAX_SCENARIOS = 60
 MAX_LISTED_SCENARIOS = 8
+# 안내 문장에 이름을 적는 모르는 칸 수. 넘으면 "외 N칸"으로 줄인다
+MAX_LISTED_UNKNOWN = 4
+# 경우별 결과 안내 문장. FE는 결과의 scenarios를 표로 그리고, 이 문장부터 끝까지의 글 줄은 그리지
+# 않는다("모른다고 답한 칸("으로 찾는다) — 이 줄들 뒤에 다른 사유를 붙이지 않는다
+# "어느 값이어도 같다"고 적지 않는다 — 경우는 도표가 있는 값뿐이라, 경우가 하나(예: 차로 감소 '예'일
+# 때만 차43-1)여도 비율은 하나다. 그 밖의 값은 고를 도표가 없다(2026-11-17 운영 사건)
 SCENARIO_SAME = (
-    "모른다고 답한 칸({labels})은 어느 값이어도 기본 과실이 A {a} : B {b}로 같아요"
-    "(검색된 검수 도표 기준, 수정요소 전). 경우별 도표:"
+    "모른다고 답한 칸({labels})이 아래 값이면 고를 도표가 있고, 그 경우는 모두 기본 과실이 "
+    "A {a} : B {b}예요(검색된 검수 도표 기준, 수정요소 전). 경우별 도표:"
 )
 SCENARIO_DIFFERENT = (
     "모른다고 답한 칸({labels})은 값마다 기본 과실이 달라요. 아래에서 맞는 경우를 확인해 주세요"
@@ -655,85 +664,196 @@ SCENARIO_DIFFERENT = (
 )
 # 범위를 정하는 칸이라 경우별로 넣어 보지 않는다(차대차·장소는 범위 게이트가 본다)
 _NO_SCENARIO_KEYS = frozenset({"accident_type", "location_type"})
+_FIELD_ORDER = {key: i for i, key in enumerate(FIELD_OPTIONS)}
+
+# 사유에 적는 값 낱말(도표 A/B 기준). 검색 낱말(candidates.korean_value)은 원문 제목 표현이라
+# 좌우(둘 다 '측면')·대로 쪽(둘 다 '대로 소로')을 가르지 않고, 11/13·11/16 칸의 값은 없는 것이 많다.
+# 칸마다 뜻이 다른 값(동시 = 동시 진입·동시 유턴·양옆 동시)도 있어 칸별로 둔다
+_LANE_MARKING_LABELS = {
+    "left_only": "좌회전 전용", "straight_left": "직진·좌회전", "straight_only": "직진 전용",
+    "straight_right": "직진·우회전", "right_only": "우회전 전용", "none": "표시 없음",
+}
+_ROUNDABOUT_MOVE_LABELS = {"circulating": "회전 중", "entering": "진입", "exiting": "진출"}
+_ROUNDABOUT_LANE_LABELS = {"inner": "안쪽(회전 1차로)", "outer": "바깥쪽(회전 2차로 이상)"}
+VALUE_LABELS: dict[str, dict[str, str]] = {
+    "movement_A": {"other": "그 밖"}, "movement_B": {"other": "그 밖"},
+    "road_priority": {
+        "major_A": "A 쪽이 대로", "major_B": "B 쪽이 대로", "stop_A": "A 쪽 일시정지",
+        "stop_B": "B 쪽 일시정지", "other": "한쪽만 신호등", "none": "해당 없음",
+    },
+    "relative_position": {
+        "left": "왼쪽", "right": "오른쪽", "opposite": "맞은편",
+        "same_direction_front": "같은 방향 앞", "same_direction_rear": "같은 방향 뒤",
+    },
+    "entry_order": {"none": "해당 없음"},
+    "lane_marking_A": _LANE_MARKING_LABELS, "lane_marking_B": _LANE_MARKING_LABELS,
+    "overtake_line": {
+        "yellow_solid": "황색 실선", "yellow_dashed": "황색 점선", "white_solid": "흰색 실선",
+        "no_passing_zone": "앞지르기 금지 장소", "none": "차선 없음",
+    },
+    "u_turn_zone": {"always": "상시 유턴", "signal": "신호 유턴", "none": "유턴 구역 아님"},
+    "u_turn_timing": {"sudden": "급 유턴", "simultaneous": "동시 유턴"},
+    "lane_change_timing": {
+        "simultaneous": "양옆 차로 동시", "follower_first": "같은 차로 뒤차 먼저",
+        "leader_first": "같은 차로 앞차 먼저",
+    },
+    "safety_zone": {
+        "before_leaving": "벗어나기 전", "after_leaving": "벗어난 뒤", "none": "안전지대 없음",
+    },
+    "roundabout_lanes": {"one": "1차로", "two_plus": "2차로 이상"},
+    "roundabout_move_A": _ROUNDABOUT_MOVE_LABELS, "roundabout_move_B": _ROUNDABOUT_MOVE_LABELS,
+    "roundabout_lane_A": _ROUNDABOUT_LANE_LABELS, "roundabout_lane_B": _ROUNDABOUT_LANE_LABELS,
+}
 
 
-def _chart_keys(candidate: ChartCandidate) -> dict[str, set[str]]:
-    """도표가 실제로 가르는 칸과 그 값(`*` 제외, 속성·변형 조건 모두)."""
-    out: dict[str, set[str]] = {}
-    for k, v in _concrete(candidate["attributes"]).items():
-        out.setdefault(k, set()).add(v)
-    for variant in candidate["base_variants"]:
-        for k, v in _concrete(variant["conditions"]).items():
-            out.setdefault(k, set()).add(v)
-    return out
+def value_label(key: str, value: str) -> str:
+    """도표 선택 칸의 값을 사유에 적을 낱말로. 참거짓 칸은 예·아니오다."""
+    if value in VALUE_LABELS.get(key, {}):
+        return VALUE_LABELS[key][value]
+    if FIELD_OPTIONS.get(key) == ("true", "false"):
+        return {"true": "예", "false": "아니오"}.get(value, value)
+    return korean_value(value)
 
 
 def unknown_scenarios(state: JudgmentState) -> list[UnknownScenario]:
-    """담당자가 '모른다'고 한 칸에 도표가 쓰는 값을 하나씩 넣어 고를 수 있는 도표와 변형.
+    """담당자가 '모른다'고 한 칸 때문에 도표를 못 고를 때, 그 칸이 어떤 값이면 어느 도표인지.
 
-    보류할 때 담당자에게 경우별 기본 과실을 보여 주려는 것이다. 비율은 확정하지 않는다(어느 값인지
-    확인하면 그 값으로 다시 판단한다). 값은 남은 검수 후보가 실제로 쓰는 값만 넣는다 — 그 밖의 값은
-    고를 도표가 없다. 순위는 판단과 같다(일치 칸 수, 검색 점수).
+    담당자에게 경우별 기본 과실을 보여 주려는 것이다. 판단은 이 값으로 도표를 고르지 않는다(어느
+    경우인지 확인해 카드에 넣으면 그 값으로 다시 판단한다).
+    - 카드에서 확인한 값과 어긋나지 않는 검수 후보마다(검색 점수 순) 그 도표·변형이 요구하는 값 중
+      아직 확인하지 못한 것만 한 경우로 적는다. 그 도표가 쓰지 않는 칸은 넣지 않는다.
+      모르는 칸 전부의 값 조합을 넣어 보면 칸이 많을 때 앞쪽 조합이 모두 같은 도표가 된다
+      (2026-11-17 운영: 모르는 칸 15개, 조합 40개가 모두 차44-1 20:80이고 한 줄이 400자를 넘었다.
+      그 40개만 보면 "어느 값이어도 20:80"인데 실제로는 50:50·0:100·100:0 도표가 더 있었다).
+    - 그 값을 카드에 넣었을 때 판단이 고를 도표는 판단과 같은 순위(`_ruled_out` → 일치 칸 수 →
+      검색 점수)와 `_pick_variant`로 다시 구한다. 남은 모르는 칸은 모르는 채로 둔다.
+    - '모른다'고 한 칸이 하나도 걸리지 않은 도표는 경우가 아니다(모름 때문에 빠진 도표가 아니다).
+    - 경우 하나는 칸마다 값 하나다. 값만 다른 경우를 한 줄로 묶는 것은 보여 주는 쪽이 한다
+      (`scenario_lines`, FE 표). 후보는 검색된 도표뿐이라 모든 경우는 아니다.
+    같은 도표의 경우는 이어서 나오고, 도표 순서는 처음 나온 순서(검색 점수 순)다.
     """
     card = state["card"]
     values = confirmed_values(card)
-    unknown = set(state.get("unknown_fields", []))
+    unknown = set(state.get("unknown_fields", [])) - _NO_SCENARIO_KEYS
+    if not unknown:
+        return []
     required = set(_required_fields(card))
     eligible = _eligible(state)
-    used: dict[str, set[str]] = {}
-    for candidate in eligible:
-        for k, vs in _chart_keys(candidate).items():
-            if k in unknown and k not in _NO_SCENARIO_KEYS:
-                used.setdefault(k, set()).update(vs)
-    keys = sorted(used)
-    if not keys:
-        return []
+    tried: set[tuple[tuple[str, str], ...]] = set()
     out: list[UnknownScenario] = []
-    combos = itertools.product(*[sorted(used[k]) for k in keys])
-    for combo in itertools.islice(combos, MAX_SCENARIO_COMBOS):
-        guess = dict(zip(keys, combo, strict=True))
-        trial = {**values, **guess}
-        still_unknown = unknown - set(keys)
-        ranked = sorted(
-            (c for c in eligible if _ruled_out(c, trial, still_unknown, required) is None),
-            key=lambda c: (-len(_matched_fields(c, trial)), -c["score"]),
-        )
-        if not ranked:
-            continue
-        variant, _ = _pick_variant(ranked[0], trial)
-        if variant is None:
-            continue
-        out.append({
-            "fields": guess, "chart_id": ranked[0]["chart_id"], "variant": variant["variant"],
-            "base_A": variant["base_A"], "base_B": variant["base_B"],
-        })
+    for candidate in eligible:
+        if _ruled_out(candidate, values, set(), required) is not None:
+            continue  # 모르는 칸과 상관없이 카드와 이미 어긋난 도표
+        attributes = _concrete(candidate["attributes"])
+        for variant in candidate["base_variants"]:
+            if not _variant_fits(variant, values):
+                continue
+            needed = {**attributes, **_concrete(variant["conditions"])}
+            guess = {k: needed[k] for k in sorted(needed, key=lambda k: _FIELD_ORDER.get(k, 99))
+                     if k not in values}
+            key = tuple(guess.items())
+            if key in tried or not guess.keys() & unknown or guess.keys() & _NO_SCENARIO_KEYS:
+                continue
+            tried.add(key)
+            trial = {**values, **guess}
+            ranked = sorted(
+                (c for c in eligible
+                 if _ruled_out(c, trial, unknown - guess.keys(), required) is None),
+                key=lambda c: (-len(_matched_fields(c, trial)), -c["score"]),
+            )
+            chosen = _pick_variant(ranked[0], trial)[0] if ranked else None
+            if chosen is None:
+                continue
+            best = ranked[0]
+            out.append({
+                "fields": guess,
+                "card_fields": dict(to_card_terms(k, v, card) for k, v in guess.items()),
+                "chart_id": best["chart_id"], "title": best.get("title") or "",
+                "variant": chosen["variant"], "base_A": chosen["base_A"],  # type: ignore[index]
+                "base_B": chosen["base_B"],  # type: ignore[index]
+            })
+    first_seen: dict[str, int] = {}
+    for i, scenario in enumerate(out):
+        first_seen.setdefault(scenario["chart_id"], i)
+    out.sort(key=lambda scenario: first_seen[scenario["chart_id"]])
     return out
 
 
+Box = dict[str, tuple[str, ...]]
+
+
+def _merged(boxes: list[Box]) -> list[Box]:
+    """한 칸의 값만 다른 경우를 값 목록 하나로 합친다. 더 합칠 것이 없을 때까지 되풀이한다.
+
+    같은 도표·변형·비율로 가는 경우끼리만 넘긴다. 예: 상대 위치가 왼쪽·오른쪽으로만 갈린 두 경우는
+    '왼쪽 또는 오른쪽' 한 줄이 된다. 다른 칸이 모두 같을 때만 합치므로, 합친 값은 어느 조합이든
+    그 도표다. FE 표도 같은 규칙으로 묶는다(src/lib/facts/card.ts scenarioRows).
+    """
+    boxes = [dict(box) for box in boxes]
+    again = True
+    while again:
+        again = False
+        for i, first in enumerate(boxes):
+            for j in range(i + 1, len(boxes)):
+                second = boxes[j]
+                if first.keys() != second.keys():
+                    continue
+                differs = [k for k in first if set(first[k]) != set(second[k])]
+                if len(differs) == 1:
+                    key = differs[0]
+                    first[key] = tuple(dict.fromkeys(first[key] + second[key]))
+                    del boxes[j]
+                    again = True
+                    break
+            if again:
+                break
+    return boxes
+
+
+def _in_option_order(key: str, values: tuple[str, ...]) -> list[str]:
+    options = FIELD_OPTIONS.get(key, ())
+    return sorted(values, key=lambda v: options.index(v) if v in options else len(options))
+
+
 def scenario_lines(scenarios: list[UnknownScenario]) -> list[str]:
-    """사유에 붙일 경우별 결과 줄(앞 MAX_LISTED_SCENARIOS개)."""
-    if not scenarios:
-        return []
-    lines = []
+    """사유에 붙일 경우별 결과 줄(앞 MAX_LISTED_SCENARIOS개). 칸·값·비율은 도표 A/B 기준이다.
+
+    도표·변형·비율이 같고 한 칸의 값만 다른 경우는 한 줄로 묶어 적는다(`_merged`).
+    """
+    groups: dict[tuple[str, str, str | None, int, int], list[Box]] = {}
     for s in scenarios:
-        guess = ", ".join(
-            f"{FIELD_LABELS.get(k, k)} {korean_value(v)}" for k, v in s["fields"].items()
-        )
-        variant = f" ({s['variant']})" if s["variant"] else ""
-        lines.append(f"{guess} → {s['chart_id']}{variant} A {s['base_A']} : B {s['base_B']}")
+        chart = f"{s['chart_id']} 「{s['title']}」" if s.get("title") else s["chart_id"]
+        groups.setdefault(
+            (s["chart_id"], chart, s["variant"], s["base_A"], s["base_B"]), []
+        ).append({k: (v,) for k, v in s["fields"].items()})
+    lines = []
+    for (_, chart, variant, base_a, base_b), boxes in groups.items():
+        for box in _merged(boxes):
+            guess = ", ".join(
+                f"{FIELD_LABELS.get(k, k)} "
+                f"{' 또는 '.join(value_label(k, v) for v in _in_option_order(k, vs))}"
+                for k, vs in box.items()
+            )
+            label = f" ({variant})" if variant else ""
+            lines.append(f"{guess} → {chart}{label} A {base_a} : B {base_b}")
     return _listed(lines, MAX_LISTED_SCENARIOS, "경우")
 
 
-def scenario_outcome(scenarios: list[UnknownScenario]) -> dict:
+def scenario_outcome(scenarios: list[UnknownScenario], unknown: list[str]) -> dict:
     """모르는 칸의 경우별 결과로 판정을 낸다. 상태는 늘 추가 확인 필요(needs_confirmation)다.
 
     모든 경우의 기본 과실이 같으면 그 비율을 결과에 넣는다(`scenario_fault`). 다르면 비율은 비우고
-    경우별 줄을 보여 담당자가 맞는 경우를 확인하게 한다. 경우는 검색된 검수 도표 기준이다.
+    경우별 줄을 보여 담당자가 맞는 경우를 확인하게 한다. 경우는 검색된 검수 도표 기준이고, 도표가
+    있는 값만 경우가 된다(모르는 칸의 모든 값을 덮는다는 뜻이 아니다).
+    안내 문장에는 '모른다'고 한 칸(`unknown`) 중 경우에 걸린 칸만 도표 선택 칸 순서로 적는다.
     """
-    keys = sorted({k for s in scenarios for k in s["fields"]})
-    labels = ", ".join(FIELD_LABELS.get(k, k) for k in keys)
+    used = {k for s in scenarios for k in s["fields"]}
+    keys = sorted(used & set(unknown), key=lambda k: _FIELD_ORDER.get(k, 99))
+    names = [FIELD_LABELS.get(k, k) for k in keys]
+    rest = len(names) - MAX_LISTED_UNKNOWN
+    labels = ", ".join(names[:MAX_LISTED_UNKNOWN]) + (f" 외 {rest}칸" if rest > 0 else "")
     ratios = {(s["base_A"], s["base_B"]) for s in scenarios}
-    update: dict = {"scenarios": scenarios}
+    update: dict = {"scenarios": scenarios[:MAX_SCENARIOS]}
     if len(ratios) == 1:
         a, b = next(iter(ratios))
         head = SCENARIO_SAME.format(labels=labels, a=a, b=b)
@@ -827,7 +947,7 @@ def build_graph(
             # 모른다고 답한 칸 때문에 막혔으면 그 칸 값마다 결과를 보여 준다(추가 확인 필요)
             scenarios = unknown_scenarios(state)
             if scenarios:
-                return {**update, **scenario_outcome(scenarios)}
+                return {**update, **scenario_outcome(scenarios, state["unknown_fields"])}
             update["outcome"] = _outcome(
                 "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
                 or [REASON_NO_REVIEWED_CHART, *no_shape_lines(state), *excluded,
@@ -837,7 +957,7 @@ def build_graph(
         best = ranked[0]
         variant, missing = _pick_variant(best, values)
         if variant is None and (scenarios := unknown_scenarios(state)):
-            return {**update, **scenario_outcome(scenarios)}
+            return {**update, **scenario_outcome(scenarios, state["unknown_fields"])}
         if variant is None:
             update["outcome"] = _outcome(
                 "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in missing]
