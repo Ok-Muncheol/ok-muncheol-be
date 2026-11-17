@@ -111,6 +111,9 @@ class Api:
     def intakes(self, **kw) -> list[dict]:
         return asyncio.run(admin.list_intakes(ADMIN, **kw))
 
+    def demo(self, **kw) -> dict:
+        return asyncio.run(admin.register_demo_intake(ADMIN, **kw))
+
     def rows(self, sql: str, *params: object) -> list[dict]:
         with psycopg.connect(self.url, autocommit=True, row_factory=dict_row) as conn:
             return conn.execute(sql, params).fetchall()
@@ -333,6 +336,39 @@ def test_list_by_stage_keeps_paging_past_real_intakes_of_other_stages(api):
 
     for bad in ("done", "unassigned", "intake,closed"):
         assert error(lambda bad=bad: api.intakes(stage=bad)) == (422, "invalid_intake_filter")
+
+
+def test_demo_intake_appears_after_ten_seconds_and_is_deleted_after_a_minute(api):
+    # 미리 만든 가상 접수(이미 종결)와 시연 접수 하나
+    seeded = api.simulated("부산 동래구", api.now - timedelta(hours=50), (1, 2, 3, 10))
+    # 시드 1은 고액이 아니고 다친 사람이 없어 서울 대물 담당자가 받는다
+    demo = api.demo(region="서울", rng=random.Random(1))
+    demo_id = demo["intake_id"]
+    assert datetime.fromisoformat(demo["received_at"]) == api.now + timedelta(seconds=10)
+    assert (demo["simulated"], demo["region"], demo["status"], demo["stage"]) \
+        == (True, "서울", "assigned", "intake")
+
+    ids = lambda **kw: [v["intake_id"] for v in api.intakes(**kw)]  # noqa: E731
+    assert demo_id not in ids()  # 접수 시각 전에는 보이지 않는다
+    assert api.overview()["summary"]["open"] == 0
+
+    api.now += timedelta(seconds=10)
+    assert ids() == [demo_id, str(seeded["id"])]
+    assert ids(stage="intake") == [demo_id]
+    summary = api.overview()["summary"]
+    assert (summary["open"], summary["received_today_by_region"]) == (1, {"서울": 1})
+
+    api.now += timedelta(seconds=59)
+    assert demo_id in ids()  # 1분 안에는 그대로 접수 단계다
+    api.now += timedelta(seconds=1)
+    assert ids() == [str(seeded["id"])]  # 1분이 지나면 보이지 않고, 조회하면서 지운다
+    assert api.rows("select id from public.case_intakes where id = %s", demo_id) == []
+    assert api.rows("select id from public.case_assignments where intake_id = %s", demo_id) == []
+    assert api.overview()["summary"]["open"] == 0
+    # 미리 만든 가상 접수(registered_by 없음)는 종결돼도 지우지 않는다
+    assert len(api.rows("select id from public.case_intakes where id = %s", seeded["id"])) == 1
+
+    assert error(lambda: api.demo(region="한양")) == (422, "invalid_intake")
 
 
 # ---------------------------------------------------------------- 실제 사건과 맞추기

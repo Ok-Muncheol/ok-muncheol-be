@@ -12,8 +12,13 @@
 - 조회하기 전에 실제 사건과 접수 건을 맞춘다(repository.sync_real_cases) — 접수 없이 생긴 사건,
   이 모듈 밖에서 바뀐 담당자, 확인 완료된 사건의 종결.
 - 접수·배정 표가 아직 없으면(마이그레이션 적용 전) 503 `dispatch_db_not_ready`다.
+- 시연 접수(register_demo_intake — scripts/demo_intake.py로만 넣는다, HTTP 경로는 없다)는
+  10초 뒤 나타나 1분 뒤 사라지는 가상 접수다. 조회할 때마다 수명이 끝난 시연 접수를 지운다
+  (simulation.DEMO_*).
 """
 
+import dataclasses
+import random
 import typing
 import uuid
 from collections import Counter
@@ -30,7 +35,7 @@ from app import db
 from app.agents import dispatch as dispatch_agent
 from app.api import cases
 from app.api.errors import ApiException, not_found, unprocessable
-from app.dispatch import repository, service
+from app.dispatch import repository, seeding, service, simulation
 from app.dispatch.regions import REGIONS
 from app.schemas.admin import (
     AdminOverview,
@@ -81,6 +86,12 @@ async def _connection() -> AsyncIterator[Any]:
             503, "dispatch_db_not_ready",
             "접수·배정 표가 아직 없습니다. 마이그레이션을 적용한 뒤 다시 시도하세요.", True,
         ) from exc
+
+
+async def _prepare(conn: Any, now: datetime) -> None:
+    """조회하기 전에 실제 사건과 접수 건을 맞추고, 수명이 끝난 시연 접수를 지운다."""
+    await repository.sync_real_cases(conn)
+    await repository.delete_expired_demos(conn, now)
 
 
 def _iso(value: object) -> str | None:
@@ -175,7 +186,7 @@ async def get_overview(admin_id: str) -> AdminOverview:
     now = services.now()
     day_start = _day_start(now)
     async with _connection() as conn:
-        await repository.sync_real_cases(conn)
+        await _prepare(conn, now)
         staff_rows = await repository.staff(conn, list(STAFF_ROLES), now)
         totals = await repository.summary(conn, now, day_start)
         by_region = await repository.received_today_by_region(conn, now, day_start)
@@ -242,7 +253,7 @@ async def list_intakes(
     limit = max(1, min(int(limit), MAX_LIMIT))
     now = services.now()
     async with _connection() as conn:
-        await repository.sync_real_cases(conn)
+        await _prepare(conn, now)
         views: list[IntakeView] = []
         cursor = before
         while True:
@@ -281,6 +292,32 @@ async def register_intake(
         return (await _views(conn, [row]))[0]
 
 
+async def register_demo_intake(
+    admin_id: str, *, region: str | None = None, rng: random.Random | None = None
+) -> IntakeView:
+    """시연 접수 — 10초 뒤를 접수 시각으로 가상 접수 하나를 만들고 바로 배정해 둔다(시연 영상용).
+
+    관리자 화면에 단추를 두지 않고 scripts/demo_intake.py로만 부른다(admin_id는 관리자 계정 —
+    registered_by가 시연 접수의 표시다). 접수 시각 전에는 어디에도 보이지 않다가 그 시각에
+    나타나고, 1분 뒤(종결 시각)에는 보이지 않으며 다음 조회 때 지워진다. 장소·사고 내용·참고
+    정보는 미리 만드는 가상 접수와 같이 고르고, region을 주면 그 시·도로 한다.
+    """
+    if region is not None and region not in REGIONS:
+        raise unprocessable("invalid_intake", "region은 17개 시·도 이름 중 하나입니다.")
+    now = services.now()
+    received_at = now + simulation.DEMO_DELAY
+    new = dataclasses.replace(
+        seeding.synthetic_intake(rng or random.Random(), received_at, region=region),
+        registered_by=admin_id, lifetime=simulation.DEMO_LIFETIME,
+    )
+    async with _connection() as conn:
+        await _prepare(conn, now)
+        created = await service.register(conn, new, now=now, decide=services.decide)
+        row = await repository.get_intake(conn, created["id"], now)
+        assert row is not None
+        return (await _views(conn, [row]))[0]
+
+
 def _intake_id(value: object) -> str:
     try:
         return str(uuid.UUID(str(value)))
@@ -306,7 +343,7 @@ async def get_intake(admin_id: str, intake_id: str) -> IntakeDetail:
     intake_id = _intake_id(intake_id)
     now = services.now()
     async with _connection() as conn:
-        await repository.sync_real_cases(conn)
+        await _prepare(conn, now)
         return await _detail(conn, intake_id, now)
 
 
@@ -323,7 +360,7 @@ async def assign_intake(
         raise unprocessable("invalid_assignment", "assignee_id는 담당자 계정 ID입니다.") from exc
     now = services.now()
     async with _connection() as conn:
-        await repository.sync_real_cases(conn)
+        await _prepare(conn, now)
         try:
             await service.assign_by_admin(
                 conn, intake_id=intake_id, coverage=coverage, assignee_id=assignee_id,

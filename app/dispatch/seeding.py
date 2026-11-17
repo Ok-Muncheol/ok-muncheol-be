@@ -115,9 +115,12 @@ def synthetic_details(rng: random.Random, injured: int) -> dict:
     return details
 
 
-def synthetic_intake(rng: random.Random, received_at: datetime) -> service.NewIntake:
-    """가상의 접수 한 건. 사람·차량을 특정할 내용은 없다."""
-    region = rng.choices(list(REGION_WEIGHTS), weights=list(REGION_WEIGHTS.values()))[0]
+def synthetic_intake(
+    rng: random.Random, received_at: datetime, region: str | None = None
+) -> service.NewIntake:
+    """가상의 접수 한 건. 사람·차량을 특정할 내용은 없다. 지역을 주지 않으면 비중대로 고른다."""
+    if region is None:
+        region = rng.choices(list(REGION_WEIGHTS), weights=list(REGION_WEIGHTS.values()))[0]
     location = f"{rng.choice(PLACES[region])} {rng.choice(SPOTS)}"
     description = rng.choice(ACCIDENTS)
     injured = 0

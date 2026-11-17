@@ -58,9 +58,16 @@ def is_open(row: dict, now: datetime) -> bool:
     return not row["simulated"] or now < row["closes_at"]
 
 
+# 시연 접수: 관리자가 관제 화면에서 넣는 가상 접수다(registered_by가 있다 — 미리 만드는 가상
+# 접수에는 없다). 접수 시각을 10초 뒤로 잡아 그때 나타나고, 1분 뒤(종결 시각)가 수명의 끝이다.
+# 수명이 끝나면 어디에도 보이지 않고, 조회할 때 지운다(repository.delete_expired_demos).
+DEMO_DELAY = timedelta(seconds=10)
+DEMO_LIFETIME = timedelta(minutes=1)
+
 # 아래 SQL 조각은 %(now)s를 넘기고 접수 건 별칭을 i로 쓴다.
-# 접수 시각이 온 건만 보인다(미리 만들어 둔 가상 접수 제외)
-VISIBLE_SQL = "i.received_at <= %(now)s"
+DEMO_SQL = "(i.simulated and i.registered_by is not null)"
+# 접수 시각이 온 건만 보인다(미리 만들어 둔 가상 접수 제외). 수명이 끝난 시연 접수도 빠진다
+VISIBLE_SQL = f"(i.received_at <= %(now)s and not ({DEMO_SQL} and i.closes_at <= %(now)s))"
 # 진행 중: 배정됐고, 가상 접수면 종결 시각 전
 OPEN_SQL = "(i.status = 'assigned' and (not i.simulated or i.closes_at > %(now)s))"
 # 종결: 실제 접수는 종결 처리됨, 가상 접수는 종결 시각이 지남
