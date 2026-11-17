@@ -56,6 +56,19 @@ class ChartAlternative(TypedDict):
     reason: str
 
 
+class UnknownScenario(TypedDict):
+    """담당자가 '모른다'고 한 칸에 값을 하나씩 넣어 본 경우별 결과(보류 때만, 수정요소 전).
+
+    판단은 이 값으로 비율을 확정하지 않는다. 어느 경우인지 확인하면 그 값으로 다시 판단한다.
+    """
+
+    fields: dict[str, str]  # 넣어 본 칸과 값(도표 선택 칸 이름)
+    chart_id: str
+    variant: str | None
+    base_A: int
+    base_B: int
+
+
 class JudgmentResult(TypedDict):
     versions: VersionRef
     status: JudgmentStatus
@@ -73,6 +86,8 @@ class JudgmentResult(TypedDict):
     base_fault_A: NotRequired[int | None]
     modifiers: NotRequired[list[ModifierDecision]]
     alternatives: NotRequired[list[ChartAlternative]]
+    # 모르는 칸 때문에 보류됐을 때 그 칸 값마다 고를 수 있는 도표와 기본 과실(없으면 키 없음)
+    scenarios: NotRequired[list[UnknownScenario]]
 
 
 class AnswerView(TypedDict):

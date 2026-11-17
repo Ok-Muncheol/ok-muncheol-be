@@ -90,6 +90,13 @@ _KOREAN_VALUES = {
     "entering_road": "도로가 아닌 장소에서 도로로 진입", "leaving_road": "도로가 아닌 장소로 진입",
     "parking_out": "주차구획 출차", "parking_in": "주차구획 진입",
 }
+
+
+def korean_value(value: str) -> str:
+    """도표 선택 값의 한국어 낱말(검색어·판단 사유용). 낱말이 없으면 값 그대로."""
+    return _KOREAN_VALUES.get(value, value)
+
+
 # 차로 노면표시(차11-x 제목 표현). 값이 다른 칸과 겹치지 않게 따로 둔다
 _LANE_WORDS = {
     "left_only": "좌회전 노면표시차로", "straight_left": "직진좌회전 노면표시차로",

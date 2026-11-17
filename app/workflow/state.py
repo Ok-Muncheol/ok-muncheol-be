@@ -9,6 +9,7 @@ from app.schemas.judgment import (
     ConfirmationQuestion,
     JudgmentResult,
     ModifierDecision,
+    UnknownScenario,
     ValidationCheck,
 )
 from app.schemas.retrieval import EvidenceHit
@@ -70,4 +71,6 @@ class JudgmentState(TypedDict):
     fault: NotRequired[tuple[int, int]]
     calculation_log: NotRequired[list[str]]
     outcome: NotRequired[Outcome | None]
+    # 모르는 칸 때문에 보류할 때 그 칸 값마다 고를 수 있는 도표(결과 scenarios)
+    scenarios: NotRequired[list[UnknownScenario]]
     result: NotRequired[JudgmentResult]
