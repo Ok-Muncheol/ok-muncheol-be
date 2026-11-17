@@ -3,6 +3,8 @@
 - 서식: data/forms/car_estimate_form.pdf. 서식에 값이 찍힌 텍스트 PDF만 읽는다(스캔 이미지 OCR
   아님).
 - 읽는 값: 총액, 일련번호, 발급 년월일, 견적구분(보험/일반), 부품·공임·부가가치세.
+- 일련번호·견적구분은 글자 줄에서 먼저 찾는다. 글꼴에 따라 값이 라벨보다 3pt 넘게 낮게 찍히면
+  pdfplumber가 다음 줄로 읽어 못 찾으므로, 그때는 라벨과 높이가 겹치는 자리를 위치로 찾는다.
 - read_by="pdf_extract": 담당자 확인 단계 없이 바로 계산에 쓴다(1차 판정 초안, 마지막 담당자 확인
   완료에서 확인).
 - 총액을 못 찾으면 amount=None + "견적서 총액 인식 실패" (0으로 채우지 않음).
@@ -63,9 +65,24 @@ def _summary_values(words: list[dict]) -> dict[str, int | None]:
     return values
 
 
-def _serial(text: str) -> str | None:
+def _overlaps(a: dict, b: dict) -> bool:
+    """두 단어(글자)의 세로 범위가 겹친다 — 같은 칸에 찍힌 것으로 본다."""
+    return a["top"] < b["bottom"] and b["top"] < a["bottom"]
+
+
+def _serial(text: str, words: list[dict]) -> str | None:
     m = re.search(r"일련번호\s*:[^\S\n]*(\S+)", text)
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    # 값이 다음 줄로 읽혔다: 라벨 오른쪽에서 라벨과 높이가 겹치는 첫 단어
+    label = next((w for w in words if w["text"].startswith("일련번호")), None)
+    if label is None:
+        return None
+    right = sorted(
+        (w for w in words if w["x0"] >= label["x1"] - 1 and _overlaps(w, label)),
+        key=lambda w: w["x0"],
+    )
+    return next((t for w in right if (t := w["text"].lstrip(":"))), None)
 
 
 def _issued_on(text: str) -> str | None:
@@ -81,11 +98,36 @@ def _issued_on(text: str) -> str | None:
         return None
 
 
-def _estimate_type(text: str) -> str | None:
+def _checked(option: str, words: list[dict], chars: list[dict]) -> bool:
+    """「견적구분」 줄 option(보험·일반) 바로 앞 칸([ ], 라벨 왼쪽 25pt 안)에 체크 글자가 있다."""
+    head = next((w for w in words if w["text"] == "견적구분"), None)
+    if head is None:
+        return False
+    label = next(
+        (
+            w
+            for w in words
+            if w["text"] == option and w["x0"] > head["x1"] and _overlaps(w, head)
+        ),
+        None,
+    )
+    if label is None:
+        return False
+    return any(
+        re.fullmatch(_CHECK, c["text"])
+        and label["x0"] - 25 < (c["x0"] + c["x1"]) / 2 < label["x0"]
+        and _overlaps(c, label)
+        for c in chars
+    )
+
+
+def _estimate_type(text: str, words: list[dict], chars: list[dict]) -> str | None:
     compact = re.sub(r"[^\S\n]+", "", text)
-    ins = re.search(rf"\[{_CHECK}\]보험", compact)
-    gen = re.search(rf"\[{_CHECK}\]일반", compact)
-    if bool(ins) == bool(gen):
+    ins = bool(re.search(rf"\[{_CHECK}\]보험", compact))
+    gen = bool(re.search(rf"\[{_CHECK}\]일반", compact))
+    if not (ins or gen):  # 체크 표시가 다음 줄로 읽혔을 수 있다 → 위치로
+        ins, gen = _checked("보험", words, chars), _checked("일반", words, chars)
+    if ins == gen:
         return None  # 미체크·이중 체크는 판정하지 않음
     return "insurance" if ins else "general"
 
@@ -103,6 +145,7 @@ def read_estimate_pdf(
         page = pdf.pages[0]
         text = page.extract_text() or ""
         words = page.extract_words()
+        chars = page.chars
 
     v = _summary_values(words)
     total = v.get("total")
@@ -126,9 +169,9 @@ def read_estimate_pdf(
         "verification_status": "unverified",
         "received_at": received_at or datetime.now(KST).isoformat(timespec="seconds"),
         "storage_path": str(path),
-        "serial_no": _serial(text),
+        "serial_no": _serial(text, words),
         "issued_on": _issued_on(text),
-        "estimate_type": _estimate_type(text),  # type: ignore[typeddict-item]
+        "estimate_type": _estimate_type(text, words, chars),  # type: ignore[typeddict-item]
         "parts": parts,
         "labor": labor,
         "vat": vat,
