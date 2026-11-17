@@ -22,6 +22,8 @@ from app.calculation.estimate_reader import (
     SUM_MISMATCH,
     TOTAL_NOT_FOUND,
     EstimateReaderUnavailable,
+    _estimate_type,
+    _serial,
     read_estimate_pdf,
 )
 from app.calculation.insurance import calculate_insurance
@@ -117,6 +119,52 @@ class ReadEstimatePdfTest(unittest.TestCase):
         self.assertEqual(
             (d["parts"], d["labor"], d["vat"]), (None, None, None)
         )  # 아래 법 조문 숫자를 읽지 않음
+
+
+def word(text, x0, x1, top, bottom):
+    return {"text": text, "x0": x0, "x1": x1, "top": top, "bottom": bottom}
+
+
+# 시연 견적서(AppleGothic으로 값을 찍은 PDF)에서 잰 좌표. 값이 라벨보다 3.3pt 낮게 찍혀
+# pdfplumber 글자 줄로는 다음 줄이 된다(같은 줄 허용치 3pt). 견본 PDF(Noto Sans KR)는 1.3pt.
+SERIAL_LABEL = word("일련번호:", 431.5, 476.5, 94.5, 104.5)
+TYPE_ROW = [
+    word("견적구분", 105.7, 145.7, 292.4, 302.4),
+    word("[", 158.9, 163.9, 292.4, 302.4),
+    word("]", 169.0, 173.9, 292.4, 302.4),
+    word("보험", 178.9, 198.8, 292.4, 302.4),
+    word("[", 218.9, 223.9, 292.4, 302.4),
+    word("]", 229.0, 233.9, 292.4, 302.4),
+    word("일반", 238.9, 258.8, 292.4, 302.4),
+]
+TYPE_TEXT = "견적구분 [ ] 보험 [ ] 일반\nV"
+CHECK_INSURANCE = word("V", 163.2, 169.6, 295.8, 304.8)  # 「보험」 앞 칸
+CHECK_GENERAL = word("V", 223.2, 229.6, 295.8, 304.8)  # 「일반」 앞 칸
+
+
+class MarksBelowLabelTest(unittest.TestCase):
+    """값이 라벨보다 낮게 찍혀 다음 글자 줄로 읽혀도 위치로 찾는다(PDF 없이 좌표로)."""
+
+    def test_serial_below_label_line_is_read_by_position(self):
+        value = word("DEMO-OWN-0001", 480.0, 562.8, 97.8, 106.8)
+        text = "일련번호:\nDEMO-OWN-0001"
+        self.assertEqual(_serial(text, [SERIAL_LABEL, value]), "DEMO-OWN-0001")
+
+    def test_word_on_the_next_row_is_not_a_serial(self):
+        below = word("SYNTHETICVIN000001", 480.0, 560.0, 110.0, 118.5)
+        self.assertIsNone(_serial("일련번호:\nSYNTHETICVIN000001", [SERIAL_LABEL, below]))
+
+    def test_same_line_serial_still_comes_from_text(self):
+        self.assertEqual(_serial("일련번호: SYN-2026-0001", [SERIAL_LABEL]), "SYN-2026-0001")
+
+    def test_check_below_box_is_read_by_position(self):
+        self.assertEqual(_estimate_type(TYPE_TEXT, TYPE_ROW, [CHECK_INSURANCE]), "insurance")
+        self.assertEqual(_estimate_type(TYPE_TEXT, TYPE_ROW, [CHECK_GENERAL]), "general")
+
+    def test_no_check_or_both_checked_is_not_decided(self):
+        self.assertIsNone(_estimate_type(TYPE_TEXT, TYPE_ROW, []))
+        both = [CHECK_INSURANCE, CHECK_GENERAL]
+        self.assertIsNone(_estimate_type(TYPE_TEXT, TYPE_ROW, both))
 
 
 class ReaderUnavailableTest(unittest.TestCase):
