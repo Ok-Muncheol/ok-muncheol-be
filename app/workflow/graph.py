@@ -32,6 +32,7 @@ from app.schemas.chart_scope import (
     MANUAL_ONLY_MODIFIERS,
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
+    REASON_NO_SHAPE,
     REASON_OUT_OF_SCOPE,
     REASON_SWAP_HINT,
     REQUIRED_CONFIRMED_FIELDS,
@@ -489,6 +490,35 @@ async def choose_orientation(card: FactCard, retrieve: Retriever) -> FactCard:
     return flipped if then > now else card
 
 
+def _covers_moves(candidate: ChartCandidate, move_a: str, move_b: str) -> bool:
+    """도표 A가 move_a, 도표 B가 move_b인 사고를 다루는 변형이 있는가(`*`·안 적은 칸은 무엇이든)."""
+    attributes = _concrete(candidate["attributes"])
+    for variant in candidate["base_variants"] or [{"conditions": {}}]:
+        moves = {**attributes, **_concrete(variant["conditions"])}  # type: ignore[arg-type]
+        if moves.get("movement_A", move_a) == move_a and moves.get("movement_B", move_b) == move_b:
+            return True
+    return False
+
+
+def no_shape_lines(state: JudgmentState) -> list[str]:
+    """고를 도표가 없을 때, 카드의 두 차 움직임 조합을 다루는 후보 도표가 없으면 그 안내 한 줄.
+
+    "카드와 불일치" 줄만 보면 칸을 고치면 될 것처럼 읽힌다. 움직임 조합부터 맞는 도표가 없으면
+    (예: 후진 대 정차) 인정기준에 그 사고 모양이 없을 가능성이 높으므로 먼저 알린다. 도표 A/B는
+    어느 쪽이든 본다(맞바꾼 조합 포함). 두 움직임 중 확인하지 않은 것이 있으면 말하지 않는다.
+    후보는 검색된 도표뿐이라 "인정기준에 없다"고 단정하지 않는다.
+    """
+    values = confirmed_values(state["card"])
+    move_a, move_b = values.get("movement_A"), values.get("movement_B")
+    candidates = _eligible(state)
+    if not move_a or not move_b or not candidates:
+        return []
+    if any(_covers_moves(c, move_a, move_b) or _covers_moves(c, move_b, move_a)
+           for c in candidates):
+        return []
+    return [REASON_NO_SHAPE.format(pair=f"{korean_value(move_a)} 대 {korean_value(move_b)}")]
+
+
 def _titled(candidate: ChartCandidate) -> str:
     title = candidate.get("title")
     return f"{candidate['chart_id']} 「{title}」" if title else candidate["chart_id"]
@@ -774,7 +804,8 @@ def build_graph(
                     field_key=", ".join(sorted({k for s in scenarios for k in s["fields"]})))]
             update["outcome"] = _outcome(
                 "deferred", [*reasons, *scenario_lines(scenarios)]
-                or [REASON_NO_REVIEWED_CHART, *excluded, *swap_hints(state)]
+                or [REASON_NO_REVIEWED_CHART, *no_shape_lines(state), *excluded,
+                    *swap_hints(state)]
             )
             if scenarios:
                 update["scenarios"] = scenarios
