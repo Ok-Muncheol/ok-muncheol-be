@@ -228,6 +228,34 @@ def test_stage_facts_after_analysis_completed_or_older_failure():
     assert (new_fail["stage"], new_fail["task_status"]) == ("analysis", "failed")
 
 
+@pytest.mark.parametrize("approval", ["draft", "approved"])
+def test_stage_analysis_when_video_replaced_after_report(approval):
+    """보고서까지 간 사건(승인한 사건 포함)도 영상을 다시 올리면 분석이 끝날 때까지 분석 단계다."""
+    later = datetime(2026, 11, 11, 7, 0, tzinfo=UTC)
+    reported = {"card_version": 2, "card_at": T0, "judgment_version": 1, "run_card_version": 2,
+                "run_status": "completed", "judgment_status": "draft_ready",
+                "report_version": 1, "report_judgment_version": 1, "approval_status": approval,
+                "report_at": T0}
+    assert cases.summarize(row(**reported))["stage"] == "report"
+    for status in ("queued", "running"):
+        out = cases.summarize(row(**reported, analysis_status=status, analysis_at=later))
+        assert (out["stage"], out["task_status"]) == ("analysis", status)
+    # 새로 올린 영상의 분석이 실패하면 이전 보고서는 그대로라 검토 보고서 단계로 둔다
+    failed = cases.summarize(row(**reported, analysis_status="failed", analysis_at=later))
+    assert (failed["stage"], failed["task_status"]) == ("report", None)
+    assert (failed["approval_status"], failed["versions"]["report_version"]) == (approval, 1)
+    # 지금 카드를 만든 분석(카드보다 먼저 접수·완료)은 단계를 바꾸지 않는다
+    earlier = datetime(2026, 11, 11, 5, 0, tzinfo=UTC)
+    made = cases.summarize(row(**reported, analysis_status="completed", analysis_at=earlier))
+    assert made["stage"] == "report"
+    # 분석이 끝나 분석 카드가 새 버전이 되면 사실 카드로 돌아간다
+    # (이전 판단·보고서는 지금 것이 아니다)
+    done = cases.summarize(row(**{**reported, "card_version": 3, "card_at": later},
+                               analysis_status="completed", analysis_at=T0))
+    assert (done["stage"], done["approval_status"]) == ("facts", None)
+    assert done["versions"]["report_version"] is None
+
+
 def test_stage_analysis_when_video_added_after_judgment():
     """영상 없이 진행해 판단까지 간 사건에 영상을 올리면 분석이 끝날 때까지 분석 단계다."""
     later = datetime(2026, 11, 11, 7, 0, tzinfo=UTC)
