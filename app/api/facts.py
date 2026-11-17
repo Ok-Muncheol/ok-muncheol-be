@@ -10,8 +10,12 @@
 - 확정: needs_review 칸이 남았거나 도표 A/B 매핑이 틀리면 422. 통과하면 값이 있는 칸은 모두
   human_confirmed(담당자가 카드 전체를 확인했다는 뜻, 2026-11-11 결정)이고 확정한 사람·시각을
   남긴다.
-- 영상 없이 진행(POST): 카드가 없고 영상 분석이 대기·진행 중이 아니면 칸이 모두 빈 카드 v1을
+- 영상 없이 진행(POST): 카드가 없고 영상 분석이 대기·진행 중이 아니면 칸이 모두 빈 카드를
   담당자 이름으로 만든다(origin manual). 비워 둔 칸은 판단이 구분 질문으로 묻는다.
+- 지금 카드: 가장 큰 버전. 사건을 접수 단계로 되돌렸으면(cases.restarted_at) 그 뒤에 만든 카드만
+  지금 카드다 — 그 전 카드는 이력이고 조회·수정·확정 대상이 아니다. 버전 번호는 이어서 매긴다.
+- 판단 단계로 되돌리기(cases.restart_case): 원본 카드(영상 분석 카드·빈 카드)를 확인 전 상태의
+  새 버전으로 다시 만든다(pristine_card).
 """
 
 from __future__ import annotations
@@ -42,6 +46,7 @@ KST = timezone(timedelta(hours=9))
 class FactRepo(Protocol):
     async def assignees(self, case_id: str) -> tuple[str, ...] | None: ...
     async def latest(self, case_id: str) -> FactCard | None: ...
+    async def next_version(self, case_id: str) -> int: ...
     async def insert(
         self, card: FactCard, origin: str, reason: str | None, actor_id: str | None
     ) -> bool: ...
@@ -60,8 +65,31 @@ class PostgresFactRepo:
         return await runs.case_assignees(self.conn, case_id)
 
     async def latest(self, case_id: str) -> FactCard | None:
+        """지금 카드. 사건을 접수 단계로 되돌린 뒤에는 그 뒤에 만든 카드만 본다."""
         cur = await self.conn.execute(
-            "select card from public.fact_cards where case_id = %s order by version desc limit 1",
+            "select f.card from public.fact_cards f join public.cases c on c.id = f.case_id"
+            f" where f.case_id = %s and f.created_at >= {runs.RESTARTED_AT_SQL}"
+            " order by f.version desc limit 1",
+            (case_id,),
+        )
+        row = await cur.fetchone()
+        return row["card"] if row else None
+
+    async def next_version(self, case_id: str) -> int:
+        """다음 카드 버전. 이력으로 남은 카드까지 세어 번호가 겹치지 않게 한다."""
+        cur = await self.conn.execute(
+            "select coalesce(max(version), 0) + 1 as next from public.fact_cards"
+            " where case_id = %s",
+            (case_id,),
+        )
+        return int((await cur.fetchone())["next"])
+
+    async def origin(self, case_id: str) -> FactCard | None:
+        """지금 카드의 원본 — 영상 분석이 만든 카드나 영상 없이 시작한 빈 카드 가운데 최신."""
+        cur = await self.conn.execute(
+            "select f.card from public.fact_cards f join public.cases c on c.id = f.case_id"
+            f" where f.case_id = %s and f.created_at >= {runs.RESTARTED_AT_SQL}"
+            " and f.origin in ('vision', 'manual') order by f.version desc limit 1",
             (case_id,),
         )
         row = await cur.fetchone()
@@ -255,14 +283,14 @@ def _empty_field() -> FactField:
     }
 
 
-def blank_card(case_id: str, accident_date: str | None) -> FactCard:
-    """영상 없이 시작하는 카드 v1(draft). 칸은 모두 값 없음·출처 manual·unverified다.
+def blank_card(case_id: str, accident_date: str | None, version: int = 1) -> FactCard:
+    """영상 없이 시작하는 카드(draft). 칸은 모두 값 없음·출처 manual·unverified다.
 
     확정을 막지 않고, 비워 둔 칸은 판단이 구분 질문으로 묻는다. 도표 A/B는 계약 기본값
     (A = 상대 차 P2, B = 가입자 차 P1)이고 담당자가 맞바꿀 수 있다. 근거 장면은 없다.
     """
     return {
-        "case_id": case_id, "version": 1, "accident_date": accident_date,
+        "case_id": case_id, "version": version, "accident_date": accident_date,
         "fields": {key: _empty_field() for key in FACT_FIELDS},
         "parties": copy.deepcopy(list(BLANK_PARTIES)),
         "party_mapping": {
@@ -352,6 +380,27 @@ async def store_orientation(repo: FactRepo, card: FactCard, actor_id: str) -> Fa
     return new
 
 
+RESTART_REASON = "담당자가 판단 단계부터 다시 하려고 카드를 초기화함"
+
+
+def pristine_card(origin: FactCard, version: int) -> FactCard:
+    """판단 단계의 처음 카드 — 원본 카드를 확인 전 상태의 새 버전(draft)으로 다시 만든다.
+
+    원본 행(영상 분석 카드·빈 카드)은 확정만 겪는다(수정은 새 버전이다). 확정은 값이 있는
+    unverified 칸을 human_confirmed로 바꾸고 확정한 사람·시각을 적으니, 그것만 되돌리면 처음
+    그대로다. needs_review 칸이 있던 원본은 확정할 수 없어 처음 그대로 남아 있다.
+    """
+    new: FactCard = copy.deepcopy(origin)
+    for field in new["fields"].values():
+        if field.get("verification_status") == "human_confirmed":
+            field["verification_status"] = "unverified"
+    new["version"] = version
+    new["status"] = "draft"
+    new["confirmed_by"] = None
+    new["confirmed_at"] = None
+    return new
+
+
 def _card_exists() -> ApiException:
     message = "이미 사실 카드가 있습니다. 판단 화면에서 이어서 진행하세요."
     return ApiException(409, "fact_card_exists", message, False)
@@ -375,7 +424,10 @@ async def start_without_video(actor_id: str, case_id: str) -> FactCard:
                 "영상 분석이 진행 중입니다. 분석이 끝나면 판단 화면에서 이어서 진행하세요.", False,
             )
         accident = await repo.accident_date(case_id)
-        card = blank_card(case_id, accident.astimezone(KST).isoformat() if accident else None)
+        card = blank_card(
+            case_id, accident.astimezone(KST).isoformat() if accident else None,
+            await repo.next_version(case_id),
+        )
         if not await repo.insert(card, "manual", None, actor_id):
             raise _card_exists()  # 같은 요청이 동시에 와서 다른 쪽이 먼저 만들었다
         return card
@@ -390,11 +442,10 @@ async def store_vision_card(repo: FactRepo, case_id: str, card: FactCard) -> Fac
         raise unprocessable("invalid_fact_card", "사실 카드 모양이 아닙니다.")
     for key, field in card["fields"].items():
         check_value(key, field.get("value") if isinstance(field, dict) else field)
-    latest = await repo.latest(case_id)
     new: FactCard = {
         **copy.deepcopy(card),
         "case_id": case_id,
-        "version": (latest["version"] + 1) if latest else 1,
+        "version": await repo.next_version(case_id),
         "status": "draft",
         "confirmed_by": None,
         "confirmed_at": None,

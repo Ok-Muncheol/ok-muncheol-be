@@ -63,6 +63,10 @@ class MemoryRepo:
             return None
         return copy.deepcopy(max(rows, key=lambda r: r["card"]["version"])["card"])
 
+    async def next_version(self, case_id):
+        versions = [r["card"]["version"] for r in self.rows if r["card"]["case_id"] == case_id]
+        return max(versions, default=0) + 1
+
     async def insert(self, card, origin, reason, actor_id):
         key = (card["case_id"], card["version"])
         if any((r["card"]["case_id"], r["card"]["version"]) == key for r in self.rows):

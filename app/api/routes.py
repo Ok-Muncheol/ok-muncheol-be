@@ -13,7 +13,7 @@ OpenAPI에서 뺀다.
 
 import json
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, Query, Request
 from pydantic import BaseModel, Field, StringConstraints
@@ -179,6 +179,16 @@ async def receive_analysis_result(
 @router.get("/cases/{case_id}", tags=["A cases"])
 async def get_case(actor_id: ActorId, case_id: str) -> dict[str, object]:
     return await cases.get_case(actor_id, case_id)
+
+
+class RestartRequest(BaseModel):
+    stage: Literal["intake", "judgment"]
+
+
+@router.post("/cases/{case_id}/restart", tags=["A cases"])
+async def restart_case(actor_id: ActorId, case_id: str, body: RestartRequest) -> dict[str, object]:
+    """사건을 접수·판단 단계의 처음으로 되돌려 저장한다(CaseSummary). 산출물은 이력으로 남는다."""
+    return await cases.restart_case(actor_id, case_id, body.stage)
 
 
 @router.get("/cases/{case_id}/evidence", tags=["A facts"])

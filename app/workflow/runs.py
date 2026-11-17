@@ -28,6 +28,13 @@ STALE_ERROR: ApiError = {
     "retryable": True,
 }
 
+# 사건을 접수 단계부터 다시 한 시각(cases.restarted_at — 20261117160000_case_restart.sql).
+# 그 전에 만든 사실 카드·영상 분석 작업은 이력으로만 남고 지금 것으로 보지 않는다.
+# `c`는 cases 별칭이다.
+# 칼럼을 직접 읽지 않고 행을 jsonb로 바꿔 읽는다 — 마이그레이션을 적용하기 전의 DB에서도
+# 조회가 깨지지 않는다(키가 없으면 null = 되돌린 적 없음).
+RESTARTED_AT_SQL = "coalesce((to_jsonb(c) ->> 'restarted_at')::timestamptz, '-infinity')"
+
 Row = dict[str, Any]
 
 
@@ -134,16 +141,47 @@ async def get_run(conn: AsyncConnection, run_id: str) -> Row | None:
 
 
 async def latest_run(conn: AsyncConnection, case_id: str) -> Row | None:
-    """사건의 최신 판단 실행 = 판단 버전이 가장 큰 실행. 판단 전이면 None.
+    """사건의 최신 판단 실행 = 대체되지 않은 실행 가운데 판단 버전이 가장 큰 것. 없으면 None.
 
     새 카드 버전의 판단이 확인 대기 실행을 대체하면 그 새 실행이 더 큰 버전이라
-    대체된 실행은 오지 않는다.
+    대체된 실행은 오지 않는다. 사건을 접수·판단 단계로 되돌리면(supersede_runs) 그때까지의
+    실행이 모두 대체돼 판단 전으로 돌아간다.
     실패한 실행도 최신이면 그대로 돌려준다(다시 요청하면 새 버전이 생긴다).
     """
     return await _one(
         conn,
         f"select {RUN_COLUMNS} from public.judgment_runs where case_id = %s"
-        " order by judgment_version desc limit 1",
+        " and superseded_at is null order by judgment_version desc limit 1",
+        (case_id,),
+    )
+
+
+async def run_in_progress(conn: AsyncConnection, case_id: str) -> bool:
+    """실행 중(queued·running)인 판단이 있는가. 오래 멈춘 running은 먼저 failed로 정리한다."""
+    await conn.execute(
+        "update public.judgment_runs"
+        " set status = 'failed', error = %s, completed_at = now()"
+        " where case_id = %s and status in ('queued', 'running') and superseded_at is null"
+        f" and updated_at < now() - interval '{STALE_RUNNING}'",
+        (Jsonb(STALE_ERROR), case_id),
+    )
+    row = await _one(
+        conn,
+        "select 1 as busy from public.judgment_runs where case_id = %s"
+        " and status in ('queued', 'running') and superseded_at is null limit 1",
+        (case_id,),
+    )
+    return row is not None
+
+
+async def supersede_runs(conn: AsyncConnection, case_id: str) -> None:
+    """사건의 판단 실행을 모두 대체된 것으로 찍는다(사건을 접수·판단 단계로 되돌릴 때).
+
+    행은 지우지 않는다 — 이력으로 남고, 지금 단계 계산과 판단 조회에서만 빠진다.
+    """
+    await conn.execute(
+        "update public.judgment_runs set superseded_at = now()"
+        " where case_id = %s and superseded_at is null",
         (case_id,),
     )
 
