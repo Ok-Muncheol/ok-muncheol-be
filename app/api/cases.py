@@ -9,6 +9,10 @@
 판단·보고서까지 간 사건에 영상을 다시 올리면 분석이 대기·진행 중인 동안은 analysis가 먼저다
 (접수부터 다시). 끝나면 분석 카드가 새 버전이라 facts, 실패하면 이전 단계 그대로다.
 추가 확인 필요·보류 판정도 보고서를 만들지만(judgments.py) 승인할 수 없어 판단 단계에 둔다.
+
+단계 되돌리기(restart_case, POST /cases/{id}/restart): 담당자가 사건을 접수·판단 단계의 처음으로
+되돌려 저장한다. 산출물은 지우지 않는다 — 접수는 cases.restarted_at 앞의 카드·분석을, 둘 다
+그때까지의 판단 실행을 지금 것에서 빼서, 위 규칙이 그대로 접수·사실 카드 단계를 낸다.
 """
 
 import re
@@ -19,7 +23,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app import db, storage
-from app.api.errors import forbidden, not_found, unprocessable
+from app.api import facts
+from app.api.errors import ApiException, forbidden, not_found, unprocessable, version_conflict
 from app.schemas.common import UploadKind
 from app.workflow import runs
 
@@ -47,8 +52,9 @@ UPLOAD_FOLDERS: dict[str, str] = {
 
 KST = timezone(timedelta(hours=9))
 
-# 사건 + 최신 카드·판단(대체되지 않은 것)·보고서 + 남은 질문 수. where 절은 호출하는 쪽이 붙인다
-SUMMARY_SQL = """
+# 사건 + 최신 카드·판단(대체되지 않은 것)·보고서 + 남은 질문 수. where 절은 호출하는 쪽이 붙인다.
+# 카드·분석은 사건을 접수 단계로 되돌린 시각(runs.RESTARTED_AT_SQL) 뒤에 만든 것만 본다
+SUMMARY_SQL = f"""
 select c.id, c.assignee_id, c.injury_assignee_id, c.accident_date,
        c.created_at, c.updated_at,
        fc.version as card_version, fc.updated_at as card_at,
@@ -65,7 +71,8 @@ select c.id, c.assignee_id, c.injury_assignee_id, c.accident_date,
 from public.cases c
 left join lateral (
   select version, updated_at from public.fact_cards
-  where case_id = c.id order by version desc limit 1) fc on true
+  where case_id = c.id and created_at >= {runs.RESTARTED_AT_SQL}
+  order by version desc limit 1) fc on true
 left join lateral (
   select id, judgment_version, fact_card_version, status, judgment_status, updated_at
   from public.judgment_runs where case_id = c.id and superseded_at is null
@@ -75,7 +82,8 @@ left join lateral (
   where case_id = c.id order by report_version desc limit 1) rr on true
 left join lateral (
   select status, created_at, updated_at from public.analysis_tasks
-  where case_id = c.id order by created_at desc limit 1) at on true
+  where case_id = c.id and created_at >= {runs.RESTARTED_AT_SQL}
+  order by created_at desc limit 1) at on true
 """
 
 
@@ -105,6 +113,16 @@ class PostgresCaseRepo:
         from app.api.analysis import EXPIRE_SQL, TIMEOUT_ERROR
 
         await self.conn.execute(EXPIRE_SQL, (Jsonb(TIMEOUT_ERROR), case_id))
+
+    async def lock(self, case_id: str) -> None:
+        """사건 행을 잠근다(같은 사건의 되돌리기·판단 접수가 겹치지 않게)."""
+        await self.conn.execute("select id from public.cases where id = %s for update", (case_id,))
+
+    async def mark_restarted(self, case_id: str) -> None:
+        """접수 단계로 되돌린 시각을 적는다. 그 전의 카드·분석은 지금 것이 아니게 된다."""
+        await self.conn.execute(
+            "update public.cases set restarted_at = now() where id = %s", (case_id,)
+        )
 
     async def summaries(
         self, *, case_id: str | None = None, assignee_id: str | None = None
@@ -262,6 +280,79 @@ async def create_case(actor_id: str, payload: dict[str, object]) -> dict[str, ob
         case_id = await repo.insert_case(actor_id, accident_date)
         rows = await repo.summaries(case_id=case_id)
     return summarize(rows[0])
+
+
+RESTART_STAGES = ("intake", "judgment")
+
+
+def _blocked(code: str, message: str) -> ApiException:
+    return ApiException(409, code, message, True)
+
+
+async def restart_case(actor_id: str, case_id: str, stage: str) -> dict[str, object]:
+    """사건을 그 단계의 처음으로 되돌려 저장한다. 응답은 되돌린 뒤의 CaseSummary.
+
+    접수 화면의 「영상 다시 올리기」(intake)와 판단 화면의 「초기화」(judgment)가 부른다.
+    산출물은 지우지 않는다. 그때까지의 카드·판단·보고서는 버전으로 남고 지금 것에서만 빠진다.
+    - intake: 되돌린 시각을 적는다(cases.restarted_at). 그 전의 카드·분석은 지금 것이 아니라
+      접수 단계가 된다. 다음 카드는 이어지는 버전 번호로 들어온다.
+    - judgment: 원본 카드(영상 분석 카드·빈 카드)를 확인 전 상태의 새 버전으로 다시 만든다
+      (facts.pristine_card). 지금 카드가 이미 그 원본 그대로면 만들지 않는다. 사실 카드 단계가 된다.
+    둘 다 그때까지의 판단 실행을 대체된 것으로 찍는다 — 판단 조회는 null이고 보고서도 지금 것이
+    아니다. 서류·면책·협의 과실 같은 사건 입력은 그대로 두어 다음 보고서가 이어 쓴다.
+    영상 분석이 대기·진행 중이면 409 analysis_in_progress, 판단이 실행 중이면 409
+    judgment_in_progress, judgment인데 카드가 없으면 409 fact_card_required다.
+    되돌리기 칼럼이 아직 없으면(마이그레이션 적용 전) intake는 503 restart_db_not_ready다.
+    """
+    from psycopg import errors
+
+    if stage not in RESTART_STAGES:
+        raise unprocessable("invalid_restart_stage", "stage는 intake 또는 judgment여야 합니다.")
+    case_id = _case_uuid(case_id)
+    await _require_assignee(actor_id, case_id)
+    async with services.connect() as conn:
+        repo = services.repo(conn)
+        cards = facts.PostgresFactRepo(conn)
+        try:
+            async with conn.transaction():
+                await repo.lock(case_id)
+                if await cards.analysis_active(case_id):
+                    raise _blocked(
+                        "analysis_in_progress", "영상 분석이 진행 중입니다. 끝난 뒤 되돌리세요."
+                    )
+                if await runs.run_in_progress(conn, case_id):
+                    raise _blocked(
+                        "judgment_in_progress", "판단이 실행 중입니다. 끝난 뒤 되돌리세요."
+                    )
+                if stage == "intake":
+                    await repo.mark_restarted(case_id)
+                else:
+                    await _restart_card(cards, case_id, actor_id)
+                await runs.supersede_runs(conn, case_id)
+        except errors.UndefinedColumn as exc:
+            raise ApiException(
+                503, "restart_db_not_ready",
+                "사건을 접수 단계로 되돌리는 DB 칼럼이 아직 없습니다. 마이그레이션을 적용하세요.",
+                True,
+            ) from exc
+        rows = await repo.summaries(case_id=case_id)
+    return summarize(rows[0])
+
+
+async def _restart_card(cards: facts.PostgresFactRepo, case_id: str, actor_id: str) -> None:
+    """판단 단계의 처음 카드로. 지금 카드가 원본 그대로(확정 전)면 아무것도 만들지 않는다."""
+    current = await cards.latest(case_id)
+    origin = await cards.origin(case_id)
+    if current is None or origin is None:
+        raise ApiException(
+            409, "fact_card_required",
+            "사실 카드가 없습니다. 영상 분석을 마치거나 영상 없이 진행한 뒤 되돌리세요.", False,
+        )
+    if current["version"] == origin["version"] and current["status"] == "draft":
+        return
+    new = facts.pristine_card(origin, await cards.next_version(case_id))
+    if not await cards.insert(new, "edit", facts.RESTART_REASON, actor_id):
+        raise version_conflict("사실 카드가 그 사이 바뀌었습니다. 다시 시도하세요.")
 
 
 async def list_cases(actor_id: str) -> list[dict[str, object]]:

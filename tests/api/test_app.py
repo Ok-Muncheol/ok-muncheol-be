@@ -64,9 +64,9 @@ def test_openapi_matches_fe_api_client():
     # + POST /cases/{id}/fact-card(영상 없이 진행, 11/16 — GET·PATCH와 경로가 같아 경로 수는 그대로)
     # + GET /cases/{id}/partner-medical(시연용 제휴 병원 수신 가데이터, 11/16)
     # + GET /demo-files, POST /cases/{id}/uploads/demo(시연 파일 고르기, 11/17)
-    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 24
+    assert len([p for p in app.openapi()["paths"] if p != "/health"]) == 25
     ops = sum(len(v) for k, v in app.openapi()["paths"].items() if k != "/health")
-    assert ops == 28
+    assert ops == 29
 
 
 def test_missing_token_is_401_api_error(client):

@@ -151,9 +151,12 @@ class PostgresAnalysisRepo:
         )
 
     async def latest_completed(self, case_id: str) -> dict | None:
+        """최신 완료 분석. 사건을 접수 단계로 되돌린 뒤에는 그 뒤에 접수한 분석만 본다."""
         return await self._one(
-            "select * from public.analysis_tasks where case_id = %s and status = 'completed'"
-            " order by completed_at desc nulls last, created_at desc limit 1",
+            "select t.* from public.analysis_tasks t join public.cases c on c.id = t.case_id"
+            " where t.case_id = %s and t.status = 'completed'"
+            f" and t.created_at >= {runs.RESTARTED_AT_SQL}"
+            " order by t.completed_at desc nulls last, t.created_at desc limit 1",
             (case_id,),
         )
 
