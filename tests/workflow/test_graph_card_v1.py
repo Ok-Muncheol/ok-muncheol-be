@@ -360,3 +360,15 @@ def test_blank_card_without_video_goes_to_questions():
     keys = [q["field_key"] for q in out["__interrupt__"][0].value["questions"]]
     assert keys[:2] == ["accident_type", "location_type"]
     assert (retrieve.await_count, reviewer.await_count) == (1, 0)
+
+
+def test_fixes_on_a_swapped_card_name_the_card_field_and_value():
+    """맞바꾼 카드의 고칠 값은 도표 기준(fields)과 카드 칸·값(card_fields) 둘 다 싣는다."""
+    rear = candidate("P-5", {**SIGNALIZED_V1, "relative_position": "same_direction_rear"}, 30)
+    swapped = en_v1_card(swapped=True, relative_position=field("right"))
+    _, out, _, _ = start(swapped, cands=[rear], thread="run-swap-fix")
+    assert out["result"]["status"] == "deferred"
+    assert [(f["fields"], f["card_fields"], f["chart_id"]) for f in out["result"]["fixes"]] == [
+        ({"relative_position": "same_direction_rear"},
+         {"relative_position": "same_direction_front"}, "P-5"),
+    ]

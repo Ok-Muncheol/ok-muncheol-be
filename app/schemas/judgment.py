@@ -98,6 +98,10 @@ class JudgmentResult(TypedDict):
     # 없음). 판정은 추가 확인 필요이고, 같은 내용이 reasons에 안내 문장과 글 줄로도 붙는다
     # (graph.scenario_outcome)
     scenarios: NotRequired[list[UnknownScenario]]
+    # 확인한 값이 후보 도표와 모두 어긋나 보류했을 때, 어느 칸을 어떤 값으로 고치면 고를 수 있는지
+    # (없으면 키 없음, graph.card_fixes). `fields`는 고칠 칸과 아직 확인하지 않은 칸이고, 고칠 칸
+    # 수가 가장 적은 도표만 싣는다. 판정·사유는 그대로다
+    fixes: NotRequired[list[UnknownScenario]]
 
 
 class AnswerView(TypedDict):
