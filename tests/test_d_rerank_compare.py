@@ -142,12 +142,26 @@ class ScoreTest(unittest.TestCase):
         scores = rank_scores(["x", "p1", "y"], ["p1"])
         self.assertEqual(scores["first_correct_rank"], 2)
         self.assertEqual((scores["top1"], scores["r3"], scores["mrr10"]), (0.0, 1.0, 0.5))
+        self.assertEqual(scores["map5"], 0.5)  # 정답 1개면 5위까지의 역순위
+        self.assertAlmostEqual(scores["ndcg5"], 1 / math.log2(3))
         miss = rank_scores([f"x{i}" for i in range(10)], ["p1"])
         self.assertEqual((miss["first_correct_rank"], miss["r10"], miss["mrr10"]), (None, 0, 0))
+        self.assertEqual((miss["map5"], miss["ndcg5"]), (0, 0))
+
+    def test_answer_after_rank_5_counts_only_for_mrr10(self):
+        scores = rank_scores([f"x{i}" for i in range(5)] + ["p1"], ["p1"])
+        self.assertAlmostEqual(scores["mrr10"], 1 / 6)
+        self.assertEqual((scores["map5"], scores["ndcg5"]), (0, 0))
 
     def test_recall_with_two_answers(self):
         scores = rank_scores(["a", "x", "y", "z", "b"], ["a", "b"])
         self.assertEqual((scores["top1"], scores["r3"], scores["r5"]), (1.0, 0.5, 1.0))
+        self.assertAlmostEqual(scores["map5"], (1 / 1 + 2 / 5) / 2)
+        ideal = 1 + 1 / math.log2(3)
+        self.assertAlmostEqual(scores["ndcg5"], (1 + 1 / math.log2(6)) / ideal)
+        half = rank_scores(["a", "x"], ["a", "b"])  # 둘째 정답을 못 찾으면 분모 2 그대로
+        self.assertEqual(half["map5"], 0.5)
+        self.assertAlmostEqual(half["ndcg5"], 1 / ideal)
 
     def test_rejects_question_without_answer(self):
         with self.assertRaises(ValueError):
@@ -177,6 +191,7 @@ class RunMethodTest(unittest.TestCase):
         self.assertEqual(metrics["policy80"]["n"], 2)
         self.assertEqual(metrics["policy80"]["top1"], 0.5)
         self.assertEqual(metrics["schedule8"]["mrr10"], 0.5)
+        self.assertEqual(metrics["policy80"]["map5"], 0.75)  # 1위 1개 + 2위 1개
         self.assertEqual(metrics["all88"]["model_calls"], 3)
         self.assertEqual(metrics["all88"]["input_tokens"], 300)
         first = result["questions"][0]
