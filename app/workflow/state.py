@@ -73,4 +73,6 @@ class JudgmentState(TypedDict):
     outcome: NotRequired[Outcome | None]
     # 모르는 칸 때문에 보류할 때 그 칸 값마다 고를 수 있는 도표(결과 scenarios)
     scenarios: NotRequired[list[UnknownScenario]]
+    # 모든 경우의 기본 과실이 같을 때 그 비율(결과 fault_A/B, 추가 확인 필요)
+    scenario_fault: NotRequired[tuple[int, int]]
     result: NotRequired[JudgmentResult]

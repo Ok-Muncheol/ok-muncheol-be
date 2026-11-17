@@ -645,7 +645,14 @@ def alternative_reasons(
 # 모르는 칸 경우별 결과: 값 조합을 이만큼까지만 넣어 보고, 사유에는 앞 몇 줄만 적는다
 MAX_SCENARIO_COMBOS = 40
 MAX_LISTED_SCENARIOS = 8
-SCENARIO_HEADER = "모르는 칸 값마다 고를 수 있는 도표(기본 과실, 수정요소 전 · 비율 확정 아님):"
+SCENARIO_SAME = (
+    "모른다고 답한 칸({labels})은 어느 값이어도 기본 과실이 A {a} : B {b}로 같아요"
+    "(검색된 검수 도표 기준, 수정요소 전). 경우별 도표:"
+)
+SCENARIO_DIFFERENT = (
+    "모른다고 답한 칸({labels})은 값마다 기본 과실이 달라요. 아래에서 맞는 경우를 확인해 주세요"
+    "(수정요소 전):"
+)
 # 범위를 정하는 칸이라 경우별로 넣어 보지 않는다(차대차·장소는 범위 게이트가 본다)
 _NO_SCENARIO_KEYS = frozenset({"accident_type", "location_type"})
 
@@ -704,7 +711,7 @@ def unknown_scenarios(state: JudgmentState) -> list[UnknownScenario]:
 
 
 def scenario_lines(scenarios: list[UnknownScenario]) -> list[str]:
-    """보류 사유에 붙일 경우별 결과 줄(앞 MAX_LISTED_SCENARIOS개)."""
+    """사유에 붙일 경우별 결과 줄(앞 MAX_LISTED_SCENARIOS개)."""
     if not scenarios:
         return []
     lines = []
@@ -714,7 +721,27 @@ def scenario_lines(scenarios: list[UnknownScenario]) -> list[str]:
         )
         variant = f" ({s['variant']})" if s["variant"] else ""
         lines.append(f"{guess} → {s['chart_id']}{variant} A {s['base_A']} : B {s['base_B']}")
-    return [SCENARIO_HEADER, *_listed(lines, MAX_LISTED_SCENARIOS, "경우")]
+    return _listed(lines, MAX_LISTED_SCENARIOS, "경우")
+
+
+def scenario_outcome(scenarios: list[UnknownScenario]) -> dict:
+    """모르는 칸의 경우별 결과로 판정을 낸다. 상태는 늘 추가 확인 필요(needs_confirmation)다.
+
+    모든 경우의 기본 과실이 같으면 그 비율을 결과에 넣는다(`scenario_fault`). 다르면 비율은 비우고
+    경우별 줄을 보여 담당자가 맞는 경우를 확인하게 한다. 경우는 검색된 검수 도표 기준이다.
+    """
+    keys = sorted({k for s in scenarios for k in s["fields"]})
+    labels = ", ".join(FIELD_LABELS.get(k, k) for k in keys)
+    ratios = {(s["base_A"], s["base_B"]) for s in scenarios}
+    update: dict = {"scenarios": scenarios}
+    if len(ratios) == 1:
+        a, b = next(iter(ratios))
+        head = SCENARIO_SAME.format(labels=labels, a=a, b=b)
+        update["scenario_fault"] = (a, b)
+    else:
+        head = SCENARIO_DIFFERENT.format(labels=labels)
+    update["outcome"] = _outcome("needs_confirmation", [head, *scenario_lines(scenarios)])
+    return update
 
 
 def _outcome(status: str, reasons: list[str]) -> Outcome:
@@ -797,21 +824,20 @@ def build_graph(
         if not ranked:
             excluded = _listed([f"{chart_id}: {why}" for chart_id, why in skipped],
                                MAX_LISTED_EXCLUDED, "제외한 도표")
+            # 모른다고 답한 칸 때문에 막혔으면 그 칸 값마다 결과를 보여 준다(추가 확인 필요)
             scenarios = unknown_scenarios(state)
-            reasons = [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
-            if scenarios and not reasons:  # 필수 칸이 아닌 칸을 모른다고 해 막혔다
-                reasons = [REASON_FIELD_NOT_CONFIRMED.format(
-                    field_key=", ".join(sorted({k for s in scenarios for k in s["fields"]})))]
+            if scenarios:
+                return {**update, **scenario_outcome(scenarios)}
             update["outcome"] = _outcome(
-                "deferred", [*reasons, *scenario_lines(scenarios)]
+                "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in unknown]
                 or [REASON_NO_REVIEWED_CHART, *no_shape_lines(state), *excluded,
                     *swap_hints(state)]
             )
-            if scenarios:
-                update["scenarios"] = scenarios
             return update
         best = ranked[0]
         variant, missing = _pick_variant(best, values)
+        if variant is None and (scenarios := unknown_scenarios(state)):
+            return {**update, **scenario_outcome(scenarios)}
         if variant is None:
             update["outcome"] = _outcome(
                 "deferred", [REASON_FIELD_NOT_CONFIRMED.format(field_key=k) for k in missing]
@@ -904,6 +930,8 @@ def build_graph(
         selection = state.get("selection")
         reasons = outcome["reasons"] if outcome else (selection["reasons"] if selection else [])
         fault = state.get("fault") if status == "draft_ready" else None
+        if status == "needs_confirmation" and state.get("scenario_fault"):
+            fault = state["scenario_fault"]  # 모든 경우의 기본 과실이 같음(추가 확인 필요)
         log = state.get("calculation_log", []) if status == "draft_ready" else []
         questions = [
             build_question(state["case_id"], k, state["card"]) for k in open_fields(state)
@@ -932,13 +960,13 @@ def build_graph(
             "fault_A": fault[0] if fault else None, "fault_B": fault[1] if fault else None,
             "calculation_log": list(log), "evidence": chart_hits if keep_chart else [],
             "checks": list(state["checks"]), "questions": questions, "reasons": list(reasons),
-            "base_fault_A": selection["variant"]["base_A"] if keep_chart and selection else None,
+            "base_fault_A": selection["variant"]["base_A"] if keep_chart and selection
+            else (fault[0] if fault and state.get("scenario_fault") else None),
             "modifiers": list(selection["modifier_decisions"]) if keep_chart and selection else [],
             "alternatives": (
                 list(selection["alternative_reasons"]) if keep_chart and selection else []
             ),
-            **({"scenarios": list(state.get("scenarios") or [])}
-               if status == "deferred" and state.get("scenarios") else {}),
+            **({"scenarios": list(state.get("scenarios") or [])} if state.get("scenarios") else {}),
         }
 
     def _after(next_node: str):

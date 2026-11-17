@@ -78,9 +78,9 @@ def test_confirmed_unknown_is_not_asked_again():
     _, out, retrieve, reviewer = start(v1_card(movement_B=field("불명")))
     assert "__interrupt__" not in out
     result = out["result"]
-    assert result["status"] == "deferred"
-    assert result["reasons"][0] == REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B")
-    assert {s["chart_id"] for s in result["scenarios"]} >= {"S-1"}  # 경우별 결과(비율 확정 아님)
+    # '모름'도 답이다 — 다시 묻지 않고 값마다 결과를 보여 준다(추가 확인 필요)
+    assert result["status"] == "needs_confirmation"
+    assert {s["chart_id"] for s in result["scenarios"]} >= {"S-1"}
     assert (retrieve.await_count, reviewer.await_count) == (1, 0)
 
 
@@ -180,8 +180,8 @@ def test_swapped_en_v1_question_names_the_card_field():
               "value": None, "unknown": True}
     out = asyncio.run(graph.ainvoke(Command(resume=[answer]), thread_config("run-en-swap")))
     # '모름'은 도표 B 진행 방향으로 센다
-    assert out["result"]["status"] == "deferred"
-    assert out["result"]["reasons"][0] == REASON_FIELD_NOT_CONFIRMED.format(field_key="movement_B")
+    assert out["result"]["status"] == "needs_confirmation"
+    assert out["result"]["scenarios"]
     assert reviewer.await_count == 0
 
 
