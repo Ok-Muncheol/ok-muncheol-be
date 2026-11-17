@@ -13,6 +13,7 @@ from app.schemas.chart_scope import (
     FIELD_OPTIONS,
     IN_SCOPE_LOCATION_TYPES,
     REASON_NO_REVIEWED_CHART,
+    REASON_NO_SHAPE,
     REASON_SWAP_HINT,
     REQUIRED_CONFIRMED_FIELDS,
     LocationType,
@@ -319,3 +320,37 @@ def test_orientation_skips_search_for_cards_it_cannot_flip_or_out_of_scope():
     out_of_scope = en_v1_card(location_type=field("other"))
     chosen, retrieve = orient(out_of_scope, [])
     assert chosen is out_of_scope and retrieve.await_count == 0
+
+
+def test_deferral_says_when_no_candidate_covers_the_movement_pair():
+    """앞차 후진 대 정차(2026-11-17): 후보에 그 움직임 조합의 도표가 없으면 먼저 알린다."""
+    shared = {k: v for k, v in ROAD.items() if k not in ("movement_A", "movement_B")}
+    rear_end = candidate("R-1", {**shared, "movement_A": "straight", "movement_B": "stopped"}, 100)
+    reverse_u_turn = candidate(
+        "R-2", {**shared, "movement_A": "reversing"}, 20,
+        base_variants=[{"variant": None, "base_A": 20, "base_B": 80,
+                        "conditions": {"movement_B": move}} for move in ("u_turn", "left_turn")])
+    c = road_card(movement_A=field("reversing"), movement_B=field("stopped"))
+    out, _ = start(c, [rear_end, reverse_u_turn])
+    reasons = out["result"]["reasons"]
+    assert reasons[:2] == [REASON_NO_REVIEWED_CHART, REASON_NO_SHAPE.format(pair="후진 대 주정차")]
+    assert "R-1: 카드와 불일치 ['movement_A']" in reasons
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {"movement_A": "reversing", "movement_B": "stopped", "relative_position": "opposite"},
+        # 도표 A/B가 반대인 도표도 같은 사고 모양이다
+        {"movement_A": "stopped", "movement_B": "reversing", "relative_position": "opposite"},
+        # 움직임을 적지 않은(무관) 도표는 어떤 조합이든 다룬다
+        {"relative_position": "opposite"},
+    ],
+)
+def test_deferral_keeps_quiet_when_a_candidate_covers_the_movement_pair(attributes):
+    shared = {k: v for k, v in ROAD.items() if k not in ("movement_A", "movement_B")}
+    c = road_card(movement_A=field("reversing"), movement_B=field("stopped"))
+    out, _ = start(c, [candidate("R-1", {**shared, **attributes}, 50)])
+    reasons = out["result"]["reasons"]
+    assert reasons[0] == REASON_NO_REVIEWED_CHART
+    assert not any("움직임 조합" in r for r in reasons)

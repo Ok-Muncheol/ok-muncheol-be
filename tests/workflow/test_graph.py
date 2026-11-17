@@ -10,6 +10,7 @@ from app.schemas.chart_scope import (
     ANY_VALUE,
     REASON_FIELD_NOT_CONFIRMED,
     REASON_NO_REVIEWED_CHART,
+    REASON_NO_SHAPE,
     REASON_OUT_OF_SCOPE,
 )
 from app.validation.evidence import PERIOD_UNKNOWN_WARNING
@@ -476,7 +477,9 @@ def test_report_lists_only_the_first_excluded_and_unreviewed_candidates():
     [
         (unreviewed(5),
          ["U-1: 검수 전", "U-2: 검수 전", "U-3: 검수 전", "그 밖에 검수 전 도표 2개"]),
-        (mismatching(7), [*(f"M-{i}: 카드와 불일치 ['movement_B']" for i in range(1, 6)),
+        # 후보 모두 B의 움직임이 달라 이 움직임 조합의 도표가 없다는 안내가 먼저 붙는다
+        (mismatching(7), [REASON_NO_SHAPE.format(pair="직진 대 좌회전"),
+                          *(f"M-{i}: 카드와 불일치 ['movement_B']" for i in range(1, 6)),
                           "그 밖에 제외한 도표 2개"]),
     ],
 )
