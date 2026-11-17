@@ -252,6 +252,44 @@ def test_restart_judgment_keeps_an_untouched_origin_card(service):
     assert counts(service, case_id)[0] == 1, "이미 처음 상태면 새 버전을 만들지 않는다"
 
 
+@pytest.mark.parametrize("stage", ["intake", "judgment"])
+def test_restart_clears_documents_and_case_inputs_but_keeps_reports(service, stage):
+    """서류와 면책 체크·협의 과실은 사건에 하나뿐인 입력이라 되돌릴 때 비운다."""
+    case_id, other = judged_case(service), judged_case(service)
+    report = {"versions": {"case_id": case_id, "report_version": 1, "judgment_version": 1,
+                           "fact_card_version": 2}, "approval_status": "draft"}
+    with psycopg.connect(service, autocommit=True) as conn:
+        for target in (case_id, other):
+            doc = {"document_id": "est-1", "kind": "repair_estimate"}
+            conn.execute(
+                "insert into public.case_documents (case_id, document_id, kind, body, added_by)"
+                " values (%s, 'est-1', 'repair_estimate', %s, %s)", (target, Json(doc), PROPERTY),
+            )
+            agreement = {"agreed_counterparty_fault": 60, "fault_change_reason": "협의"}
+            conn.execute(
+                "insert into public.report_case_inputs (case_id, case_facts, fault_agreement,"
+                " updated_by) values (%s, %s, %s, %s)",
+                (target, Json({"음주": True}), Json(agreement), PROPERTY),
+            )
+        conn.execute(
+            "insert into public.review_reports (case_id, report_version, judgment_version,"
+            " fact_card_version, report, created_by) values (%s, 1, 1, 2, %s, %s)",
+            (case_id, Json(report), PROPERTY),
+        )
+
+    run(cases.restart_case(PROPERTY, case_id, stage))
+
+    def left(table, target):
+        with psycopg.connect(service, autocommit=True) as conn:
+            return conn.execute(
+                f"select count(*) from public.{table} where case_id = %s", (target,)
+            ).fetchone()[0]
+
+    assert (left("case_documents", case_id), left("report_case_inputs", case_id)) == (0, 0)
+    assert left("review_reports", case_id) == 1, "이미 만든 보고서는 이력으로 남는다"
+    assert (left("case_documents", other), left("report_case_inputs", other)) == (1, 1)
+
+
 def test_restart_judgment_needs_a_card(service):
     case_id = new_case(service)
     with pytest.raises(ApiException) as exc:
