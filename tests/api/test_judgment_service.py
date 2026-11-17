@@ -402,7 +402,9 @@ def test_http_routes_store_and_serialize(service, monkeypatch):
         res = client.get(f"/cases/{case_id}/judgment")
         assert res.status_code == 200, res.text
         got = res.json()
-        assert (got["status"], got["result"]["status"]) == ("completed", "deferred")
+        # '모름' 답이면 값마다 결과를 보여 주는 추가 확인 필요다(#280). 경우별 결과도 직렬화된다
+        assert (got["status"], got["result"]["status"]) == ("completed", "needs_confirmation")
+        assert got["result"]["scenarios"]
         assert isinstance(got["updated_at"], str)
         [question] = got["questions"]
         assert (question["question_id"], question["answer"]["unknown"]) == (str(q["id"]), True)
