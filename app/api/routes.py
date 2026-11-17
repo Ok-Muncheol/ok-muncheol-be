@@ -122,6 +122,25 @@ async def request_upload(actor_id: ActorId, case_id: str, body: UploadRequest) -
     return await cases.request_upload(actor_id, case_id, body.kind, body.content_type)
 
 
+class DemoFileRequest(BaseModel):
+    kind: UploadKind
+    name: str = Field(min_length=1, max_length=120)
+
+
+@router.get("/demo-files", tags=["A cases"])
+async def list_demo_files(actor_id: ActorId, kind: UploadKind) -> list[dict[str, object]]:
+    """시연용으로 Storage `demo/` 폴더에 미리 올려 둔 파일 목록(`{name, size}`)."""
+    return await cases.list_demo_files(actor_id, kind)
+
+
+@router.post("/cases/{case_id}/uploads/demo", tags=["A cases"])
+async def use_demo_file(
+    actor_id: ActorId, case_id: str, body: DemoFileRequest
+) -> dict[str, object]:
+    """시연 파일을 담당 사건 폴더로 복사하고 `storage_path`를 준다(직접 올린 파일과 같은 값)."""
+    return await cases.use_demo_file(actor_id, case_id, body.kind, body.name)
+
+
 @router.post("/cases/{case_id}/analysis", tags=["A cases"], status_code=202)
 async def start_analysis(
     actor_id: ActorId, case_id: str, body: AnalysisRequest, idempotency_key: IdempotencyKey

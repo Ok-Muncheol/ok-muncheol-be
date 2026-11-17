@@ -64,10 +64,29 @@ def fake(monkeypatch):
         signed.append(object_key)
         return f"{SUPABASE_URL}/storage/v1/object/upload/sign/case-files/{object_key}?token=t"
 
+    async def list_objects(prefix: str) -> list[dict[str, object]]:
+        return DEMO_FILES.get(prefix, [])
+
+    async def copy_object(source_key: str, dest_key: str) -> None:
+        if source_key.rsplit("/", 1)[1] == "missing.mp4":
+            raise storage.StorageObjectNotFound(source_key)
+        COPIED.append((source_key, dest_key))
+
+    COPIED.clear()
     old = cases.services
-    cases.configure(connect=connect, sign_upload=sign)
+    cases.configure(connect=connect, sign_upload=sign, list_objects=list_objects,
+                    copy_object=copy_object)
     yield signed
     cases.services = old
+
+
+# 가짜 시연 폴더. 자리표시 파일·다른 형식·이상한 이름은 목록에서 빠져야 한다
+DEMO_FILES = {
+    "demo/videos": [{"name": "highway_lane_change.mp4", "size": 10},
+                    {"name": "notes.txt", "size": 1}, {"name": "한글.mp4", "size": 1}],
+    "demo/estimates": [{"name": "own_front_bumper_0.6m.pdf", "size": 20}],
+}
+COPIED: list[tuple[str, str]] = []
 
 
 def error(exc_info) -> tuple[int, str]:
@@ -202,3 +221,84 @@ def test_sign_network_error_is_retryable(monkeypatch):
         sign(handler, monkeypatch)
     assert error(exc_info) == (503, "storage_unavailable")
     assert exc_info.value.error["retryable"] is True
+
+
+# ── 시연 파일(case-files/demo/) ─────────────────────────────────────
+
+
+def test_demo_files_are_listed_by_kind_with_allowed_extensions_only(fake):
+    assert run(cases.list_demo_files(ACTOR, "video")) == [
+        {"name": "highway_lane_change.mp4", "size": 10}]
+    assert run(cases.list_demo_files(ACTOR, "estimate")) == [
+        {"name": "own_front_bumper_0.6m.pdf", "size": 20}]
+    assert run(cases.list_demo_files(ACTOR, "medical_document")) == []  # 폴더가 비면 빈 목록
+    with pytest.raises(ApiException) as e:
+        run(cases.list_demo_files(ACTOR, "photo"))
+    assert error(e) == (422, "invalid_upload_type")
+
+
+def test_demo_file_is_copied_into_the_case_folder(fake):
+    out = run(cases.use_demo_file(ACTOR, CASE, "video", "highway_lane_change.mp4"))
+    assert re.fullmatch(rf"case-files/{CASE}/videos/[0-9a-f-]{{36}}\.mp4", out["storage_path"])
+    assert COPIED == [("demo/videos/highway_lane_change.mp4",
+                       out["storage_path"].removeprefix("case-files/"))]
+    # 대인 담당자도 쓴다
+    run(cases.use_demo_file(INJURY, CASE, "estimate", "own_front_bumper_0.6m.pdf"))
+    assert COPIED[-1][0] == "demo/estimates/own_front_bumper_0.6m.pdf"
+
+
+@pytest.mark.parametrize(
+    "name", ["../videos/x.mp4", "a/b.mp4", "x%2e.mp4", "한글.mp4", "x.pdf", "mp4", ""])
+def test_demo_file_name_is_checked_before_copying(fake, name):
+    with pytest.raises(ApiException) as e:
+        run(cases.use_demo_file(ACTOR, CASE, "video", name))
+    assert error(e) == (422, "invalid_demo_file")
+    assert COPIED == []
+
+
+def test_demo_file_needs_the_case_and_an_existing_file(fake):
+    with pytest.raises(ApiException) as e:
+        run(cases.use_demo_file(OTHER, CASE, "video", "highway_lane_change.mp4"))
+    assert error(e)[0] == 403 and COPIED == []
+    with pytest.raises(ApiException) as e:
+        run(cases.use_demo_file(ACTOR, CASE, "video", "missing.mp4"))
+    assert error(e)[0] == 404
+
+
+def _storage_settings(monkeypatch):
+    monkeypatch.setattr(storage, "get_settings", lambda: settings())
+
+
+def test_storage_list_keeps_files_and_skips_folders(monkeypatch):
+    _storage_settings(monkeypatch)
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(url=str(request.url), key=request.headers["apikey"], body=request.read())
+        return httpx.Response(200, json=[
+            {"name": "a.mp4", "metadata": {"size": 5}}, {"name": "sub", "metadata": None},
+            {"name": ".emptyFolderPlaceholder", "metadata": {"size": 0}}])
+
+    out = run(storage.list_objects("demo/videos/", transport=httpx.MockTransport(handler)))
+    assert out == [{"name": "a.mp4", "size": 5}]
+    assert seen["url"] == f"{SUPABASE_URL}/storage/v1/object/list/case-files"
+    assert seen["key"] == FAKE_KEY and b'"prefix":"demo/videos"' in seen["body"].replace(b" ", b"")
+
+
+def test_storage_copy_sends_both_keys_and_reports_a_missing_source(monkeypatch):
+    _storage_settings(monkeypatch)
+    seen = {}
+
+    def ok(request: httpx.Request) -> httpx.Response:
+        seen.update(url=str(request.url), body=request.read())
+        return httpx.Response(200, json={"Key": "case-files/x"})
+
+    run(storage.copy_object(
+        "demo/videos/a.mp4", "c/videos/b.mp4", transport=httpx.MockTransport(ok)))
+    assert seen["url"] == f"{SUPABASE_URL}/storage/v1/object/copy"
+    body = seen["body"].replace(b" ", b"")
+    assert b'"sourceKey":"demo/videos/a.mp4"' in body
+    assert b'"destinationKey":"c/videos/b.mp4"' in body
+    missing = httpx.MockTransport(lambda r: httpx.Response(404, json={"error": "not_found"}))
+    with pytest.raises(storage.StorageObjectNotFound):
+        run(storage.copy_object("demo/videos/none.mp4", "c/videos/b.mp4", transport=missing))
