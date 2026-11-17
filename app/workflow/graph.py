@@ -105,6 +105,7 @@ CRITERIA_VERSION = "fault_standards:2023.6"
 # 11/17 모르는 칸 경우별 결과(#277·#281·unknown_scenarios 고침)는 올리지 않았다. 올리면 이미 판단한
 # 카드를 그대로 다시 눌렀을 때 반박 검토(LLM)까지 새로 돌아 판정이 달라질 수 있다. 그래서 이미
 # 판정이 난 카드는 칸을 고쳐 새 카드 버전으로 판단해야 새 사유가 나온다
+# 11/17 보류 결과의 fixes(card_fixes)도 같은 까닭으로 올리지 않았다(사유·판정은 그대로다)
 RULE_VERSION = "judgment-rules-2026.11.16.7"
 QUESTION_NAMESPACE = uuid.UUID("5d1f6c4e-1b2a-4a3c-9e8d-700000000001")
 
@@ -779,6 +780,62 @@ def unknown_scenarios(state: JudgmentState) -> list[UnknownScenario]:
     return out
 
 
+# 보류 결과에 싣는 「이 값으로 고치면 고를 수 있는 도표」 수(결과 fixes)
+MAX_FIXES = 8
+
+
+def card_fixes(state: JudgmentState) -> list[UnknownScenario]:
+    """확인한 값이 후보 도표와 모두 어긋나 보류할 때, 어느 칸을 어떤 값으로 고치면 고를 수 있는지.
+
+    담당자가 사유의 "카드와 불일치" 칸 이름만 보고는 무슨 값으로 고칠지 알기 어렵다(2026-11-17
+    운영: 옆 차로에서 끼어든 차의 상대 위치가 옆 도로 값이라 차43-2가 빠졌다). 그래서 가장 적게
+    고쳐서 고를 수 있는 도표를 경우(`UnknownScenario`)와 같은 모양으로 싣는다. 판정은 바꾸지 않는다.
+    - 검수 후보의 변형마다 그 도표가 요구하는 값 중 카드와 다른 값(고칠 칸)과 아직 확인하지 않은
+      값(채울 칸)을 한 경우로 적는다. 고칠 칸이 없거나 사고 유형·장소를 고쳐야 하면 뺀다.
+    - 그 값을 카드에 넣으면 판단이 바로 그 도표·변형을 고르는 경우만 남긴다(판단과 같은 순위).
+    - 고칠 칸 수가 가장 적은 경우만, 검색 점수 순으로 앞 MAX_FIXES개다. 지금 도표 A/B 방향만 본다
+      (맞바꾼 방향은 `swap_hints`가 글로 알린다). 후보는 검색된 도표뿐이라 모든 경우는 아니다.
+    """
+    card = state["card"]
+    values = confirmed_values(card)
+    unknown = set(state.get("unknown_fields", []))
+    required = set(_required_fields(card))
+    eligible = _eligible(state)
+    tried: set[tuple[tuple[str, str], ...]] = set()
+    found: list[tuple[int, UnknownScenario]] = []
+    for candidate in eligible:
+        attributes = _concrete(candidate["attributes"])
+        for variant in candidate["base_variants"]:
+            needed = {**attributes, **_concrete(variant["conditions"])}
+            fix = {k: needed[k] for k in sorted(needed, key=lambda k: _FIELD_ORDER.get(k, 99))
+                   if values.get(k) != needed[k]}
+            changed = sum(k in values for k in fix)
+            key = tuple(fix.items())
+            if not changed or key in tried or fix.keys() & _NO_SCENARIO_KEYS:
+                continue
+            tried.add(key)
+            trial = {**values, **fix}
+            ranked = sorted(
+                (c for c in eligible
+                 if _ruled_out(c, trial, unknown - fix.keys(), required) is None),
+                key=lambda c: (-len(_matched_fields(c, trial)), -c["score"]),
+            )
+            if not ranked or ranked[0] is not candidate:
+                continue
+            chosen = _pick_variant(candidate, trial)[0]
+            if chosen is None:
+                continue
+            found.append((changed, {
+                "fields": fix,
+                "card_fields": dict(to_card_terms(k, v, card) for k, v in fix.items()),
+                "chart_id": candidate["chart_id"], "title": candidate.get("title") or "",
+                "variant": chosen["variant"], "base_A": chosen["base_A"],  # type: ignore[index]
+                "base_B": chosen["base_B"],  # type: ignore[index]
+            }))
+    fewest = min((n for n, _ in found), default=0)
+    return [fix for n, fix in found if n == fewest][:MAX_FIXES]
+
+
 Box = dict[str, tuple[str, ...]]
 
 
@@ -1045,6 +1102,8 @@ def build_graph(
                 or [REASON_NO_REVIEWED_CHART, *no_shape_lines(state), *excluded,
                     *swap_hints(state)]
             )
+            if not unknown:  # 확인한 값이 도표와 어긋난 보류: 고치면 고를 수 있는 도표를 싣는다
+                update["fixes"] = card_fixes(state)
             return update
         best = ranked[0]
         variant, missing = _pick_variant(best, values)
@@ -1179,6 +1238,8 @@ def build_graph(
                 list(selection["alternative_reasons"]) if keep_chart and selection else []
             ),
             **({"scenarios": list(state.get("scenarios") or [])} if state.get("scenarios") else {}),
+            **({"fixes": list(state.get("fixes") or [])}
+               if status == "deferred" and state.get("fixes") else {}),
         }
 
     def _after(next_node: str):

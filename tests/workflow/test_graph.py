@@ -747,3 +747,42 @@ def test_value_labels_cover_every_chart_field_value():
     assert [value_label(key, "simultaneous")
             for key in ("u_turn_timing", "lane_change_timing", "entry_order")] \
         == ["동시 유턴", "양옆 차로 동시", "동시 진입"]
+
+
+def test_deferred_result_lists_the_fewest_fixes_that_reach_a_chart():
+    """확인한 값이 후보와 모두 어긋나 보류하면, 가장 적게 고쳐 고를 수 있는 도표와 값을 싣는다."""
+    one_off = candidate("M-1", {**SIGNALIZED, "movement_B": "u_turn"}, 40, score=0.7)
+    two_off = candidate("M-2", {**SIGNALIZED, "movement_B": "right_turn", "signal_B": "green"},
+                        30, score=0.9)
+    elsewhere = candidate("M-3", {"location_type": "unsignalized_intersection",
+                                  "movement_A": "straight", "movement_B": "left_turn"}, 50)
+    _, out, _ = run(card(), cands=[two_off, one_off, elsewhere])
+    result = out["result"]
+    assert (result["status"], result["reasons"][0]) == ("deferred", REASON_NO_REVIEWED_CHART)
+    # 한 칸만 고치면 되는 M-1만. 두 칸(M-2)·장소(M-3)를 고쳐야 하는 도표는 싣지 않는다
+    assert result["fixes"] == [{
+        "fields": {"movement_B": "u_turn"}, "card_fields": {"movement_B": "u_turn"},
+        "chart_id": "M-1", "title": "synthetic M-1", "variant": None, "base_A": 40, "base_B": 60,
+    }]
+
+
+def test_fixes_carry_the_unconfirmed_fields_the_chart_also_needs():
+    """고칠 칸과 함께 그 변형이 요구하는 아직 확인하지 않은 칸도 싣는다(변형마다 한 경우)."""
+    by_side = candidate("M-4", {**SIGNALIZED, "movement_B": "u_turn"}, 40, base_variants=[
+        {"variant": "가", "base_A": 40, "base_B": 60, "conditions": {"relative_position": "left"}},
+        {"variant": "나", "base_A": 70, "base_B": 30, "conditions": {"relative_position": "right"}},
+    ])
+    _, out, _ = run(card(), cands=[by_side])
+    assert [(f["fields"], f["variant"], f["base_A"]) for f in out["result"]["fixes"]] == [
+        ({"movement_B": "u_turn", "relative_position": "left"}, "가", 40),
+        ({"movement_B": "u_turn", "relative_position": "right"}, "나", 70),
+    ]
+
+
+def test_no_fixes_when_only_the_place_differs_or_a_chart_was_chosen():
+    elsewhere = candidate("M-3", {"location_type": "unsignalized_intersection",
+                                  "movement_A": "straight", "movement_B": "left_turn"}, 50)
+    _, out, _ = run(card(), cands=[elsewhere])
+    assert out["result"]["status"] == "deferred" and "fixes" not in out["result"]
+    _, out, _ = run(card(), thread="run-chosen")
+    assert out["result"]["status"] == "draft_ready" and "fixes" not in out["result"]
