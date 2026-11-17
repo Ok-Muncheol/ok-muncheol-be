@@ -143,26 +143,29 @@ corpus    {db_import 파일별 sha256}
 common    {공통 상수 전부: 코퍼스·문구·자르기·모델·후보 수·후보 방식}
 params    {방식별 설정(retrieve.params) + after_run(usage 등)}
 metrics   {policy80 | schedule8 | all88 | fault100 | dispute100: n, top1, r3, r5, r10, mrr10,
-           seconds_mean/p50/p95/total, model_calls, model_calls_per_question, model_calls_by_model,
-           input_tokens, output_tokens (보고하지 않으면 null), stage_survival{L1, L2}(계층 탐색만)}
+           map5, ndcg5, seconds_mean/p50/p95/total, model_calls, model_calls_per_question,
+           model_calls_by_model, input_tokens, output_tokens (보고하지 않으면 null),
+           stage_survival{L1, L2}(계층 탐색만)}
 questions [{example_id, subset, question, accident_date, expected, ranked(상위 10),
-            scores{first_correct_rank, top1, r3, r5, r10, mrr10}, seconds, model_calls,
+            scores{first_correct_rank, top1, r3, r5, r10, mrr10, map5, ndcg5}, seconds, model_calls,
             model_calls_by_model, input_tokens, output_tokens,
             stages[{name, kept_count, survival, kept_parents}]}]
 ```
 
 지표 정의는 `evals/retrieval/evaluate.score_predictions`와 같다(R@k = 정답 parent 중 상위 k개 안에 든 비율, MRR@10은 첫 정답 순위의 역수).
+MAP@5·NDCG@5(2026-11-17 추가)는 정답 parent면 1인 이진 관련도로 상위 5개를 본다. MAP@5는 정답이 나온 순위마다 그 순위까지의 정밀도를 더해 min(정답 수, 5)로 나누고(정답이 1개면 5위까지만 보는 역순위), NDCG@5는 정답이 i위면 1/log2(i+1)을 더해 정답을 모두 앞에 둔 값으로 나눈다. 그 전에 만든 원본에는 이 두 칸이 없다.
 
 ## 실행 요약 (`runs/<날짜>/`, 커밋함)
 
 `summarize.py`가 `manifest.json`의 실행마다 원본 JSON을 읽어 `runs/<날짜>/<코퍼스>/<방식>.summary.json`을 쓴다(재현성 실행은 `policy/repro/`).
+원본이 다른 폴더에 있으면 `--results <폴더>`, 일부 실행의 원본만 있으면 `--skip-missing`(원본이 없는 실행의 요약은 그대로 둔다)을 붙인다.
 
 ```text
 schema "rerank-compare-summary-v1"
 run       {corpus, slot(발표 번호), repo_number, name, owner, role}
 source    {file(원본 JSON 이름), sha256}
 method, description, created_at, git_commit
-dataset, common, params, metrics          # 원본과 같음
+dataset, common, params, metrics          # 원본과 같음(metrics에 없는 map5·ndcg5는 질문별 순위로 채움)
 corpus_files_sha256, corpus_edition       # 판 1413·1655·1057(corpus_records.jsonl sha256으로 가림)
 questions [{example_id, subset, first_correct_rank}]
 ```

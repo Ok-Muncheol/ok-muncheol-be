@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -72,6 +73,29 @@ class SummarizeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             summarize({"schema": "other"}, source="x", sha256="", entry={})
 
+    def test_fills_missing_rank_metrics_after_mrr10(self):
+        # 11/17 이전 원본: metrics에 map5·ndcg5가 없다 → 질문별 정답·순위로 채운다
+        result = fake_result()
+        result["questions"][0]["ranked"] = ["x", "fault-standards-2023-06:차1-5"]  # 정답 2위
+        old = {"n": 1, "top1": 0.0, "r3": 1.0, "r5": 1.0, "r10": 1.0, "mrr10": 0.5}
+        result["metrics"] = {"fault100": old | {"seconds_mean": 2.0}}
+        summary = summarize(result, source="x.json", sha256="s" * 64, entry={})
+        metrics = summary["metrics"]["fault100"]
+        self.assertEqual(
+            list(metrics),
+            ["n", "top1", "r3", "r5", "r10", "mrr10", "map5", "ndcg5", "seconds_mean"],
+        )
+        self.assertEqual(metrics["map5"], 0.5)
+        self.assertAlmostEqual(metrics["ndcg5"], 1 / math.log2(3))
+        self.assertNotIn("map5", result["metrics"]["fault100"])  # 원본은 그대로
+
+    def test_keeps_rank_metrics_already_in_result(self):
+        result = fake_result()
+        result["metrics"] = {"fault100": {"n": 1, "mrr10": 1.0, "map5": 0.25, "ndcg5": 0.5}}
+        summary = summarize(result, source="x.json", sha256="s" * 64, entry={})
+        self.assertEqual(summary["metrics"]["fault100"]["map5"], 0.25)
+        self.assertEqual(summary["metrics"]["fault100"]["ndcg5"], 0.5)
+
     def test_unknown_corpus_edition_is_none(self):
         self.assertIsNone(corpus_edition({"corpus_records.jsonl": "0" * 64}))
         self.assertIsNone(corpus_edition({}))
@@ -90,6 +114,25 @@ class SummarizeTest(unittest.TestCase):
             summary = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual(out.name, "rrf.summary.json")
         self.assertEqual(summary["source"]["sha256"], hashlib.sha256(raw).hexdigest())
+
+    def test_skip_missing_leaves_other_summaries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results, runs = Path(tmp, "results"), Path(tmp, "runs")
+            results.mkdir()
+            runs.mkdir()
+            raw = json.dumps(fake_result(), ensure_ascii=False).encode("utf-8")
+            (results / "fault-rrf.json").write_bytes(raw)
+            manifest = runs / "manifest.json"
+            entries = [
+                {"slot": "기준선", "file": "fault-rrf.json", "out": "fault/rrf.summary.json"},
+                {"slot": "⑥", "file": "없는-원본.json", "out": "fault/6.summary.json"},
+            ]
+            manifest.write_text(json.dumps({"runs": entries}), encoding="utf-8")
+            with self.assertRaises(FileNotFoundError):
+                write_summaries(manifest, results)
+            written = write_summaries(manifest, results, skip_missing=True)
+            self.assertEqual([p.name for p in written], ["rrf.summary.json"])
+            self.assertFalse((runs / "fault/6.summary.json").exists())
 
 
 if __name__ == "__main__":

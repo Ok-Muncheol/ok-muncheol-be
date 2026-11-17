@@ -1,11 +1,15 @@
 """D: 결과 원본 JSON(무시 경로) → 원문 없는 실행 요약(runs/<날짜>/, 커밋 대상).
 
     python -m evals.rerank_compare.summarize evals/rerank_compare/runs/2026-11-12/manifest.json
+    # 원본이 다른 폴더에 있고 일부 실행만 있을 때
+    python -m evals.rerank_compare.summarize <manifest> --results <원본 폴더> --skip-missing
 
-manifest의 실행마다 evals/results/rerank_compare/<file>을 읽어 manifest 옆 <out>에 쓴다.
-남기는 것: 지표·설정(params)·사용량·비용·git_commit·평가셋·공통 조건·코퍼스 파일 sha256과 판,
+manifest의 실행마다 evals/results/rerank_compare/<file>(--results로 바꿈)을 읽어 manifest 옆 <out>에
+쓴다. 남기는 것: 지표·설정(params)·사용량·비용·git_commit·평가셋·공통 조건·코퍼스 파일 sha256과 판,
 질문별 example_id·묶음·첫 정답 순위. 질문 문장·정답 목록·순위 목록·후보 글·단계별 parent 목록은
 넣지 않는다(원본 JSON의 원문과 라벨은 로컬에만 둔다).
+지표는 원본 metrics 그대로다. 원본에 없는 순위 지표(2026-11-17 이전 실행의 MAP@5·NDCG@5)는
+원본의 질문별 정답·순위로 계산해 채운다.
 """
 
 import argparse
@@ -19,7 +23,13 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from evals.rerank_compare.harness import RESULTS, SCHEMA  # noqa: E402
+from evals.rerank_compare.harness import (  # noqa: E402
+    RANK_KEYS,
+    RESULTS,
+    SCHEMA,
+    rank_scores,
+    subset_rows,
+)
 
 SUMMARY_SCHEMA = "rerank-compare-summary-v1"
 # corpus_records.jsonl sha256 → 코퍼스 판(김지은 님 zip 이름의 시각). 세 판은 도표 레코드만 다르고
@@ -65,6 +75,30 @@ def check_no_raw(summary: dict, question_texts: Iterator[str] | list[str] = ()) 
         raise ValueError(f"요약에 평가 질문 문장 {leaked}개가 있습니다")
 
 
+def with_rank_metrics(result: dict) -> dict:
+    """원본 metrics에 없는 순위 지표를 질문별 정답·순위(rank_scores)로 채운 사본.
+
+    원본에 있는 값은 그대로 두고, 채운 칸은 mrr10 바로 뒤에 둔다(mrr10이 없으면 끝).
+    """
+    out = {}
+    for subset, values in result["metrics"].items():
+        missing = [key for key in RANK_KEYS if key not in values]
+        extra = {}
+        if missing:
+            rows = subset_rows(result["questions"], subset)
+            if not rows:
+                raise ValueError(f"{subset}: 채울 질문이 없습니다")
+            scores = [rank_scores(q["ranked"], q["expected"]) for q in rows]
+            extra = {key: sum(s[key] for s in scores) / len(scores) for key in missing}
+        merged = {}
+        for key, value in values.items():
+            merged[key] = value
+            if key == "mrr10":
+                merged |= extra
+        out[subset] = merged | extra
+    return out
+
+
 def summarize(result: dict, *, source: str, sha256: str, entry: dict) -> dict:
     """결과 JSON 하나 → 요약. entry는 manifest 항목(번호·역할 등, 그대로 남긴다).
 
@@ -86,7 +120,7 @@ def summarize(result: dict, *, source: str, sha256: str, entry: dict) -> dict:
         "corpus_edition": corpus_edition(corpus),
         "common": result.get("common"),
         "params": result.get("params"),
-        "metrics": result["metrics"],
+        "metrics": with_rank_metrics(result),
         "questions": [
             {
                 "example_id": q["example_id"],
@@ -100,11 +134,18 @@ def summarize(result: dict, *, source: str, sha256: str, entry: dict) -> dict:
     return summary
 
 
-def write_summaries(manifest_path: Path, results: Path = RESULTS) -> list[Path]:
+def write_summaries(
+    manifest_path: Path, results: Path = RESULTS, *, skip_missing: bool = False
+) -> list[Path]:
+    """skip_missing이면 원본이 없는 실행은 건너뛴다(그 요약 파일은 그대로, 표준 오류에 알림)."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     written = []
     for entry in manifest["runs"]:
-        raw = (results / entry["file"]).read_bytes()
+        path = results / entry["file"]
+        if skip_missing and not path.is_file():
+            print(f"원본 없음, 건너뜀: {entry['file']}", file=sys.stderr)
+            continue
+        raw = path.read_bytes()
         summary = summarize(
             json.loads(raw),
             source=entry["file"],
@@ -124,8 +165,19 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     parser = argparse.ArgumentParser(description="결과 원본 JSON → 원문 없는 실행 요약")
     parser.add_argument("manifest", type=Path)
+    parser.add_argument(
+        "--results",
+        type=Path,
+        default=RESULTS,
+        help="원본 JSON 폴더(기본 evals/results/rerank_compare)",
+    )
+    parser.add_argument(
+        "--skip-missing",
+        action="store_true",
+        help="원본이 없는 실행은 건너뛴다(요약은 그대로 둔다)",
+    )
     args = parser.parse_args()
-    for path in write_summaries(args.manifest):
+    for path in write_summaries(args.manifest, args.results, skip_missing=args.skip_missing):
         print(path)
 
 

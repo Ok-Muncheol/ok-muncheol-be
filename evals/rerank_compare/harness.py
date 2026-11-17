@@ -6,7 +6,8 @@
 - 모델을 부를 때마다 meter.add(model, input_tokens=, output_tokens=).
   상한을 넘으면 그 자리에서 멈춘다.
 지표: Top-1, R@3, R@5, R@10, MRR@10(정의는 evals/retrieval/evaluate.score_predictions와 같다),
-질문당 시간, 모델 호출 수, 토큰 수. 점수는 약관 80(policy80)·별표 8(schedule8)·합계 88(all88) 따로,
+MAP@5·NDCG@5(이진 관련도, rank_scores), 질문당 시간, 모델 호출 수, 토큰 수.
+점수는 약관 80(policy80)·별표 8(schedule8)·합계 88(all88) 따로,
 도표는 fault100, 결정례는 dispute100(코퍼스는 common.set_corpus, run.py --corpus).
 """
 
@@ -14,6 +15,7 @@ import datetime
 import hashlib
 import inspect
 import json
+import math
 import statistics
 import subprocess
 import time
@@ -172,6 +174,9 @@ def _load_corpus_examples(path: Path, corpus: str) -> list[Example]:
 
 # ---- 지표 ----
 
+# 문항별로 매겨 평균을 내는 순위 지표(rank_scores의 칸, metrics에 같은 이름으로 남는다)
+RANK_KEYS = ("top1", "r3", "r5", "r10", "mrr10", "map5", "ndcg5")
+
 
 def rank_scores(ranked: Sequence[str], expected: Sequence[str]) -> dict[str, float | int | None]:
     """한 문항의 점수. ranked는 중복 제거된 parent 순위."""
@@ -184,7 +189,28 @@ def rank_scores(ranked: Sequence[str], expected: Sequence[str]) -> dict[str, flo
     for k in (3, 5, 10):
         scores[f"r{k}"] = len(gold.intersection(ranked[:k])) / len(gold)
     scores["mrr10"] = 1 / first if first is not None and first <= 10 else 0.0
+    scores["map5"] = average_precision_at(ranked, gold, 5)
+    scores["ndcg5"] = ndcg_at(ranked, gold, 5)
     return scores
+
+
+def average_precision_at(ranked: Sequence[str], gold: set[str], k: int) -> float:
+    """AP@k(이진 관련도). 상위 k개 안에서 정답이 나온 순위마다 그 순위까지의 정밀도를 더해
+    min(정답 수, k)로 나눈다. 정답이 1개면 k위까지만 보는 역순위(1/첫 정답 순위)와 같다."""
+    hits, total = 0, 0.0
+    for i, parent in enumerate(ranked[:k], 1):
+        if parent in gold:
+            hits += 1
+            total += hits / i
+    return total / min(len(gold), k)
+
+
+def ndcg_at(ranked: Sequence[str], gold: set[str], k: int) -> float:
+    """NDCG@k(이진 관련도). 정답이 i위면 1/log2(i+1)을 더하고, 정답 min(정답 수, k)개를
+    맨 앞에 둔 값으로 나눈다."""
+    dcg = sum(1 / math.log2(i + 1) for i, parent in enumerate(ranked[:k], 1) if parent in gold)
+    ideal = sum(1 / math.log2(i + 1) for i in range(1, min(len(gold), k) + 1))
+    return dcg / ideal
 
 
 def recall_at(ranked: Sequence[str], expected: Sequence[str], k: int) -> float:
@@ -212,7 +238,7 @@ def summarize(rows: list[dict]) -> dict[str, object]:
         return None if any(v is None for v in values) else sum(values)
 
     metrics: dict[str, object] = {"n": n}
-    for key in ("top1", "r3", "r5", "r10", "mrr10"):
+    for key in RANK_KEYS:
         metrics[key] = sum(r["scores"][key] for r in rows) / n
     metrics |= {
         "seconds_mean": statistics.fmean(seconds),
@@ -257,12 +283,19 @@ def _score_stages(stages: list[dict], expected: Sequence[str]) -> list[dict]:
     ]
 
 
+def subset_rows(rows: list[dict], subset: str) -> list[dict]:
+    """묶음에 드는 질문별 행. 코퍼스의 마지막 묶음(all88·fault100·dispute100)은 전체다."""
+    for subsets in CORPUS_SUBSETS.values():
+        if subset in subsets:
+            whole = subset == subsets[-1]
+            return rows if whole else [r for r in rows if r["subset"] == subset]
+    raise ValueError(f"모르는 묶음입니다: {subset}")
+
+
 def subset_metrics(rows: list[dict], corpus: str | None = None) -> dict[str, dict]:
-    subsets = CORPUS_SUBSETS[corpus or active_corpus()]
     out = {}
-    for subset in subsets:
-        whole = subset == subsets[-1]
-        chosen = rows if whole else [r for r in rows if r["subset"] == subset]
+    for subset in CORPUS_SUBSETS[corpus or active_corpus()]:
+        chosen = subset_rows(rows, subset)
         if chosen:
             out[subset] = summarize(chosen)
     return out
@@ -393,10 +426,10 @@ def load_result(path: Path) -> dict:
 def format_table(results: list[dict], subset: str) -> str:
     """결과 여러 개를 마크다운 표 하나로."""
     head = (
-        "| 방식 | 문항 | Top-1 | R@3 | R@5 | R@10 | MRR@10 | 질문당 초(평균/p95) "
+        "| 방식 | 문항 | Top-1 | R@3 | R@5 | R@10 | MRR@10 | MAP@5 | NDCG@5 | 질문당 초(평균/p95) "
         "| 질문당 호출 | 입력/출력 토큰 | 단계 생존율 |"
     )
-    lines = [head, "| " + " | ".join(["---"] * 11) + " |"]
+    lines = [head, "| " + " | ".join(["---"] * 13) + " |"]
     for result in results:
         m = result["metrics"].get(subset)
         if not m:
@@ -408,9 +441,11 @@ def format_table(results: list[dict], subset: str) -> str:
         )
         survival = m.get("stage_survival")
         stages = " · ".join(f"{k} {v:.3f}" for k, v in survival.items()) if survival else "-"
+        # MAP@5·NDCG@5가 없는 예전 결과(2026-11-17 이전)는 "-"
+        added = " | ".join(f"{m[k]:.3f}" if k in m else "-" for k in ("map5", "ndcg5"))
         lines.append(
             f"| {result['method']} | {m['n']} | {m['top1']:.3f} | {m['r3']:.3f} | {m['r5']:.3f} "
-            f"| {m['r10']:.3f} | {m['mrr10']:.3f} | {m['seconds_mean']:.3f} / "
+            f"| {m['r10']:.3f} | {m['mrr10']:.3f} | {added} | {m['seconds_mean']:.3f} / "
             f"{m['seconds_p95']:.3f} | {m['model_calls_per_question']:.1f} | {tokens} | {stages} |"
         )
     return "\n".join(lines)
