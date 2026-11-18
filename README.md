@@ -8,6 +8,7 @@
 - 아키텍처 이미지: [accident-review-architecture-v8.png](docs/architecture/accident-review-architecture-v8.png) — 2026-11-16 `main` 코드 기준. 이전 판은 [v7](docs/architecture/accident-review-architecture-v7.png)(2026-11-05)
 - 프론트엔드: [ok-muncheol-fe](https://github.com/Ok-Muncheol/ok-muncheol-fe)
 - 역할별 작업·완료 기준: [TEAM.md](TEAM.md)
+- 통합 검수·재현 경로·시연 절차: [docs/integration-check.md](docs/integration-check.md)
 
 현재는 **담당별 계약·모듈 초안 단계**다. `app/`, `workers/vision/`, 코퍼스/평가셋 양식과 검증 명령이 있다.
 함수의 `NotImplementedError`·TODO는 담당자가 채운다. API는 인증(Supabase 토큰 검증)·`ApiError` 오류 응답·담당별 경로까지 연결했고, 서비스 본문이 비어 있는 경로는 501을 돌려준다. 판단 그래프·검증 3겹과 판단 접수·질문 응답 API(실행·질문·검증 로그·체크포인트 DB 저장)는 구현됐다. 공용 DB에는 사건·판단 테이블 마이그레이션이 적용돼 있다.
