@@ -359,3 +359,70 @@ def test_preview_command_keeps_the_whole_video_and_even_size():
         assert flag in command
     # 자르지 않는다(근거 프레임 시각이 원본 기준)
     assert "-ss" not in command and "-t" not in command and "-to" not in command
+
+
+# ── 모델 미리 불러오기(컨테이너가 켜질 때) ─────────────────────────
+
+
+def test_preload_loads_every_model_and_logs_the_seconds(caplog):
+    loaded = []
+    caplog.set_level(logging.INFO, logger=worker.__name__)
+    seconds = worker.preload_models([("a", lambda: loaded.append("a")),
+                                     ("b", lambda: loaded.append("b"))])
+    assert loaded == ["a", "b"]
+    assert list(seconds) == ["a", "b"]
+    assert all(isinstance(s, float) for s in seconds.values())
+    assert "모델 미리 불러오기(초)" in caplog.text
+
+
+def test_preload_failure_does_not_stop_the_container_or_the_other_models(caplog):
+    """미리 못 불러온 모델은 분석 때 다시 불러온다(거기서도 안 되면 원래처럼 실패 콜백이 간다)."""
+    def broken():
+        raise RuntimeError("CUDA error: /root/data/private/models/video_model_j3.pt")
+
+    loaded = []
+    caplog.set_level(logging.INFO, logger=worker.__name__)
+    seconds = worker.preload_models([("video_j3", broken),
+                                     ("clip", lambda: loaded.append("clip"))])
+    assert seconds["video_j3"] is None and isinstance(seconds["clip"], float)
+    assert loaded == ["clip"]
+    assert "video_j3: RuntimeError" in caplog.text
+    assert "/root/data" not in caplog.text  # 예외 메시지는 남기지 않는다
+
+
+def test_preload_survives_a_broken_import(monkeypatch, caplog):
+    def no_vision():
+        raise ModuleNotFoundError("No module named 'ultralytics'", name="ultralytics")
+
+    monkeypatch.setattr(worker, "_preload_steps", no_vision)
+    caplog.set_level(logging.INFO, logger=worker.__name__)
+    assert worker.preload_models() == {}
+    assert "준비 실패: ModuleNotFoundError" in caplog.text
+
+
+def test_preload_uses_the_cached_loaders_the_pipeline_calls():
+    """정지원 모듈의 불러오기 함수 이름이 바뀌면 미리 불러오기가 빠진다 → CI에서 잡는다.
+
+    GPU 없이 함수만 고르고 부르지는 않는다.
+    """
+    from workers.vision import detection, scene_embed, type_model, video_model
+
+    steps = dict(worker._preload_steps())
+    assert list(steps) == ["video_v2", "video_v3", "video_j3", "clip", "type_head", "yolo"]
+    for spec in worker.PRELOAD_VIDEO_SPECS:
+        load = steps[f"video_{spec}"]
+        assert (load.func, load.args) == (video_model._load, (spec,))
+        assert spec in video_model.MODEL_FILES
+    assert video_model.MODEL_SPEC in worker.PRELOAD_VIDEO_SPECS  # 카드 값을 정하는 모델
+    assert steps["clip"] is scene_embed._clip
+    assert steps["type_head"] is type_model._head
+    yolo = steps["yolo"]
+    assert (yolo.func, yolo.args) == (detection._load_model, (detection.DEFAULT_MODEL,))
+
+
+def test_modal_app_loads_models_before_the_worker_takes_jobs():
+    """infra/modal_app.py는 modal이 있어야 import된다. 연결만 글자로 확인한다."""
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "infra/modal_app.py").read_text(encoding="utf-8")
+    assert "@modal.enter()" in app and "preload_models()" in app
+    assert "Worker().run_job.spawn(job)" in app

@@ -1,4 +1,5 @@
-"""B(인프라): Modal 영상 분석 워커 본문. `infra/modal_app.py`가 GPU 컨테이너에서 `run_job`을 부른다.
+"""B(인프라): Modal 영상 분석 워커 본문. `infra/modal_app.py`의 GPU 컨테이너(`Worker`)가 켜질 때
+`preload_models`로 분석 모델을 먼저 불러 두고, 작업마다 `run_job`을 부른다.
 
 job은 BE `app/modal_dispatch.py`가 보낸다(11/11 정지원·구준휘 합의, 11/12 미리보기·프레임 추가).
 - 필수: `task_id`, `case_id`, `video_url`(서명 내려받기), `callback_url`, `callback_token`
@@ -305,3 +306,62 @@ def run_job(job: dict, *, analyze: Analyze = _default_analyze, grab: Grab = grab
             http.close()
         # 미리보기 스레드가 아직 쓰고 있어도 지운다(그 스레드의 실패는 make_preview가 삼킨다)
         shutil.rmtree(work, ignore_errors=True)
+
+
+# ── 모델 미리 불러오기(컨테이너가 켜질 때) ─────────────────────────────
+
+# 영상 모델(카드 값 v2, 확인 표시 v3, 진로변경·추월 j3)·CLIP·유형 판단부는 처음 부를 때 GPU에
+# 올라가 프로세스에 남는다(합쳐서 약 30초, 운영 detect 단계). 예전에는 첫 분석 안에서 불러서,
+# GPU 컨테이너를 여러 개 띄우면 줄 선 작업이 모델을 불러오는 중인 새 컨테이너로 가 30~50초 늦어질
+# 수 있었다. 켜질 때 먼저 불러 두면 모델을 다 불러온 컨테이너만 작업을 받는다
+# (infra/modal_app.py `@modal.enter`).
+PRELOAD_VIDEO_SPECS = ("v2", "v3", "j3")
+
+Load = Callable[[], object]
+
+
+def _preload_steps() -> list[tuple[str, Load]]:
+    """(이름, 불러오기) 목록. 정지원 모듈의 캐시 함수를 그대로 쓴다(이름이 바뀌면 테스트가 잡는다).
+
+    YOLO는 작업마다 새로 만든다(추적 상태가 다음 영상으로 넘어가지 않게). 그래서 만들어 두지 않고
+    ultralytics import와 가중치 파일 읽기만 데운다.
+    """
+    from functools import partial
+
+    from workers.vision import detection, scene_embed, type_model, video_model
+
+    steps: list[tuple[str, Load]] = [
+        (f"video_{spec}", partial(video_model._load, spec)) for spec in PRELOAD_VIDEO_SPECS
+    ]
+    steps += [
+        ("clip", scene_embed._clip),
+        ("type_head", type_model._head),
+        ("yolo", partial(detection._load_model, detection.DEFAULT_MODEL)),
+    ]
+    return steps
+
+
+def preload_models(steps: list[tuple[str, Load]] | None = None) -> dict[str, float | None]:
+    """분석 모델을 미리 불러 둔다. 단계별 걸린 초를 돌려준다(실패한 단계는 None).
+
+    실패해도 예외를 내지 않는다. 그 모델은 분석 때 다시 불러오고, 거기서도 안 되면 원래처럼 실패
+    콜백(vision_failed)이 간다. 여기서 예외를 내면 컨테이너가 켜지지 못해 콜백 없이 BE 작업 시간
+    초과(15분)로만 끝난다. 예외 메시지는 남기지 않는다(경로 등이 섞인다).
+    """
+    seconds: dict[str, float | None] = {}
+    try:
+        planned = _preload_steps() if steps is None else steps
+    except Exception as exc:  # noqa: BLE001 — 미리 못 불러도 분석 때 불러온다
+        logger.warning("모델 미리 불러오기 준비 실패: %s", type(exc).__name__)
+        return seconds
+    for name, load in planned:
+        started = time.perf_counter()
+        try:
+            load()
+        except Exception as exc:  # noqa: BLE001 — 분석 때 다시 불러온다
+            seconds[name] = None
+            logger.warning("모델 미리 불러오기 실패 %s: %s", name, type(exc).__name__)
+        else:
+            seconds[name] = _since(started)
+    logger.info("모델 미리 불러오기(초) %s", seconds)
+    return seconds

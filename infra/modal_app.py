@@ -3,15 +3,18 @@
 배포는 저장소 루트에서 `modal deploy infra/modal_app.py`(CLI 로그인 뒤).
 
 - `analyze`(웹 엔드포인트, 프록시 인증): BE `app/modal_dispatch.py`가 job을 POST하면 모양만 확인하고
-  `run_job`을 spawn한 뒤 `{"call_id"}`를 바로 돌려준다. 주소·프록시 인증 토큰을 Vercel BE에
+  `Worker.run_job`을 spawn한 뒤 `{"call_id"}`를 바로 돌려준다. 주소·프록시 인증 토큰을 Vercel BE에
   `MODAL_ANALYZE_URL`·`MODAL_PROXY_KEY`·`MODAL_PROXY_SECRET`로 넣는다.
-- `run_job`(GPU T4): `workers/modal_worker.py`가 영상 받기 → 미리보기 → 분석 → 근거 프레임 → 콜백.
+- `Worker`(GPU T4 클래스): 컨테이너가 켜질 때(`@modal.enter`) 분석 모델을 먼저 불러 둔다
+  (`workers/modal_worker.py` `preload_models`, 약 30초). 그래서 모델을 다 불러온 컨테이너만 작업을
+  받는다. `run_job`은 `workers/modal_worker.py`로 영상 받기 → 미리보기 → 분석 → 근거 프레임 → 콜백.
 - Modal에는 Supabase·DB 키를 두지 않는다. 시크릿 `ok-muncheol-vision`에는 VLM용 `OPENAI_API_KEY`만
   넣는다(Modal 전용 키, 사용 한도를 건다).
 - 모델 파일 8개는 볼륨 `ok-muncheol-models`의 맨 위에 올리고 `/root/data/private/models`에 붙인다
   (`workers/vision/pipeline.py`의 MODELS). Hugging Face 본체 3개는 이미지를 만들 때 받아 둔다.
 - 비용: 쓴 초만큼만 과금하고 요청이 없으면 컨테이너가 꺼진다(scale to zero). 대기 60초 뒤 끄고,
-  GPU 컨테이너는 하나만 띄운다(동시 작업은 줄을 선다). 자세한 절차는 `infra/README.md`.
+  GPU 컨테이너는 `MAX_GPU_CONTAINERS`개까지 띄운다(동시 작업을 나란히 돌리고, 넘치면 줄을 선다).
+  자세한 절차는 `infra/README.md`.
 
 이 파일은 `modal` 패키지가 있어야 import된다. 그래서 `scripts/check_scaffold.py`가 보는
 app·workers·evals 밖(`infra/`)에 두고, 처리 로직은 `workers/modal_worker.py`(테스트 대상)에 둔다.
@@ -68,24 +71,39 @@ web_image = (
 )
 
 
-@app.function(
+# 동시에 들어온 분석을 나란히 돌리는 GPU 컨테이너 수(2026-11-18, 그전에는 1개라 줄을 섰다).
+# 한 건 비용은 같고, 컨테이너가 하나 더 뜰 때마다 모델 불러오기·대기 60초로 T4 약 $0.02가 붙는다.
+# Starter 플랜의 GPU 동시 한도는 10개다.
+MAX_GPU_CONTAINERS = 3
+
+
+@app.cls(
     image=worker_image,
     gpu="T4",
     volumes={MODELS_PATH: models},
     secrets=[vision_secret],
     timeout=900,
+    startup_timeout=300,  # 컨테이너 시작 + 모델 미리 불러오기(운영에서 1분 안팎)
     scaledown_window=60,
-    max_containers=1,
+    max_containers=MAX_GPU_CONTAINERS,
 )
-def run_job(job: dict) -> dict:
-    import logging
+class Worker:
+    @modal.enter()
+    def load_models(self) -> None:
+        import logging
 
-    from workers.modal_worker import run_job as process
+        from workers.modal_worker import preload_models
 
-    logging.basicConfig(level=logging.INFO)
-    # httpx는 INFO에서 요청 주소를 그대로 찍는다(서명 URL의 token 포함) → 경고 이상만 남긴다
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    return process(job)
+        logging.basicConfig(level=logging.INFO)
+        # httpx는 INFO에서 요청 주소를 그대로 찍는다(서명 URL의 token 포함) → 경고 이상만 남긴다
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        preload_models()
+
+    @modal.method()
+    def run_job(self, job: dict) -> dict:
+        from workers.modal_worker import run_job as process
+
+        return process(job)
 
 
 @app.function(image=web_image, scaledown_window=60, max_containers=2)
@@ -99,5 +117,5 @@ def analyze(job: dict) -> dict:
         validate_job(job)
     except JobInvalid as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    call = run_job.spawn(job)
+    call = Worker().run_job.spawn(job)
     return {"call_id": call.object_id}
