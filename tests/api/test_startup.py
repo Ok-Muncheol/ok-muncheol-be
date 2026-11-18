@@ -150,3 +150,42 @@ def test_import_path_reads_the_verified_copy(monkeypatch, tmp_path, caplog):
         assert calls[-1] == ((tmp_path,), {"import_evidence_store": expected})
     assert get_settings().corpus_import_path == "corpus-index/20261113-1118"
     get_settings.cache_clear()
+
+
+def test_db_release_reads_the_database_and_skips_the_copy(monkeypatch, caplog):
+    """CORPUS_DB_RELEASE가 있으면 DB 색인의 그 판으로 켠다. 사본 경로가 함께 있어도 받지 않는다."""
+    from app import corpus_import
+
+    calls: list[str] = []
+
+    def must_not_fetch(settings):
+        raise AssertionError("DB 색인을 읽을 때는 코퍼스 사본을 받지 않는다")
+
+    monkeypatch.setattr(corpus_import, "fetch_db_import", must_not_fetch)
+    monkeypatch.setattr(reports, "configure_with_knowledge_base", must_not_fetch)
+    monkeypatch.setattr(reports, "configure_with_corpus_db", calls.append)
+    monkeypatch.setenv("CORPUS_DB_RELEASE", " 20261116-1742 ")
+    monkeypatch.setenv("CORPUS_IMPORT_PATH", "corpus-index/20261116-1742")
+    with caplog.at_level(logging.INFO, logger="app.main"), serve(monkeypatch, "1") as client:
+        assert client.get("/health").status_code == 200
+    assert calls == ["20261116-1742"]
+    assert "지식베이스를 켰습니다" in caplog.text
+    get_settings.cache_clear()
+
+
+def test_db_release_problem_starts_without_the_knowledge_base(monkeypatch, caplog):
+    """판이 없거나 DB에 못 붙으면 경고만 남기고 꺼진 채로 시작한다(사본으로 넘어가지 않는다)."""
+
+    def missing(release):
+        raise CorpusDataError(f"B: DB에 없는 적재판입니다(corpus_releases): {release}")
+
+    monkeypatch.setattr(reports, "configure_with_corpus_db", missing)
+    monkeypatch.setattr(reports, "configure_with_knowledge_base",
+                        lambda *a, **kw: pytest.fail("파일 경로로 넘어가지 않는다"))
+    monkeypatch.setenv("CORPUS_DB_RELEASE", "20261116-1742")
+    with caplog.at_level(logging.INFO, logger="app.main"), serve(monkeypatch, "1") as client:
+        assert client.get("/health").status_code == 200
+    [record] = [r for r in caplog.records if r.name == "app.main"]
+    assert record.levelno == logging.WARNING
+    assert "CorpusDataError: B: DB에 없는 적재판입니다" in record.getMessage()
+    get_settings.cache_clear()

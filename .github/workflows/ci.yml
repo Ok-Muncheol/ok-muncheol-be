@@ -18,9 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     # 버려도 되는 Postgres. 마이그레이션 동작 검사(tests/migrations/)와 판단 저장 검사(tests/api/test_judgment_service.py)가
     # 매번 임시 데이터베이스를 만들고 지운다. Supabase 주소는 쓰지 않는다
+    # pgvector가 들어 있는 이미지를 쓴다. 코퍼스 색인 마이그레이션(20261118180000)이 vector 확장을 만들고,
+    # DB 색인 검사(tests/test_pg_corpus_index.py)가 벡터 검색을 실제로 돌린다
     services:
       postgres:
-        image: postgres:17-alpine
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -42,7 +44,7 @@ jobs:
       # 문법·import·타입 참조·JSON·계약 견본 동기화 (scripts/check_scaffold.py)
       - run: make check
       # tests/ 전체: API(tests/api/)·검색·코퍼스(tests/test_*.py)·비전 평가(tests/evals/)·ship 스크립트(tests/automation/)
-      # ·마이그레이션(tests/migrations/). DB 검사는 위 Postgres 서비스로 돈다(psql은 러너에 기본 설치)
+      # ·마이그레이션(tests/migrations/)·DB 색인(tests/test_pg_corpus_index.py). DB 검사는 위 Postgres 서비스로 돈다(psql은 러너에 기본 설치)
       - run: make test
         env:
           MIGRATION_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres

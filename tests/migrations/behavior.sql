@@ -622,4 +622,92 @@ delete from public.case_intakes where id = '40000000-0000-0000-0000-000000000001
 select test_helpers.assert_equal((select count(*) from public.case_assignments where intake_id = '40000000-0000-0000-0000-000000000001'),
   0, '접수 건을 지우면 배정 이력도 지워진다');
 
+-- 13. 코퍼스 색인(20261118180000). 브라우저는 보지 못하고, 판을 지우면 그 판의 행이 모두 지워진다.
+--     벡터는 1536차원만 들어가고, extensions 스키마가 search_path에 없어도 연산자를 쓸 수 있다
+create function test_helpers.unit_vector(axis integer) returns extensions.vector
+language sql immutable as $$
+  select (array_agg(case when i = axis then 1.0 else 0.0 end order by i))::real[]::extensions.vector
+  from generate_series(1, 1536) as i
+$$;
+insert into public.corpus_releases (release, embedding_model, embedding_dimensions, embedding_version, keyword_tokenizers, source_sha256, row_counts)
+values ('test-1', 'm', 1536, 'v', '{simple}', '{}', '{}'), ('test-2', 'm', 1536, 'v', '{simple}', '{}', '{}');
+insert into public.corpus_documents (release, document_id, corpus, source_name, edition, effective_period_status, content_hash, parser_version, storage_sha256, storage_bytes, storage_relation, usage_review)
+select r, 'doc-1', 'fault_standards', 'doc-1.pdf', '2023.6', 'unknown', repeat('a', 64), 'p1', repeat('a', 64), 10, 'original', '{}'
+from unnest(array['test-1', 'test-2']) as r;
+insert into public.corpus_source_pages (release, document_id, page, content_hash) values ('test-1', 'doc-1', 1, repeat('a', 64));
+insert into public.corpus_records (release, corpus, kind, record_id, seq, parent_id, is_parent, document_id, body)
+values ('test-1', 'fault_standards', 'chart', '차1-1', 0, 'doc-1:차1-1', true, 'doc-1', '{"chart_id": "차1-1"}');
+insert into public.corpus_chunks (release, corpus, chunk_id, seq, parent_id, document_id, page_start, page_end, text, metadata, embedding_model, embedding_dimensions, embedding_version, embedding_content_hash, embedding)
+select r, 'fault_standards', 'c' || axis, axis, 'doc-1:차1-1', 'doc-1', 1, 1, '녹색 직진', '{}', 'm', 1536, 'v', repeat('c', 64), test_helpers.unit_vector(axis)
+from unnest(array['test-1', 'test-2']) as r, generate_series(1, 2) as axis;
+insert into public.corpus_chunk_tokens (release, tokenizer, corpus, chunk_id, token_count, term_counts)
+values ('test-1', 'simple', 'fault_standards', 'c1', 2, '{"녹색": 1, "직진": 1}');
+
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a',
+  'select count(*) from public.corpus_chunks', '42501', '브라우저는 청크를 못 본다');
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a',
+  'select count(*) from public.corpus_records', '42501', '브라우저는 구조 레코드를 못 본다');
+select test_helpers.expect_error('authenticated', '00000000-0000-0000-0000-00000000000a',
+  'select count(*) from public.corpus_chunk_tokens', '42501', '브라우저는 낱말 수를 못 본다');
+select test_helpers.expect_error('anon', null,
+  'select count(*) from public.corpus_documents', '42501', '로그인하지 않으면 문서 목록도 못 본다');
+select test_helpers.expect_error('anon', null,
+  'select count(*) from public.corpus_releases', '42501', '로그인하지 않으면 적재판도 못 본다');
+select test_helpers.assert_equal(test_helpers.scalar_as('service_role', null,
+  'select count(*) from public.corpus_chunks'), 4, 'service_role은 청크를 본다');
+-- search_path에 extensions가 없어도(BE는 langgraph, public) 스키마를 붙인 연산자로 코사인 거리를 잰다
+select test_helpers.assert_equal((
+  select count(*) from public.corpus_chunks
+  where release = 'test-1'
+    and embedding operator(extensions.<=>) test_helpers.unit_vector(1) < 0.5), 1, '코사인 거리: 같은 축만 가깝다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_releases (release, embedding_model, embedding_dimensions, embedding_version, source_sha256, row_counts)
+  values ('Bad Name', 'm', 1536, 'v', '{}', '{}')
+$sql$, '23514', '판 이름은 소문자·숫자·점·밑줄·붙임표만');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_releases (release, embedding_model, embedding_dimensions, embedding_version, source_sha256, row_counts)
+  values ('test-3', 'm', 3072, 'v', '{}', '{}')
+$sql$, '23514', '임베딩은 1536차원만');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_chunks (release, corpus, chunk_id, seq, parent_id, document_id, page_start, page_end, text, metadata, embedding_model, embedding_dimensions, embedding_version, embedding_content_hash, embedding)
+  values ('test-1', 'fault_standards', 'c9', 9, 'p', 'doc-1', 1, 1, 't', '{}', 'm', 3, 'v', repeat('c', 64), '[1,0,0]')
+$sql$, '22000', '벡터 길이가 1536이 아니면 넣지 못한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_chunks (release, corpus, chunk_id, seq, parent_id, document_id, page_start, page_end, text, metadata, embedding_model, embedding_dimensions, embedding_version, embedding_content_hash, embedding)
+  values ('test-1', 'fault_standards', 'c9', 9, 'p', 'doc-1', 1, 1, 't', '{}', 'm', 2, 'v', repeat('c', 64), test_helpers.unit_vector(1))
+$sql$, '23514', '적어 둔 차원이 벡터 길이와 다르면 넣지 못한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_chunks (release, corpus, chunk_id, seq, parent_id, document_id, page_start, page_end, text, metadata, embedding_model, embedding_dimensions, embedding_version, embedding_content_hash, embedding)
+  values ('test-1', 'policy_terms', 'c9', 9, 'p', 'doc-1', 1, 1, 't', '{}', 'm', 1536, 'v', repeat('c', 64), test_helpers.unit_vector(1))
+$sql$, '23503', '청크의 코퍼스는 문서의 코퍼스와 같아야 한다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_chunks (release, corpus, chunk_id, seq, parent_id, document_id, page_start, page_end, text, metadata, embedding_model, embedding_dimensions, embedding_version, embedding_content_hash, embedding)
+  values ('test-1', 'fault_standards', 'c9', 1, 'p', 'doc-1', 1, 1, 't', '{}', 'm', 1536, 'v', repeat('c', 64), test_helpers.unit_vector(1))
+$sql$, '23505', '적재 순서는 판 안에서 겹치지 않는다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_records (release, corpus, kind, record_id, seq, parent_id, is_parent, document_id, body)
+  values ('test-1', 'fault_standards', 'modifier', 'm1', 1, 'doc-1:차1-1', true, 'doc-1', '{}')
+$sql$, '23505', '부모 레코드는 parent_id마다 하나다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_records (release, corpus, kind, record_id, seq, is_parent, body)
+  values ('test-1', 'fault_standards', 'memo', 'x', 2, false, '{}')
+$sql$, '23514', '레코드 종류는 정해진 값만');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_documents (release, document_id, corpus, source_name, edition, effective_from, effective_period_status, content_hash, parser_version, storage_sha256, storage_bytes, storage_relation, usage_review)
+  values ('test-1', 'doc-2', 'fault_standards', 'd.pdf', 'e', '2023.6', 'unknown', repeat('a', 64), 'p1', repeat('a', 64), 10, 'original', '{}')
+$sql$, '23514', '적용 시작일은 YYYY-MM-DD이거나 빈 값이다');
+select test_helpers.expect_error(null, null, $sql$
+  insert into public.corpus_chunk_tokens (release, tokenizer, corpus, chunk_id, token_count, term_counts)
+  values ('test-1', 'simple', 'fault_standards', '없는 청크', 1, '{"가": 1}')
+$sql$, '23503', '낱말 수는 있는 청크에만 붙는다');
+delete from public.corpus_releases where release = 'test-1';
+select test_helpers.assert_equal((
+  select (select count(*) from public.corpus_documents where release = 'test-1')
+       + (select count(*) from public.corpus_source_pages where release = 'test-1')
+       + (select count(*) from public.corpus_records where release = 'test-1')
+       + (select count(*) from public.corpus_chunks where release = 'test-1')
+       + (select count(*) from public.corpus_chunk_tokens where release = 'test-1')), 0, '판을 지우면 그 판의 행이 모두 지워진다');
+select test_helpers.assert_equal((select count(*) from public.corpus_chunks where release = 'test-2'),
+  2, '다른 판의 행은 그대로다');
+
 select 'MIGRATION_BEHAVIOR_OK' as result;

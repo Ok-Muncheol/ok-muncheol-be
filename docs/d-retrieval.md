@@ -18,6 +18,10 @@ app/retrieval/common.py   search(request), configure_retrieval(...)
            loader.py      data/private/corpus-db-import/db_import/*.jsonl 읽기(C의 DB 적재 파일)
                 ▼
            evidence_store.py  같은 행으로 C의 EvidenceStore 로컬 어댑터(APP_ENV=local, Vercel 아님)
+
+           pg_index.py            VectorIndex의 DB 구현(pgvector). CORPUS_DB_RELEASE가 있을 때
+           pg_evidence_store.py   C의 EvidenceStore DB 어댑터
+           pg_load.py             읽은 행을 DB에 한 판으로 적재·대조(scripts/load_corpus_release.py)
 ```
 
 | 파일 | 내용 |
@@ -28,6 +32,9 @@ app/retrieval/common.py   search(request), configure_retrieval(...)
 | `app/retrieval/index.py` | `SearchFilter`, `VectorIndex`(Protocol), `InMemoryIndex`, `cosine` |
 | `app/retrieval/loader.py` | `read_corpus`(네 파일 읽기, 없으면 `RetrievalNotConfigured`), `build_index`, `load_index`, `corpus_terms_edition`, `search_chunk`(청크 + 문서 조인), `handoff_embedding_spec`(질의 임베더 기대값). 없는 문서·코퍼스 불일치·`chunk_id` 중복은 `ValueError` |
 | `app/retrieval/evidence_store.py` | `LocalCorpusEvidenceStore`(C의 `EvidenceStore` 4개 메서드), `local_store_allowed`, `register_local_evidence_store` |
+| `app/retrieval/pg_index.py` | B(통합). `PgCorpusIndex`(`VectorIndex`의 DB 구현), `read_release`(적재판 머리 정보), `filter_sql`(`matches`를 SQL로) |
+| `app/retrieval/pg_evidence_store.py` | B(통합). `PgEvidenceStore`(C의 `EvidenceStore` 4개 메서드, DB에서 읽어 둔다) |
+| `app/retrieval/pg_load.py` | B(통합). `load_release`(한 판 적재), `verify_release`(다시 읽어 파일과 대조), `delete_release`, `list_releases` |
 | `scripts/try_retrieval.py` | 시연 질문 5개, `--eval` 평가 채점, `--compare` 세 방식 비교, `--short` 짧은 질문 비교. 임베딩 API만 호출 |
 | `scripts/d_short_queries.jsonl` | 담당자 말투의 짧은 질문 30개와 정답 `parent_id`. **Claude 작성, 사람 검수 아님** |
 
@@ -96,7 +103,7 @@ register_local_evidence_store(corpus)                 # APP_ENV=local이고 Verc
 
 | 교체 대상 | 할 일 |
 | --- | --- |
-| 색인 | `VectorIndex`를 구현한다: `spec`(모델·차원·버전), `search_vector(search_filter, query_vector, limit)`, `fetch_by_parent(corpus, parent_ids, edition=...)`. pgvector에서는 필터와 정렬을 SQL로 처리한다. 점수는 **유사도(클수록 가까움)** 로 돌려준다(pgvector 코사인 거리면 `1 − 거리`). '기간 모름'과 목록 포함 규칙도 같게 구현한다 |
+| 색인 | `VectorIndex`를 구현한다: `spec`(모델·차원·버전), `search_vector(search_filter, query_vector, limit)`, `fetch_by_parent(corpus, parent_ids, edition=...)`. pgvector에서는 필터와 정렬을 SQL로 처리한다. 점수는 **유사도(클수록 가까움)** 로 돌려준다(pgvector 코사인 거리면 `1 − 거리`). '기간 모름'과 목록 포함 규칙도 같게 구현한다. DB 구현은 `PgCorpusIndex`다(아래 「DB 색인」) |
 | 임베더 | `OpenAIEmbedder`가 기본이다. 다른 임베더는 `Embedder`를 구현한다: `model`, `dimensions`, `version`, `async embed(text)`. 색인과 같은 값이어야 한다 |
 | 검색 방식 | `RetrievalOptions(mode="vector"·"bm25"·"rrf")`, 기본 `"rrf"`(`rrf_k=60`, `candidate_limit=50`). `configure_retrieval(options=...)`에 하나를 넘기면 세 코퍼스 공통, `{코퍼스: RetrievalOptions}`를 넘기면 코퍼스별이다. 사전에 빠진 코퍼스는 RRF, 넘길 때마다 세 코퍼스를 모두 새로 정한다. 모르는 코퍼스·잘못된 값은 거절하고 이전 설정을 유지한다. 임베더는 벡터·RRF를 쓰는 코퍼스에만 필요하다. 지금 값은 `retrieval_options(corpus)` |
 | BM25 통계 | `build_index(corpus, keyword_corpora=...)`·`InMemoryIndex(keyword_corpora=...)`. `None`이면 전체, 목록에 없는 코퍼스는 적재 때 토큰화하지 않는다(벡터만 쓰는 코퍼스). `keyword_corpora_for(options)`로 설정과 맞춘다. 통계 없는 코퍼스를 BM25·RRF로 검색하면 빈 결과가 아니라 `RetrievalNotConfigured` |
@@ -237,7 +244,55 @@ BM25만 간단 토큰화로 돌린 결과(Top-1 / Recall@3 / MRR@10, Kiwi 없이
 - "교차로 신호위반 직진 차량 충돌" 2·3위가 신호기 없는 교차로 사례다. 벡터만으로는 신호 유무 구분이 약하다.
 - "자기부담금" 필터 후 2위 본문은 제목 한 줄뿐이다.
 
-아직 안 한 것: 재순위·trigram(하지 않기로 함), 동의어·질의 바꿔 쓰기, Supabase 구현, HTTP 연결, 코퍼스별 필수 필터 강제, 임베딩 API 실패 시 재시도 외 정책.
+아직 안 한 것: 재순위·trigram(하지 않기로 함), 동의어·질의 바꿔 쓰기, HTTP 연결, 코퍼스별 필수 필터 강제, 임베딩 API 실패 시 재시도 외 정책.
+
+## DB 색인 (pgvector, 구준휘 통합, 2026-11-18)
+
+`CORPUS_DB_RELEASE`(적재판 이름)가 있으면 `app.api.reports.configure_with_corpus_db()`가 메모리 색인 대신 DB 색인을 연결한다. 표와 적재는 `docs/contracts/corpus-index.md`, `supabase/migrations/README.md` 「코퍼스 색인 적재」에 있다.
+
+```python
+release = read_release("20261116-1742")               # 판의 머리 정보만 읽는다. 없거나 못 읽으면 RetrievalNotConfigured
+configure_retrieval(index=PgCorpusIndex(release), embedder=OpenAIEmbedder.from_env(),
+                    default_terms_edition=release.terms_edition())
+configure_evidence_store(lambda: PgEvidenceStore(release))   # 실제 연결 함수는 어댑터 하나를 만들어 두고 쓴다
+```
+
+| 항목 | 내용 |
+| --- | --- |
+| 바뀌지 않는 것 | `common.search`·`hybrid.retrieve`·RRF·`retrieval_version` 문자열(`rrf-v1:k60:…:bm25-v1:simple`), C 도구와 `validate_hits`. 색인 객체만 바뀐다 |
+| 벡터 | `1 − 코사인 거리` 내림차순, 동점은 `chunk_id` 순(`collate "C"`, Python 문자열 비교와 같다). 근사 색인 없이 전부 비교한다. 영벡터는 점수 0 |
+| 키워드 | 적재할 때 같은 토큰화로 세어 둔 청크별 낱말 수로 SQL이 BM25를 계산한다. 식·상수(`K1`·`B`)·더하는 순서가 `BM25Index.scores`와 같고, 통계는 필터와 상관없이 코퍼스 전체로 낸다 |
+| 필터 | `filter_sql`이 `matches`를 SQL로 옮겼다. 기간 모름 통과, 양끝 포함, 목록 포함, 키 없으면 제외, 빈 목록은 통과 없음. JSON 비교라 참거짓과 숫자는 서로 다르다(Python은 `True == 1`) |
+| 조항 직접 조회 | 순위가 없으므로 코퍼스 청크를 한 번 읽어 두고(벡터 없이) 메모리 색인과 같은 코드(`matches`, 페이지 순)로 찾는다 |
+| 토큰화 | 서버는 Kiwi가 있으면 `kiwi`, 없으면 `simple`로 질의를 나눈다(지금 로컬·운영 모두 `simple`). 판에 그 토큰화의 낱말 수가 없으면 `RetrievalNotConfigured`. 낱말 수를 적재 때 세어 두므로, 키워드 검색을 처음 할 때 청크 5개를 다시 나눠 보고 다르면 `CorpusDataError`로 멈춘다 |
+| 연결 | 검색·읽기마다 연결 하나를 열고 닫는다(Session pooler). 근거 어댑터와 조항 조회는 코퍼스마다 한 번만 읽는다 |
+| 실패 | DB 주소가 없거나 못 붙으면 켤 때는 `RetrievalNotConfigured`, 검색 중에는 `app.db.connect`의 503. 표·판이 없으면 `CorpusDataError` |
+
+### 측정: 메모리 색인과 같은 결과인가 (2026-11-18, 6차 자료 `20261116-1742`, 로컬 Postgres 17 + pgvector 0.8)
+
+`.claude/worktrees/_ops/pgvector_parity.py`(저장소 밖 확인 스크립트)로 실제 코퍼스 2,597청크를 넣고 같은 질의를 두 색인에 넣어 비교했다. 질의 벡터는 청크 벡터와 두 청크의 가운데 벡터를 썼다(외부 호출 없음). 필터는 코퍼스마다 9~14가지다.
+
+| 비교 | 질의 수 | 순서까지 같음 | 구성 같음 | 점수 차 최대 |
+| --- | --- | --- | --- | --- |
+| 키워드(BM25), 상위 100 | 1,406 | 1,406 | 1,406 | 1.4e-14 |
+| 벡터, 상위 100 | 384 | 382 | 384 | 8.3e-07 |
+| RRF(`retrieve`), top 10·100 | 72 | 72 | 72 | 6.4e-05 |
+| 조항 직접 조회(부모 735개 × 판 3가지) | - | 모두 같음 | - | - |
+
+- 벡터에서 순서가 다른 2건은 같은 질의(결정례)의 65·66위다. 두 청크의 점수 차가 0.0000002라 단정밀도 계산에서 자리가 바뀌었다. 구성은 같고 RRF 최종 순서도 같았다.
+- C 도구 전체 경로(요청 검사 → 검색 → `validate_hits`, 실제 질의 임베딩)로 도표 12·결정례 3·약관 5 질의를 돌리면 결과 1,268건이 순서까지 같고, 도표 구조 레코드 112개와 조항 직접 조회 22건도 같았다(`pgvector_e2e.py`).
+- 적재한 행을 다시 읽어 파일과 대조하면 청크 2,597·레코드 2,250·페이지 1,366·벡터 2,597(단정밀도로 같음)·낱말 수 2,597이 모두 같다. 한 판은 약 36MB다.
+
+### 측정: 시간과 메모리 (같은 PC, 로컬 Docker)
+
+| 항목 | 파일 + 메모리 색인 | DB 색인 |
+| --- | --- | --- |
+| 지식베이스 켜기 | 1.1초(파일 88MB 읽기 + 색인 만들기). 운영 로그는 사본 받기 포함 7~9초 | 0.02초(판의 머리 정보) |
+| 메모리 최댓값(프로세스) | 378MB | 134MB |
+| C 도구 호출 한 번(질의 임베딩 캐시 뒤) | 중앙값 81ms | 중앙값 28ms(연결 2번 포함) |
+| 검색 한 번(DB, 연결 포함, 중앙값) | - | 벡터 12ms, 키워드 15ms(낱말이 많은 긴 질의는 95%가 90ms 안) |
+
+메모리 색인의 벡터 검색은 순수 Python 코사인이라 청크 천 개에 수십 ms가 든다. 운영(Vercel ↔ Supabase)의 시간은 재지 않았다. 연결을 여는 시간이 로컬보다 길다.
 
 ## C(김지은)에게 요청할 것
 
