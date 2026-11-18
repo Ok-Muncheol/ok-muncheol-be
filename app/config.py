@@ -27,8 +27,13 @@ class Settings:
     cors_allow_origins: tuple[str, ...]
     dev_actor_id: str | None
     # 켜면 서버 시작(또는 첫 요청) 때 D 지식베이스(근거 검색·면책 조항 판정)를 연결한다
-    # (app/main.py). 기본 꺼짐. 로컬은 data/private의 db_import를 읽고, 운영은 아래 사본을 받는다
+    # (app/main.py). 기본 꺼짐. 아래 셋 가운데 먼저 있는 것을 읽는다: DB 색인의 판 → 운영 사본 →
+    # 로컬 data/private의 db_import
     load_knowledge_base: bool = False
+    # DB 색인(pgvector)에서 읽을 적재판 이름(예: 20261116-1742, app/retrieval/pg_index.py).
+    # 있으면 코퍼스 파일을 받지 않고 DATABASE_URL의 corpus_* 표를 읽는다.
+    # 근거 검증 어댑터도 DB로 등록한다
+    corpus_db_release: str | None = None
     # 운영용 코퍼스 사본 위치 `<버킷>/<접두어>`(Supabase Storage 비공개 버킷, app/corpus_import.py).
     # 있으면 시작 때 받아 SHA-256으로 검증한 폴더를 읽는다. 없으면 로컬 기본 경로를 읽는다
     corpus_import_path: str | None = None
@@ -87,6 +92,7 @@ def get_settings() -> Settings:
         cors_allow_origins=_split(env.get("CORS_ALLOW_ORIGINS", "")),
         dev_actor_id=env.get("DEV_ACTOR_ID") or None,
         load_knowledge_base=_flag(env.get("LOAD_KNOWLEDGE_BASE", "")),
+        corpus_db_release=env.get("CORPUS_DB_RELEASE", "").strip() or None,
         corpus_import_path=env.get("CORPUS_IMPORT_PATH", "").strip().strip("/") or None,
         corpus_import_evidence_store=_flag(env.get("CORPUS_IMPORT_EVIDENCE_STORE", "")),
         database_url=env.get("DATABASE_URL") or None,

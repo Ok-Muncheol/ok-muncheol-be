@@ -444,7 +444,8 @@ def test_sync_is_idempotent(api):
 def test_tables_missing_is_503():
     """마이그레이션 적용 전 공용 DB를 흉내 낸다."""
     before = [m for m in MIGRATIONS if m.name < INTAKE_MIGRATION]
-    assert len(before) == len(MIGRATIONS) - 3  # 접수·배정 표, 배정 참고 정보, 단계 되돌리기
+    # 접수·배정 표, 배정 참고 정보, 단계 되돌리기, 코퍼스 색인
+    assert len(before) == len(MIGRATIONS) - 4
     old = admin.services
     with temp_database(before) as url:
         admin.configure(connect=lambda: db.connect(url), now=lambda: NOW,
@@ -464,7 +465,7 @@ def test_tables_missing_is_503():
 def test_details_column_missing_keeps_reads_working():
     """배정 참고 정보 칸(details)만 아직 없는 DB: 조회는 되고 접수 등록만 503이다."""
     before = [m for m in MIGRATIONS if m.name < DETAILS_MIGRATION]
-    assert len(before) == len(MIGRATIONS) - 2  # 배정 참고 정보, 단계 되돌리기
+    assert len(before) == len(MIGRATIONS) - 3  # 배정 참고 정보, 단계 되돌리기, 코퍼스 색인
     old = admin.services
     with temp_database(before) as url:
         admin.configure(connect=lambda: db.connect(url), now=lambda: NOW,

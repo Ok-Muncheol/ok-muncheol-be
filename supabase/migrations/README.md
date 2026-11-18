@@ -18,6 +18,7 @@
 | `20261113200000_case_intakes_assignments.sql` | 구준휘(통합) | 접수 건(`case_intakes`)과 배정 이력(`case_assignments`). 접수 건은 배정 전에도 있고, 실제 접수는 배정되면 `cases`와 이어진다. 가상 접수(`simulated`)는 단계 일정 칼럼만 갖고 `cases`를 만들지 않는다. 브라우저 역할에는 권한도 정책도 없다(BE 전용). 기존 사건에는 접수 건을 만들어 둔다 |
 | `20261115100000_case_intake_details.sql` | 구준휘(통합) | 접수 건의 배정 참고 정보(`case_intakes.details`, jsonb). 사고 규모·가입 담보·계약자 이력을 담고 배정 에이전트와 규칙 배정이 읽는다. 사람을 특정하는 정보는 넣지 않는다. 값 검증은 BE가 하고 DB는 객체인지만 본다. 없던 접수 건은 빈 객체다 |
 | `20261117160000_case_restart.sql` | 구준휘(통합) | `cases.restarted_at`(접수 단계로 되돌린 시각, 없으면 null). 담당자가 사건을 접수 단계부터 다시 하면 BE가 적고, 그 전의 사실 카드·영상 분석은 지우지 않고 지금 것에서만 뺀다(`POST /cases/{id}/restart`). BE 조회는 이 칼럼이 없어도 돌아서 코드보다 늦게 적용해도 된다(적용 전에는 접수로 되돌리기만 503) |
+| `20261118180000_corpus_index.sql` | 구준휘(통합), 표는 김지은 초안 | 코퍼스 색인(`corpus_releases`·`corpus_documents`·`corpus_source_pages`·`corpus_records`·`corpus_chunks`·`corpus_chunk_tokens`)과 pgvector 확장. 적재판(`release`) 단위로 넣고 읽는다. 브라우저 역할에는 권한도 정책도 없다(원문·청크·벡터, BE 전용). 행은 마이그레이션이 아니라 `scripts/load_corpus_release.py`가 넣는다. BE는 `CORPUS_DB_RELEASE`가 있을 때만 이 표를 읽으므로 코드보다 늦게 적용해도 된다. 계약은 `docs/contracts/corpus-index.md` |
 
 ## 공통 원칙
 
@@ -41,7 +42,9 @@
 | 김지은 | 도표·수정요소·관계·참고 판례·결정례·약관·문서/청크·임베딩 메타데이터 | 사건 단위가 아니므로 원문 이용조건에 맞춰 공개 범위를 정한다 |
 | 옥석현 | 공통 검색 함수·인덱스·코퍼스별 통계, 산정·보고서·승인·구상 버전 | 보고서는 `judgment_runs (case_id, judgment_version)`을 참조한다 |
 
-pgvector 차원·pg_trgm·Kiwi 토큰 통계는 김지은·옥석현 계약 후 SQL로 확정한다. lumi의 논문·웰니스 테이블을 복제하지 않는다.
+코퍼스 색인은 `20261118180000`으로 정했다: 벡터는 1536차원(`text-embedding-3-small`)이고 근사 색인 없이 전부 비교한다.
+키워드 검색은 BE가 토큰화해 세어 둔 청크별 낱말 수(`corpus_chunk_tokens`)로 SQL이 BM25를 계산한다. pg_trgm은 쓰지 않는다(D가 trigram을 하지 않기로 함).
+임베딩 모델·차원을 바꾸려면 새 마이그레이션이 필요하다. lumi의 논문·웰니스 테이블을 복제하지 않는다.
 
 ## 판단 테이블
 
@@ -62,16 +65,17 @@ pgvector 차원·pg_trgm·Kiwi 토큰 통계는 김지은·옥석현 계약 후 
 ## 로컬 검사
 
 Docker로 버려도 되는 Postgres를 띄우고 돌린다. 테스트가 임시 데이터베이스를 만들고 지운다. **Supabase 주소를 넣지 않는다.**
-같은 변수로 판단 저장 검사(`tests/api/test_judgment_service.py`)도 돈다. CI는 Postgres 서비스로 늘 돌린다.
+같은 변수로 판단 저장 검사(`tests/api/test_judgment_service.py`)와 DB 색인 검사(`tests/test_pg_corpus_index.py`)도 돈다. CI는 Postgres 서비스로 늘 돌린다.
+이미지는 pgvector가 들어 있는 것을 쓴다(`20261118180000`이 vector 확장을 만든다). 예전 `postgres:17-alpine` 컨테이너가 떠 있으면 내리고 다시 띄운다.
 
 ```bash
-docker run --rm -d --name okm-migration-pg -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:54329:5432 postgres:17-alpine
+docker run --rm -d --name okm-migration-pg -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:54329:5432 pgvector/pgvector:pg17
 MIGRATION_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54329/postgres make test ARGS="tests/migrations -q"
 docker stop okm-migration-pg
 ```
 
 `psql`이 필요하다(macOS는 `brew install libpq`). `tests/migrations/supabase_stub.sql`이 Supabase의 역할·`auth.uid()`·기본 권한·
-Realtime publication을 흉내 내고, `tests/migrations/behavior.sql`이 RLS·권한·제약을 검사한다.
+Realtime publication·`extensions` 스키마를 흉내 내고, `tests/migrations/behavior.sql`이 RLS·권한·제약을 검사한다.
 변수가 없으면 DB 검사는 건너뛰고 파일 규칙·계약 동기화 검사만 돈다(CI).
 
 ## 적용
@@ -84,3 +88,18 @@ LangGraph 체크포인트 테이블은 마이그레이션 뒤 한 번 `.venv/bin
 만든다(`DATABASE_URL`, 여러 번 실행해도 된다). `langgraph-checkpoint-postgres`를 올리면 다시 실행한다.
 공용 DB 연결은 Session pooler 주소(5432)를 쓴다. 직접 연결 주소는 IPv6 전용이고, Transaction pooler(6543)는 세션 설정
 (`search_path`)이 유지되지 않는다.
+
+### 코퍼스 색인 적재
+
+코퍼스 표의 행은 마이그레이션이 아니라 적재 스크립트가 넣는다. 김지은이 보낸 적재 파일 묶음(zip을 푼 폴더) 하나가 한 판이다.
+
+```bash
+.venv/bin/python scripts/load_corpus_release.py <묶음 폴더>          # 판 이름은 폴더 이름에서 corpus-db-import-를 뗀 값
+.venv/bin/python scripts/load_corpus_release.py --list               # DB에 있는 판
+.venv/bin/python scripts/load_corpus_release.py --delete <판 이름>   # 판 하나와 그 행 전부
+```
+
+- 파일을 `SHA256SUMS.txt`와 대조한 뒤 한 트랜잭션으로 넣고, 서버가 쓰는 읽기 코드로 다시 읽어 파일과 대조한다. 한 판은 약 36MB다(2026-11-16 자료 기준).
+- 같은 이름의 판은 덮어쓰지 않는다. 새 자료는 새 이름으로 넣고 BE의 `CORPUS_DB_RELEASE`를 바꾼 뒤 다시 배포한다. 되돌릴 때도 변수만 바꾼다.
+- 서버가 읽고 있는 판은 지우지 않는다. 쓰지 않는 옛 판은 `--delete`로 지워 공간을 비운다.
+- 벡터 칼럼에 색인(HNSW·IVFFlat)을 만들지 않는다. 필터 뒤 결과가 모자라거나 순위가 달라질 수 있다.

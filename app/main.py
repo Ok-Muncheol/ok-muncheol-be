@@ -31,17 +31,22 @@ _now = time.monotonic
 def connect_knowledge_base() -> bool:
     """D 지식베이스(코퍼스 색인·질의 임베더·면책 조항 판정)를 켠다. 켜졌으면 True.
 
-    CORPUS_IMPORT_PATH가 있으면(운영) 비공개 Storage의 db_import 사본을 받아 SHA-256으로 검증한
+    CORPUS_DB_RELEASE가 있으면 DB 색인(pgvector)의 그 적재판을 읽는다. 코퍼스 파일을 받지 않고
+    판의 머리 정보만 읽으므로 바로 켜지고, 근거 검증 어댑터도 DB로 등록한다
+    (app/retrieval/pg_index.py).
+    없고 CORPUS_IMPORT_PATH가 있으면 비공개 Storage의 db_import 사본을 받아 SHA-256으로 검증한
     폴더를 읽고, CORPUS_IMPORT_EVIDENCE_STORE면 그 사본으로 EvidenceStore 어댑터도 등록한다
-    (app/corpus_import.py). 없으면(로컬) 로더 기본 경로 파일을 읽는다.
-    파일·키·패키지·설정이 없거나 못 쓰면(RetrievalNotConfigured와 하위 클래스)
+    (app/corpus_import.py). 둘 다 없으면(로컬) 로더 기본 경로 파일을 읽는다.
+    파일·키·패키지·설정·판이 없거나 못 쓰면(RetrievalNotConfigured와 하위 클래스)
     경고 로그만 남기고 꺼진 채로 둔다. 연결 함수는 실패하면 전역 설정을 바꾸지 않는다.
     코드 버그(TypeError 등)는 감싸지 않아 서버 시작 실패로 드러난다.
     """
     settings = get_settings()
     started = time.perf_counter()
     try:
-        if settings.corpus_import_path:
+        if settings.corpus_db_release:
+            reports.configure_with_corpus_db(settings.corpus_db_release)
+        elif settings.corpus_import_path:
             base = corpus_import.fetch_db_import(settings)
             reports.configure_with_knowledge_base(
                 base, import_evidence_store=settings.corpus_import_evidence_store
@@ -115,7 +120,8 @@ def create_app() -> FastAPI:
 
     지식베이스는 LOAD_KNOWLEDGE_BASE가 켜졌을 때만 서버 시작(lifespan)에서 연결한다. 시작이 돌지
     않았거나 실패했으면 `/health`·OPTIONS가 아닌 첫 요청이 연결한다(KnowledgeBaseSwitch).
-    시작에 몇 초·약 300MB가 들어 기본은 꺼짐이고, 앱을 만들거나 import만 해서는 적재하지 않는다.
+    코퍼스 파일을 읽으면 시작에 몇 초·약 300MB가 들어(DB 색인은 판의 머리 정보만 읽는다) 기본은
+    꺼짐이고, 앱을 만들거나 import만 해서는 적재하지 않는다.
     """
     settings = get_settings()
     if modal_dispatch.is_configured(settings):
